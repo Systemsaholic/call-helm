@@ -6,7 +6,10 @@
     "dev": "next dev -p 3035",
     "build": "next build",
     "start": "next start -p 3035",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -30,6 +33,7 @@
     "zustand": "^5.0.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
