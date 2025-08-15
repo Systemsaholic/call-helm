@@ -72,11 +72,11 @@ export function ImportAgentsModal() {
           validAgents.push({
             full_name: row.full_name.trim(),
             email: row.email.trim().toLowerCase(),
-            phone: row.phone?.trim(),
+            phone: row.phone?.trim() || undefined,
             role: row.role?.trim() || 'agent',
-            department: row.department?.trim(),
-            extension: row.extension?.trim(),
-            bio: row.bio?.trim(),
+            department: row.department?.trim() || undefined,
+            extension: row.extension?.trim() || undefined,
+            bio: row.bio?.trim() || undefined,
           })
         })
 

@@ -1,0 +1,6 @@
+full_name,email,phone,role,department
+Alice Cooper,alice.cooper@example.com,,,
+Bob Martin,bob.martin@example.com,+1 555-0200,agent,Sales
+Carol White,carol.white@example.com,,team_lead,
+David Lee,david.lee@example.com,+1 555-0201,,Support
+Eve Thompson,eve.thompson@example.com,+1 555-0202,agent,Sales

@@ -294,18 +294,24 @@ export function useBulkImportAgents() {
       }
 
       // Prepare agent records with organization assignment
-      const agentRecords = agents.map((agent) => ({
-        organization_id: member.organization_id, // Automatically assign to user's organization
-        email: agent.email,
-        full_name: agent.full_name,
-        phone: agent.phone,
-        role: agent.role || 'agent',
-        extension: agent.extension,
-        department: agent.department,
-        bio: agent.bio,
-        status: 'pending_invitation' as const,
-        is_active: false,
-      }))
+      const agentRecords = agents.map((agent) => {
+        const record: any = {
+          organization_id: member.organization_id, // Automatically assign to user's organization
+          email: agent.email,
+          full_name: agent.full_name,
+          role: agent.role || 'agent',
+          status: 'pending_invitation',
+          is_active: false,
+        }
+        
+        // Only add optional fields if they have values
+        if (agent.phone) record.phone = agent.phone
+        if (agent.extension) record.extension = agent.extension
+        if (agent.department) record.department = agent.department
+        if (agent.bio) record.bio = agent.bio
+        
+        return record
+      })
 
       // Bulk insert
       const { data, error } = await supabase

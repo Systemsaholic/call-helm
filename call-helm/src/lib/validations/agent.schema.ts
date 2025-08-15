@@ -47,6 +47,7 @@ export const importAgentsSchema = z.object({
       role: z.enum(agentRoles).optional().default('agent'),
       department: z.string().optional(),
       extension: z.string().optional(),
+      bio: z.string().optional(),
     })
   ),
 })
