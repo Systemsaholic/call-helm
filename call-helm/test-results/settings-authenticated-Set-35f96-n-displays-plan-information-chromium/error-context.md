@@ -1,0 +1,80 @@
+# Page snapshot
+
+```yaml
+- link "Call Helm":
+  - /url: /dashboard
+- navigation:
+  - link "Dashboard":
+    - /url: /dashboard
+  - link "Call Board":
+    - /url: /dashboard/call-board
+  - link "Call Lists":
+    - /url: /dashboard/call-lists
+  - link "Contacts":
+    - /url: /dashboard/contacts
+  - link "Agents":
+    - /url: /dashboard/agents
+  - link "Messages 3":
+    - /url: /dashboard/messages
+  - link "Analytics":
+    - /url: /dashboard/analytics
+  - link "Settings":
+    - /url: /dashboard/settings
+- text: Pro Plan Active 5 agents • Unlimited calls
+- button "Upgrade Plan"
+- banner:
+  - heading "Dashboard" [level=1]
+  - button
+  - button
+  - button "A al@kaponline.com"
+- main:
+  - heading "Settings" [level=1]
+  - paragraph: Manage your account and organization preferences
+  - navigation:
+    - button "Profile Manage your personal information":
+      - paragraph: Profile
+      - paragraph: Manage your personal information
+    - button "Organization Configure organization settings":
+      - paragraph: Organization
+      - paragraph: Configure organization settings
+    - button "Notifications Set your notification preferences":
+      - paragraph: Notifications
+      - paragraph: Set your notification preferences
+    - button "Billing Manage subscription and payments":
+      - paragraph: Billing
+      - paragraph: Manage subscription and payments
+    - button "API Keys Manage API keys and webhooks":
+      - paragraph: API Keys
+      - paragraph: Manage API keys and webhooks
+    - button "Integrations Connect external services":
+      - paragraph: Integrations
+      - paragraph: Connect external services
+    - button "Security Security and privacy settings":
+      - paragraph: Security
+      - paragraph: Security and privacy settings
+  - heading "Current Plan" [level=3]
+  - heading "Professional Plan" [level=4]
+  - paragraph: $99/month • 5 seats
+  - button "Upgrade Plan"
+  - paragraph: Calls This Month
+  - paragraph: 1,247 / 5,000
+  - paragraph: Storage Used
+  - paragraph: 2.3 GB / 10 GB
+  - paragraph: Next Billing
+  - paragraph: Feb 1, 2024
+  - heading "Payment Method" [level=3]
+  - paragraph: "**** **** **** 4242"
+  - paragraph: Expires 12/25
+  - button "Update"
+  - heading "Billing History" [level=3]
+  - paragraph: January 2024
+  - paragraph: Professional Plan
+  - paragraph: $99.00
+  - button "Download"
+  - paragraph: December 2023
+  - paragraph: Professional Plan
+  - paragraph: $99.00
+  - button "Download"
+  - button "Save Changes"
+- alert
+```

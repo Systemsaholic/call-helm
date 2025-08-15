@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useProfile } from '@/lib/hooks/useProfile'
 import { Button } from '@/components/ui/button'
 import {
   LayoutDashboard,
@@ -47,6 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useAuth()
+  const { profile } = useProfile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
 
@@ -214,10 +216,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                   className="flex items-center gap-3 text-sm font-medium text-gray-700 hover:text-gray-900"
                 >
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-primary font-bold">
-                      {user?.email?.charAt(0).toUpperCase() || 'U'}
-                    </span>
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
+                    {profile?.avatar_url ? (
+                      <img 
+                        src={profile.avatar_url} 
+                        alt="Profile" 
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-primary font-bold">
+                        {profile?.full_name?.charAt(0).toUpperCase() || 
+                         user?.email?.charAt(0).toUpperCase() || 'U'}
+                      </span>
+                    )}
                   </div>
                   <span className="hidden md:block">{user?.email}</span>
                   <ChevronDown className="h-4 w-4" />
@@ -232,7 +243,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border z-20">
                       <div className="px-4 py-3 border-b">
                         <p className="text-sm font-medium text-gray-900">
-                          {user?.user_metadata?.full_name || 'User'}
+                          {profile?.full_name || user?.user_metadata?.full_name || 'User'}
                         </p>
                         <p className="text-xs text-gray-500 truncate">
                           {user?.email}
@@ -240,28 +251,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       </div>
                       <div className="py-1">
                         <Link
-                          href="/dashboard/profile"
-                          className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          onClick={() => setProfileDropdownOpen(false)}
-                        >
-                          <Users className="h-4 w-4 mr-3" />
-                          My Profile
-                        </Link>
-                        <Link
-                          href="/dashboard/organization"
-                          className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                          onClick={() => setProfileDropdownOpen(false)}
-                        >
-                          <Building className="h-4 w-4 mr-3" />
-                          Organization
-                        </Link>
-                        <Link
                           href="/dashboard/settings"
                           className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                           onClick={() => setProfileDropdownOpen(false)}
                         >
                           <Settings className="h-4 w-4 mr-3" />
-                          Settings
+                          Account Settings
+                        </Link>
+                        <Link
+                          href="/dashboard/analytics"
+                          className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setProfileDropdownOpen(false)}
+                        >
+                          <BarChart3 className="h-4 w-4 mr-3" />
+                          Analytics
+                        </Link>
+                        <Link
+                          href="/help"
+                          className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setProfileDropdownOpen(false)}
+                        >
+                          <HelpCircle className="h-4 w-4 mr-3" />
+                          Help & Support
                         </Link>
                         <hr className="my-1" />
                         <button

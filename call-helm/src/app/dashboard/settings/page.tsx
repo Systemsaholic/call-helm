@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useProfile } from '@/lib/hooks/useProfile'
+import { useOrganizationSettings } from '@/lib/hooks/useOrganizationSettings'
 import { Button } from '@/components/ui/button'
 import { 
   User,
@@ -43,16 +45,21 @@ const tabs: TabConfig[] = [
 
 export default function SettingsPage() {
   const { user, supabase } = useAuth()
+  const { profile, updateProfile, uploadAvatar } = useProfile()
+  const { settings: orgSettings, updateSettings: updateOrgSettings } = useOrganizationSettings()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const [saving, setSaving] = useState(false)
   const [savedTab, setSavedTab] = useState<SettingsTab | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Profile state
   const [profileData, setProfileData] = useState({
-    fullName: user?.user_metadata?.full_name || '',
-    email: user?.email || '',
+    fullName: '',
+    email: '',
     phone: '',
-    avatar: ''
+    bio: ''
   })
 
   // Organization state
@@ -64,6 +71,32 @@ export default function SettingsPage() {
     dateFormat: 'MM/DD/YYYY',
     timeFormat: '12h'
   })
+
+  // Initialize profile data when profile loads
+  useEffect(() => {
+    if (profile) {
+      setProfileData({
+        fullName: profile.full_name || '',
+        email: profile.email || user?.email || '',
+        phone: profile.phone || '',
+        bio: profile.bio || ''
+      })
+    }
+  }, [profile, user])
+
+  // Initialize organization data when settings load
+  useEffect(() => {
+    if (orgSettings) {
+      setOrgData({
+        name: 'My Organization',
+        website: orgSettings.website || '',
+        timezone: orgSettings.date_format || 'UTC',
+        language: orgSettings.language || 'en',
+        dateFormat: orgSettings.date_format || 'MM/DD/YYYY',
+        timeFormat: orgSettings.time_format || '12h'
+      })
+    }
+  }, [orgSettings])
 
   // Notification state
   const [notifications, setNotifications] = useState({
@@ -85,11 +118,96 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true)
-    // Simulate save - in production, this would update Supabase
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setSaving(false)
-    setSavedTab(activeTab)
-    setTimeout(() => setSavedTab(null), 3000)
+    let success = false
+
+    try {
+      if (activeTab === 'profile') {
+        const { error } = await updateProfile({
+          full_name: profileData.fullName,
+          email: profileData.email,
+          phone: profileData.phone,
+          bio: profileData.bio
+        })
+        success = !error
+      } else if (activeTab === 'organization' && orgSettings) {
+        const { error } = await updateOrgSettings({
+          website: orgData.website,
+          language: orgData.language,
+          date_format: orgData.dateFormat,
+          time_format: orgData.timeFormat
+        })
+        success = !error
+      } else if (activeTab === 'notifications' && orgSettings) {
+        const { error } = await updateOrgSettings({
+          notification_preferences: notifications
+        })
+        success = !error
+      } else if (activeTab === 'billing' && orgSettings) {
+        const { error } = await updateOrgSettings({
+          billing_email: billingData.billingEmail
+        })
+        success = !error
+      } else {
+        // For other tabs, just simulate save for now
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        success = true
+      }
+
+      if (success) {
+        setSavedTab(activeTab)
+        setTimeout(() => setSavedTab(null), 3000)
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Reset error state
+    setUploadError(null)
+    setUploading(true)
+
+    try {
+      // Check file size (2MB limit)
+      if (file.size > 2 * 1024 * 1024) {
+        setUploadError('File size must be less than 2MB')
+        setUploading(false)
+        return
+      }
+
+      // Check file type
+      const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+      if (!validTypes.includes(file.type)) {
+        setUploadError('Please upload a JPG, PNG, GIF, or WebP image')
+        setUploading(false)
+        return
+      }
+
+      const { data, error } = await uploadAvatar(file)
+      
+      if (error) {
+        console.error('Upload error:', error)
+        setUploadError(error)
+      } else {
+        // Avatar updated successfully
+        setSavedTab('profile')
+        setTimeout(() => setSavedTab(null), 3000)
+      }
+    } catch (err) {
+      console.error('Upload error:', err)
+      setUploadError('Failed to upload image. Please try again.')
+    } finally {
+      setUploading(false)
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
   }
 
   const renderTabContent = () => {
@@ -151,18 +269,74 @@ export default function SettingsPage() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Photo</h3>
               <div className="flex items-center gap-4">
-                <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-primary">
-                    {profileData.fullName?.charAt(0) || 'U'}
-                  </span>
+                <div className="h-20 w-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden relative">
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <Loader2 className="h-6 w-6 text-white animate-spin" />
+                    </div>
+                  )}
+                  {profile?.avatar_url ? (
+                    <img 
+                      src={profile.avatar_url} 
+                      alt="Profile" 
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl font-bold text-primary">
+                      {profileData.fullName?.charAt(0) || 'U'}
+                    </span>
+                  )}
                 </div>
                 <div>
-                  <Button variant="outline" size="sm">
-                    Upload Photo
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                    disabled={uploading}
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      'Upload Photo'
+                    )}
                   </Button>
-                  <p className="text-xs text-gray-500 mt-1">JPG, PNG or GIF, max 2MB</p>
+                  <p className="text-xs text-gray-500 mt-1">JPG, PNG, GIF or WebP, max 2MB</p>
+                  {uploadError && (
+                    <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {uploadError}
+                    </p>
+                  )}
+                  {savedTab === 'profile' && !uploadError && (
+                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Photo uploaded successfully
+                    </p>
+                  )}
                 </div>
               </div>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Bio</h3>
+              <textarea
+                value={profileData.bio}
+                onChange={(e) => setProfileData({ ...profileData, bio: e.target.value })}
+                placeholder="Tell us about yourself..."
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              />
             </div>
           </div>
         )
