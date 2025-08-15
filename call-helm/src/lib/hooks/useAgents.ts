@@ -278,14 +278,19 @@ export function useBulkImportAgents() {
 
   return useMutation({
     mutationFn: async (agents: CreateAgentInput[]) => {
+      if (!user?.id) throw new Error('User not authenticated')
+      
       // Get user's organization
-      const { data: member } = await supabase
+      const { data: member, error: memberError } = await supabase
         .from('organization_members')
         .select('organization_id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single()
 
-      if (!member) throw new Error('No organization found')
+      if (memberError || !member) {
+        console.error('Organization member fetch error:', memberError)
+        throw new Error('No organization found for user')
+      }
 
       // Prepare agent records
       const agentRecords = agents.map((agent) => ({

@@ -1,0 +1,21 @@
+full_name,email,phone,role,department,extension,bio
+Sarah Johnson,sarah.johnson@example.com,+1 555-0101,team_lead,Sales,1001,Experienced sales team lead with 5 years in B2B sales
+Michael Chen,michael.chen@example.com,+1 555-0102,agent,Support,1002,Customer support specialist focused on technical issues
+Emily Rodriguez,emily.rodriguez@example.com,+1 555-0103,agent,Sales,1003,Top performing sales agent specializing in enterprise accounts
+David Kim,david.kim@example.com,+1 555-0104,agent,Support,1004,Bilingual support agent fluent in English and Korean
+Jessica Thompson,jessica.thompson@example.com,+1 555-0105,billing_admin,Finance,1005,Handles all billing inquiries and payment processing
+Robert Williams,robert.williams@example.com,+1 555-0106,agent,Sales,1006,New business development specialist
+Amanda Martinez,amanda.martinez@example.com,+1 555-0107,team_lead,Support,1007,Support team lead managing night shift operations
+Christopher Lee,christopher.lee@example.com,+1 555-0108,agent,Sales,1008,Inside sales representative focused on SMB market
+Olivia Brown,olivia.brown@example.com,+1 555-0109,agent,Support,1009,Senior support agent with expertise in product training
+Daniel Taylor,daniel.taylor@example.com,+1 555-0110,org_admin,Management,1010,Operations manager overseeing all departments
+Sophia Davis,sophia.davis@example.com,+1 555-0111,agent,Sales,1011,Account manager for key enterprise clients
+James Wilson,james.wilson@example.com,+1 555-0112,agent,Support,1012,Technical support specialist for API integrations
+Isabella Garcia,isabella.garcia@example.com,+1 555-0113,agent,Sales,1013,Outbound sales representative with cold calling expertise
+William Anderson,william.anderson@example.com,+1 555-0114,team_lead,Sales,1014,Sales team lead for the West Coast region
+Mia Thomas,mia.thomas@example.com,+1 555-0115,agent,Support,1015,Customer success specialist ensuring client satisfaction
+Alexander Johnson,alex.johnson@example.com,+1 555-0116,agent,Sales,1016,Sales development representative qualifying leads
+Charlotte Moore,charlotte.moore@example.com,+1 555-0117,agent,Support,1017,Support agent specializing in onboarding new customers
+Ethan Jackson,ethan.jackson@example.com,+1 555-0118,agent,Sales,1018,Territory sales manager for the Midwest region
+Emma White,emma.white@example.com,+1 555-0119,billing_admin,Finance,1019,Accounts receivable specialist managing invoicing
+Lucas Harris,lucas.harris@example.com,+1 555-0120,agent,Support,1020,Senior technical support engineer

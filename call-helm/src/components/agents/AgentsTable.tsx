@@ -135,7 +135,11 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
                 <input
                   type="checkbox"
                   checked={isAllSelected || (selectedAgentIds.size > 0 && selectedAgentIds.size === agents.length)}
-                  indeterminate={!isAllSelected && selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length}
+                  ref={(el) => {
+                    if (el) {
+                      el.indeterminate = !isAllSelected && selectedAgentIds.size > 0 && selectedAgentIds.size < agents.length
+                    }
+                  }}
                   onChange={handleSelectAll}
                   className="h-4 w-4 text-primary rounded border-gray-300 focus:ring-primary"
                 />
