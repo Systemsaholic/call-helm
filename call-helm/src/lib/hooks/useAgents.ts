@@ -100,10 +100,11 @@ export function useCreateAgent() {
       if (!member) throw new Error('No organization found')
 
       // Create agent record (without auth user)
+      // Automatically assign to current user's organization
       const { data, error } = await supabase
         .from('organization_members')
         .insert({
-          organization_id: member.organization_id,
+          organization_id: member.organization_id, // Auto-assign to user's org
           email: input.email,
           full_name: input.full_name,
           phone: input.phone,
@@ -292,15 +293,16 @@ export function useBulkImportAgents() {
         throw new Error('No organization found for user')
       }
 
-      // Prepare agent records
+      // Prepare agent records with organization assignment
       const agentRecords = agents.map((agent) => ({
-        organization_id: member.organization_id,
+        organization_id: member.organization_id, // Automatically assign to user's organization
         email: agent.email,
         full_name: agent.full_name,
         phone: agent.phone,
         role: agent.role || 'agent',
         extension: agent.extension,
         department: agent.department,
+        bio: agent.bio,
         status: 'pending_invitation' as const,
         is_active: false,
       }))
