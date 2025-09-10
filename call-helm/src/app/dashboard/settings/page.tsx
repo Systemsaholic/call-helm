@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useOrganizationSettings } from '@/lib/hooks/useOrganizationSettings'
+import { DepartmentManagement } from '@/components/settings/DepartmentManagement'
+import { UsageDashboard } from '@/components/dashboard/UsageDashboard'
+import { VoiceServicesSetup } from '@/components/settings/VoiceServicesSetup'
 import { Button } from '@/components/ui/button'
 import { 
   User,
@@ -24,7 +27,7 @@ import {
   MessageSquare
 } from 'lucide-react'
 
-type SettingsTab = 'profile' | 'organization' | 'notifications' | 'billing' | 'api' | 'integrations' | 'security'
+type SettingsTab = 'profile' | 'organization' | 'phone_numbers' | 'notifications' | 'billing' | 'api' | 'integrations' | 'security'
 
 interface TabConfig {
   id: SettingsTab
@@ -36,6 +39,7 @@ interface TabConfig {
 const tabs: TabConfig[] = [
   { id: 'profile', label: 'Profile', icon: User, description: 'Manage your personal information' },
   { id: 'organization', label: 'Organization', icon: Building, description: 'Configure organization settings' },
+  { id: 'phone_numbers', label: 'Phone Numbers', icon: Phone, description: 'Manage phone numbers and voice settings' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Set your notification preferences' },
   { id: 'billing', label: 'Billing', icon: CreditCard, description: 'Manage subscription and payments' },
   { id: 'api', label: 'API Keys', icon: Key, description: 'Manage API keys and webhooks' },
@@ -226,7 +230,7 @@ export default function SettingsPage() {
                     type="text"
                     value={profileData.fullName}
                     onChange={(e) => setProfileData({ ...profileData, fullName: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -237,7 +241,7 @@ export default function SettingsPage() {
                     type="email"
                     value={profileData.email}
                     onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -249,7 +253,7 @@ export default function SettingsPage() {
                     value={profileData.phone}
                     onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
                     placeholder="+1 (555) 000-0000"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -341,6 +345,11 @@ export default function SettingsPage() {
           </div>
         )
 
+      case 'phone_numbers':
+        return (
+          <VoiceServicesSetup />
+        )
+
       case 'organization':
         return (
           <div className="space-y-6">
@@ -355,7 +364,7 @@ export default function SettingsPage() {
                     type="text"
                     value={orgData.name}
                     onChange={(e) => setOrgData({ ...orgData, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -367,7 +376,7 @@ export default function SettingsPage() {
                     value={orgData.website}
                     onChange={(e) => setOrgData({ ...orgData, website: e.target.value })}
                     placeholder="https://example.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -377,7 +386,7 @@ export default function SettingsPage() {
                   <select 
                     value={orgData.language}
                     onChange={(e) => setOrgData({ ...orgData, language: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     <option value="en">English</option>
                     <option value="es">Spanish</option>
@@ -392,7 +401,7 @@ export default function SettingsPage() {
                   <select 
                     value={orgData.dateFormat}
                     onChange={(e) => setOrgData({ ...orgData, dateFormat: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                     <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -422,6 +431,10 @@ export default function SettingsPage() {
                   <span className="text-sm text-gray-700">Enable AI analysis</span>
                 </label>
               </div>
+            </div>
+            
+            <div className="border-t pt-6">
+              <DepartmentManagement />
             </div>
           </div>
         )
@@ -517,83 +530,8 @@ export default function SettingsPage() {
 
       case 'billing':
         return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Current Plan</h3>
-              <div className="bg-gradient-to-r from-primary to-accent rounded-lg p-6 text-white">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h4 className="text-2xl font-bold">{billingData.plan} Plan</h4>
-                    <p className="opacity-90">$99/month • {billingData.seats} seats</p>
-                  </div>
-                  <Button variant="secondary" className="bg-white text-primary hover:bg-gray-100">
-                    Upgrade Plan
-                  </Button>
-                </div>
-                <div className="grid grid-cols-3 gap-4 mt-6">
-                  <div>
-                    <p className="text-sm opacity-75">Calls This Month</p>
-                    <p className="text-xl font-semibold">1,247 / 5,000</p>
-                  </div>
-                  <div>
-                    <p className="text-sm opacity-75">Storage Used</p>
-                    <p className="text-xl font-semibold">2.3 GB / 10 GB</p>
-                  </div>
-                  <div>
-                    <p className="text-sm opacity-75">Next Billing</p>
-                    <p className="text-xl font-semibold">Feb 1, 2024</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Method</h3>
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <CreditCard className="h-5 w-5 text-gray-400" />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{billingData.paymentMethod}</p>
-                      <p className="text-xs text-gray-500">Expires 12/25</p>
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    Update
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Billing History</h3>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">January 2024</p>
-                    <p className="text-xs text-gray-500">Professional Plan</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">$99.00</p>
-                    <Button variant="link" size="sm" className="text-xs p-0 h-auto">
-                      Download
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">December 2023</p>
-                    <p className="text-xs text-gray-500">Professional Plan</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">$99.00</p>
-                    <Button variant="link" size="sm" className="text-xs p-0 h-auto">
-                      Download
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div>
+            <UsageDashboard />
           </div>
         )
 
@@ -697,8 +635,8 @@ export default function SettingsPage() {
                         <Phone className="h-5 w-5 text-blue-600" />
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900">SignalWire</p>
-                        <p className="text-xs text-gray-500">Voice calling provider</p>
+                        <p className="font-medium text-gray-900">Voice Provider</p>
+                        <p className="text-xs text-gray-500">Telephony services</p>
                       </div>
                     </div>
                     <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">Connected</span>
@@ -838,30 +776,30 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-1">Manage your account and organization preferences</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Settings</h1>
+        <p className="text-gray-600">Manage your account and organization preferences</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Sidebar Navigation */}
         <div className="lg:w-64">
-          <nav className="space-y-1">
+          <nav className="bg-white rounded-lg shadow p-4 space-y-1">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-primary text-white'
-                    : 'text-gray-700 hover:bg-gray-100'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-gray-700 hover:bg-accent hover:text-accent-foreground'
                 }`}
               >
                 <tab.icon className="h-5 w-5" />
                 <div className="text-left">
                   <p className="font-medium">{tab.label}</p>
-                  <p className={`text-xs ${activeTab === tab.id ? 'text-white/80' : 'text-gray-500'}`}>
+                  <p className={`text-xs ${activeTab === tab.id ? 'text-primary-foreground/80' : 'text-gray-500'}`}>
                     {tab.description}
                   </p>
                 </div>
@@ -875,30 +813,32 @@ export default function SettingsPage() {
           <div className="bg-white rounded-lg shadow p-6">
             {renderTabContent()}
             
-            {/* Save Button */}
-            <div className="mt-6 pt-6 border-t flex items-center justify-between">
-              <div>
-                {savedTab === activeTab && (
-                  <div className="flex items-center gap-2 text-green-600">
-                    <Check className="h-4 w-4" />
-                    <span className="text-sm">Settings saved successfully</span>
-                  </div>
-                )}
+            {/* Save Button - Hide for tabs with their own save logic */}
+            {activeTab !== 'phone_numbers' && activeTab !== 'billing' && (
+              <div className="mt-6 pt-6 border-t flex items-center justify-between">
+                <div>
+                  {savedTab === activeTab && (
+                    <div className="flex items-center gap-2 text-accent">
+                      <Check className="h-4 w-4" />
+                      <span className="text-sm font-medium">Settings saved successfully</span>
+                    </div>
+                  )}
+                </div>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
               </div>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Save Changes
-                  </>
-                )}
-              </Button>
-            </div>
+            )}
           </div>
         </div>
       </div>
