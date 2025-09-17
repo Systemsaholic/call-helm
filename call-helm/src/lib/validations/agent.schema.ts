@@ -16,10 +16,10 @@ export const createAgentSchema = z.object({
     .string()
     .optional()
     .refine(
-      (val) => !val || /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/.test(val),
-      'Invalid phone number'
+      (val) => !val || /^[+]?[\d\s().-]{3,20}$/.test(val),
+      'Invalid phone number format'
     ),
-  role: z.enum(agentRoles).default('agent'),
+  role: z.enum(agentRoles).optional().default('agent'),
   extension: z
     .string()
     .optional()
@@ -28,7 +28,10 @@ export const createAgentSchema = z.object({
       'Extension must be numeric'
     ),
   department: z.string().optional(),
-  department_id: z.string().uuid().optional(),
+  department_id: z.string().optional().refine(
+    (val) => !val || val === '' || z.string().uuid().safeParse(val).success,
+    'Invalid department ID'
+  ),
   bio: z.string().max(500, 'Bio is too long').optional(),
 })
 

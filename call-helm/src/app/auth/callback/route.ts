@@ -6,7 +6,9 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
   const next = searchParams.get('next') ?? '/dashboard'
+  const type = searchParams.get('type')
   const isSignup = searchParams.get('signup') === 'true'
+  const isInvite = type === 'invite'
 
   if (code) {
     const cookieStore = await cookies()
@@ -33,16 +35,21 @@ export async function GET(request: Request) {
       }
     )
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const { error, data } = await supabase.auth.exchangeCodeForSession(code)
     
-    if (!error) {
-      // If this is a signup, we need to handle organization creation
-      // This will be done via a database function or Edge Function
-      // that triggers on auth.users insert
+    if (!error && data?.user) {
+      // For invited users, check if they need to set up their password
+      // Invited users won't have app_metadata.provider set to 'email' initially
+      const needsPasswordSetup = isInvite || 
+        (!data.user.app_metadata?.providers?.includes('email') && data.user.email)
       
-      if (isSignup) {
-        // Redirect to onboarding or organization setup
-        return NextResponse.redirect(`${origin}/onboarding`)
+      // Check if this is the user's first login
+      const isFirstLogin = data.user.created_at === data.user.last_sign_in_at
+      
+      // If this is an invitation or they need password setup, redirect to setup page
+      if (needsPasswordSetup || isFirstLogin || isSignup) {
+        // For invited agents, redirect to set up their password/profile
+        return NextResponse.redirect(`${origin}/auth/setup-account`)
       }
       
       return NextResponse.redirect(`${origin}${next}`)

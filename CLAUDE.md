@@ -1,0 +1,1 @@
+- remeber that the supabase project ID is seeaalajmchrtblbhvwq for this application

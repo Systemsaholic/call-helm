@@ -3,6 +3,7 @@
 import { useAuth } from '@/lib/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 import Link from 'next/link'
 import { 
   Loader2, 
@@ -23,6 +24,12 @@ export default function DashboardPage() {
   const { user, loading } = useAuth()
   const router = useRouter()
 
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/auth/login')
+    }
+  }, [user, loading, router])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -32,7 +39,6 @@ export default function DashboardPage() {
   }
 
   if (!user) {
-    router.push('/auth/login')
     return null
   }
 
@@ -56,7 +62,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto">
       {/* Welcome Section */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user.user_metadata?.full_name || 'User'}!</h1>

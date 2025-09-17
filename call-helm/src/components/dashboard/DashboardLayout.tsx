@@ -5,7 +5,10 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
+import { useBilling } from '@/lib/hooks/useBilling'
+import { useGlobalRealtimeSubscriptions } from '@/lib/hooks/useRealtimeSubscription'
 import { Button } from '@/components/ui/button'
+import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
 import {
   LayoutDashboard,
   Users,
@@ -44,6 +47,56 @@ const navigation: NavItem[] = [
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
 
+// Billing status card component
+function BillingStatusCard() {
+  const { limits, trialDaysRemaining, isLoading } = useBilling()
+  const router = useRouter()
+
+  if (isLoading || !limits) {
+    return (
+      <div className="bg-gradient-to-r from-primary to-accent rounded-lg p-4 text-white">
+        <div className="space-y-2">
+          <div className="h-4 bg-white/20 rounded w-24 animate-pulse"></div>
+          <div className="h-3 bg-white/20 rounded w-32 animate-pulse"></div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-primary to-accent rounded-lg p-4 text-white">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium">{limits.plan_display_name}</span>
+        <span className="text-xs capitalize">{limits.subscription_status}</span>
+      </div>
+      
+      {/* Show trial days remaining if in trial */}
+      {limits.subscription_status === 'trialing' && trialDaysRemaining !== null && trialDaysRemaining !== undefined && (
+        <div className="mb-2 px-2 py-1 bg-amber-500/20 rounded text-amber-100 text-xs font-medium">
+          {trialDaysRemaining > 0 
+            ? `${trialDaysRemaining} day${trialDaysRemaining !== 1 ? 's' : ''} left in trial`
+            : 'Trial expires today'
+          }
+        </div>
+      )}
+      
+      <div className="text-xs opacity-90">
+        {limits.max_agents} agents • {limits.max_call_minutes >= 999999 ? 'Unlimited' : `${limits.max_call_minutes} min/mo`}
+      </div>
+      {limits.plan_slug !== 'enterprise' && (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="w-full mt-3 bg-white text-primary hover:bg-gray-100"
+          onClick={() => router.push('/dashboard/settings?tab=billing')}
+        >
+          Upgrade Plan
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -51,6 +104,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { profile } = useProfile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
+
+  // Enable real-time subscriptions
+  useGlobalRealtimeSubscriptions()
 
   // Mock user role - in production, this would come from the user's organization member data
   const userRole = 'org_admin' // This should be fetched from the actual user data
@@ -93,7 +149,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
         <nav className="px-4 py-4">
           {filteredNavigation.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            const isActive = item.href === '/dashboard' 
+              ? pathname === '/dashboard'
+              : pathname === item.href || pathname.startsWith(item.href + '/')
             return (
               <Link
                 key={item.name}
@@ -133,7 +191,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         
         <nav className="flex-1 px-4 py-4 overflow-y-auto">
           {filteredNavigation.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            const isActive = item.href === '/dashboard' 
+              ? pathname === '/dashboard'
+              : pathname === item.href || pathname.startsWith(item.href + '/')
             return (
               <Link
                 key={item.name}
@@ -161,22 +221,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="p-4 border-t">
-          <div className="bg-gradient-to-r from-primary to-accent rounded-lg p-4 text-white">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">Pro Plan</span>
-              <span className="text-xs">Active</span>
-            </div>
-            <div className="text-xs opacity-90">
-              5 agents • Unlimited calls
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full mt-3 bg-white text-primary hover:bg-gray-100"
-            >
-              Upgrade Plan
-            </Button>
-          </div>
+          <BillingStatusCard />
         </div>
       </div>
 
@@ -200,10 +245,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
             <div className="flex items-center gap-4">
               {/* Notifications */}
-              <button className="relative text-gray-500 hover:text-gray-700">
-                <Bell className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 h-2 w-2 bg-red-500 rounded-full" />
-              </button>
+              <NotificationCenter />
 
               {/* Help */}
               <button className="text-gray-500 hover:text-gray-700">

@@ -1,0 +1,3 @@
+name,email,phone,company,notes,tags
+John Doe,john@example.com,+1234567890,Acme Corp,"Important client","vip,priority"
+Jane Smith,jane@example.com,+0987654321,Tech Inc,"New lead","new,tech"

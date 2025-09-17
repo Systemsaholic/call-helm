@@ -42,14 +42,50 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   // Protected routes
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
-    return NextResponse.redirect(url)
+  if (request.nextUrl.pathname.startsWith('/dashboard')) {
+    // No user - redirect to login
+    if (!user) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth/login'
+      return NextResponse.redirect(url)
+    }
+    
+    // User exists but needs to complete setup
+    // Check multiple conditions for users who need setup:
+    // 1. User was invited (has invited flag in metadata)
+    // 2. User hasn't completed onboarding
+    // 3. User doesn't have a password set (no email provider)
+    const wasInvited = user.user_metadata?.invited === true
+    const onboardingNotCompleted = !user.user_metadata?.onboarding_completed
+    const noPasswordSet = !user.app_metadata?.providers?.includes('email')
+    
+    const needsSetup = wasInvited && (onboardingNotCompleted || noPasswordSet)
+    
+    if (needsSetup) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/auth/setup-account'
+      return NextResponse.redirect(url)
+    }
   }
 
-  // Redirect to dashboard if authenticated and on auth pages
+  // Redirect to dashboard if authenticated and on auth pages (except setup-account)
   if (user && request.nextUrl.pathname.startsWith('/auth/')) {
+    // Allow access to setup-account page for users who need to complete setup
+    if (request.nextUrl.pathname === '/auth/setup-account') {
+      // Check if user needs to complete setup
+      const wasInvited = user.user_metadata?.invited === true
+      const onboardingNotCompleted = !user.user_metadata?.onboarding_completed
+      const noPasswordSet = !user.app_metadata?.providers?.includes('email')
+      
+      const needsSetup = wasInvited && (onboardingNotCompleted || noPasswordSet)
+      
+      if (needsSetup) {
+        // Allow access to setup page
+        return supabaseResponse
+      }
+    }
+    
+    // Redirect all other auth pages to dashboard for authenticated users
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

@@ -1,5 +1,9 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import { enableMapSet } from 'immer'
+
+// Enable Map and Set support in Immer
+enableMapSet()
 
 export interface Agent {
   id: string
@@ -31,6 +35,7 @@ interface AgentUIState {
   isAddModalOpen: boolean
   isImportModalOpen: boolean
   isDetailsModalOpen: boolean
+  isDetailsModalEditMode: boolean
   isBulkInviteModalOpen: boolean
   isDeleteConfirmOpen: boolean
   
@@ -55,7 +60,7 @@ interface AgentUIState {
   
   setAddModalOpen: (open: boolean) => void
   setImportModalOpen: (open: boolean) => void
-  setDetailsModalOpen: (open: boolean, agentId?: string) => void
+  setDetailsModalOpen: (open: boolean, agentId?: string, editMode?: boolean) => void
   setSelectedAgentId: (agentId: string | null) => void
   setBulkInviteModalOpen: (open: boolean) => void
   setDeleteConfirmOpen: (open: boolean) => void
@@ -76,6 +81,7 @@ export const useAgentStore = create<AgentUIState>()(
     isAddModalOpen: false,
     isImportModalOpen: false,
     isDetailsModalOpen: false,
+    isDetailsModalEditMode: false,
     isBulkInviteModalOpen: false,
     isDeleteConfirmOpen: false,
     
@@ -128,10 +134,11 @@ export const useAgentStore = create<AgentUIState>()(
         state.isImportModalOpen = open
       }),
     
-    setDetailsModalOpen: (open, agentId) =>
+    setDetailsModalOpen: (open, agentId, editMode = false) =>
       set((state) => {
         state.isDetailsModalOpen = open
         state.currentAgentId = agentId || null
+        state.isDetailsModalEditMode = editMode
       }),
     
     setSelectedAgentId: (agentId) =>

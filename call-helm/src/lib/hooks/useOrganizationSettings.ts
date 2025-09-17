@@ -34,44 +34,64 @@ export function useOrganizationSettings() {
     try {
       setLoading(true)
       
-      // First, get the user's organization ID from their profile
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
+      // First, get the user's organization ID from organization_members
+      const { data: member, error: memberError } = await supabase
+        .from('organization_members')
         .select('organization_id')
-        .eq('id', user.id)
+        .eq('user_id', user.id)
+        .eq('is_active', true)
         .single()
 
-      if (profileError || !profile?.organization_id) {
-        throw new Error('No organization found for user')
+      if (memberError) {
+        console.error('Error fetching organization member:', memberError)
+        throw new Error(memberError.message || 'Failed to fetch organization membership')
+      }
+      
+      if (!member?.organization_id) {
+        console.log('No active organization membership found for user:', user.id)
+        throw new Error('No active organization found for user. Please ensure you have been added to an organization.')
       }
 
       // Fetch organization settings
       const { data, error } = await supabase
         .from('organization_settings')
         .select('*')
-        .eq('organization_id', profile.organization_id)
+        .eq('organization_id', member.organization_id)
         .single()
 
       if (error && error.code === 'PGRST116') {
         // Settings don't exist, create default settings
+        console.log('Organization settings not found, creating defaults for org:', member.organization_id)
         const { data: newSettings, error: insertError } = await supabase
           .from('organization_settings')
           .insert({
-            organization_id: profile.organization_id,
+            organization_id: member.organization_id,
             notification_preferences: {}
           })
           .select()
           .single()
 
-        if (insertError) throw insertError
+        if (insertError) {
+          console.error('Error creating default organization settings:', insertError)
+          throw insertError
+        }
         setSettings(newSettings)
       } else if (error) {
+        console.error('Error fetching organization settings:', error)
         throw error
       } else {
         setSettings(data)
       }
     } catch (err) {
-      console.error('Error fetching organization settings:', err)
+      // Provide more detailed error logging
+      console.error('Error in fetchSettings:', {
+        error: err,
+        message: err instanceof Error ? err.message : 'Unknown error',
+        code: (err as any)?.code,
+        details: (err as any)?.details,
+        hint: (err as any)?.hint,
+        userId: user?.id
+      })
       setError(err instanceof Error ? err.message : 'Failed to fetch organization settings')
     } finally {
       setLoading(false)

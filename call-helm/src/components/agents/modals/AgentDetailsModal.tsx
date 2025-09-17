@@ -27,7 +27,7 @@ import {
 import { format } from 'date-fns'
 
 export function AgentDetailsModal() {
-  const { isDetailsModalOpen, currentAgentId, setDetailsModalOpen } = useAgentStore()
+  const { isDetailsModalOpen, currentAgentId, isDetailsModalEditMode, setDetailsModalOpen } = useAgentStore()
   const { data: agent, isLoading } = useAgent(currentAgentId || '')
   const { data: departments } = useDepartments()
   const updateAgent = useUpdateAgent()
@@ -40,7 +40,7 @@ export function AgentDetailsModal() {
     formState: { errors, isSubmitting },
     reset,
   } = useForm<UpdateAgentInput>({
-    resolver: zodResolver(updateAgentSchema),
+    resolver: zodResolver(updateAgentSchema) as any,
   })
 
   // Reset form when agent data changes
@@ -50,13 +50,20 @@ export function AgentDetailsModal() {
         full_name: agent.full_name,
         email: agent.email,
         phone: agent.phone || undefined,
-        role: agent.role,
+        role: agent.role as "agent" | "org_admin" | "team_lead" | "billing_admin" | undefined,
         department_id: agent.department_id || undefined,
         extension: agent.extension || undefined,
         bio: agent.bio || undefined,
       })
     }
   }, [agent, reset])
+  
+  // Set initial editing state when modal opens
+  useEffect(() => {
+    if (isDetailsModalOpen) {
+      setIsEditing(isDetailsModalEditMode)
+    }
+  }, [isDetailsModalOpen, isDetailsModalEditMode])
 
   if (!isDetailsModalOpen || !currentAgentId || !agent) return null
 
@@ -360,32 +367,24 @@ export function AgentDetailsModal() {
                     </span>
                   </div>
                   
-                  {agent.invitation_sent_at && (
+                  {agent.invited_at && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Invitation Sent</span>
                       <span className="text-sm text-gray-900">
-                        {format(new Date(agent.invitation_sent_at), 'MMM d, yyyy h:mm a')}
+                        {format(new Date(agent.invited_at), 'MMM d, yyyy h:mm a')}
                       </span>
                     </div>
                   )}
                   
-                  {agent.invitation_accepted_at && (
+                  {agent.joined_at && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600">Invitation Accepted</span>
                       <span className="text-sm text-gray-900">
-                        {format(new Date(agent.invitation_accepted_at), 'MMM d, yyyy h:mm a')}
+                        {format(new Date(agent.joined_at), 'MMM d, yyyy h:mm a')}
                       </span>
                     </div>
                   )}
                   
-                  {agent.last_login_at && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600">Last Login</span>
-                      <span className="text-sm text-gray-900">
-                        {format(new Date(agent.last_login_at), 'MMM d, yyyy h:mm a')}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </form>

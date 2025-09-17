@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { XCircle } from 'lucide-react'
+import { XCircle, AlertCircle } from 'lucide-react'
 
 export default function AuthErrorPage() {
   return (
@@ -11,9 +11,24 @@ export default function AuthErrorPage() {
             <XCircle className="h-6 w-6 text-red-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Authentication Error</h2>
-          <p className="text-gray-600 mb-6">
-            There was an error during the authentication process. This could be due to an expired link or an invalid request.
+          <p className="text-gray-600 mb-4">
+            There was an error during the authentication process. This could be due to:
           </p>
+          <div className="text-left bg-gray-50 p-4 rounded-md mb-6">
+            <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+              <li>An expired invitation link (links expire after 24 hours)</li>
+              <li>The link has already been used</li>
+              <li>An invalid or malformed request</li>
+            </ul>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-6">
+            <div className="flex">
+              <AlertCircle className="h-5 w-5 text-blue-400 mr-2 flex-shrink-0" />
+              <p className="text-sm text-blue-700">
+                If you need a new invitation, please contact your administrator.
+              </p>
+            </div>
+          </div>
           <div className="space-y-3">
             <Link href="/auth/login" className="block">
               <Button className="w-full">

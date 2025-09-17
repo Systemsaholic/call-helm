@@ -105,7 +105,13 @@ export function ImportAgentsModal() {
 
     setIsProcessing(true)
     try {
-      await bulkCreateAgents.mutateAsync(csvData)
+      const validAgents = csvData.map(agent => ({
+        ...agent,
+        role: (['agent', 'org_admin', 'team_lead', 'billing_admin'].includes(agent.role || '') 
+          ? agent.role 
+          : 'agent') as 'agent' | 'org_admin' | 'team_lead' | 'billing_admin'
+      }))
+      await bulkCreateAgents.mutateAsync(validAgents)
       handleClose()
     } catch (error) {
       setErrors(['Failed to import agents. Please try again.'])

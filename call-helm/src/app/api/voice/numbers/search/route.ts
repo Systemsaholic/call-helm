@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if SignalWire is configured
-    if (!signalwireService.constructor.isConfigured()) {
+    if (!process.env.SIGNALWIRE_PROJECT_ID || !process.env.SIGNALWIRE_TOKEN) {
       return NextResponse.json(
         { error: 'Voice services not configured' },
         { status: 503 }

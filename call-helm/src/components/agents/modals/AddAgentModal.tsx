@@ -19,7 +19,7 @@ export function AddAgentModal() {
     formState: { errors, isSubmitting },
     reset,
   } = useForm<CreateAgentInput>({
-    resolver: zodResolver(createAgentSchema),
+    resolver: zodResolver(createAgentSchema) as any,
     defaultValues: {
       role: 'agent',
     },
@@ -28,7 +28,16 @@ export function AddAgentModal() {
   if (!isAddModalOpen) return null
 
   const onSubmit = async (data: CreateAgentInput) => {
-    await createAgent.mutateAsync(data)
+    // Clean up empty department_id
+    const cleanedData = {
+      ...data,
+      department_id: data.department_id === '' ? undefined : data.department_id,
+      phone: data.phone === '' ? undefined : data.phone,
+      extension: data.extension === '' ? undefined : data.extension,
+      bio: data.bio === '' ? undefined : data.bio,
+    }
+    
+    await createAgent.mutateAsync(cleanedData)
     reset()
     setAddModalOpen(false)
   }
@@ -128,13 +137,25 @@ export function AddAgentModal() {
               {...register('department_id')}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
             >
-              <option value="">Select department...</option>
-              {departments?.map((dept) => (
-                <option key={dept.id} value={dept.id}>
-                  {dept.name}
-                </option>
-              ))}
+              <option value="">No department assigned</option>
+              {departments && departments.length > 0 ? (
+                departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
+                  </option>
+                ))
+              ) : (
+                <option value="" disabled>No departments available</option>
+              )}
             </select>
+            {errors.department_id && (
+              <p className="mt-1 text-xs text-red-600">{errors.department_id.message}</p>
+            )}
+            {departments && departments.length === 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                Contact your administrator to set up departments
+              </p>
+            )}
           </div>
 
           {/* Extension */}

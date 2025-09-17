@@ -2,6 +2,9 @@
 
 import { useMemo } from 'react'
 import { useAgentStore, type Agent } from '@/lib/stores/agentStore'
+import { useDeleteAgents, useSendInvitations, useDepartments } from '@/lib/hooks/useAgents'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { 
   UserPlus, 
   Mail,
@@ -11,11 +14,14 @@ import {
   CheckCircle,
   XCircle,
   Edit,
+  Eye,
   Trash2,
   Send,
   UserCheck,
   Clock,
-  Ban
+  Ban,
+  RefreshCcw,
+  Loader2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
@@ -37,6 +43,49 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
     sortOrder,
     setSorting,
   } = useAgentStore()
+
+  // Mutations
+  const deleteAgentsMutation = useDeleteAgents()
+  const sendInvitationsMutation = useSendInvitations()
+  
+  // Fetch departments
+  const { data: departments } = useDepartments()
+
+  // Confirmation dialog
+  const confirmation = useConfirmation()
+
+  // Action handlers
+  const handleDeleteAgent = (agent: Agent) => {
+    confirmation.showConfirmation({
+      title: 'Delete Agent',
+      description: `Are you sure you want to delete ${agent.full_name || agent.email}? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      onConfirm: async () => {
+        await deleteAgentsMutation.mutateAsync([agent.id])
+      }
+    })
+  }
+
+  const handleSendInvitation = async (agent: Agent) => {
+    console.log('handleSendInvitation called for agent:', agent)
+    const actionText = agent.status === 'invited' ? 'resend the invitation' : 'send an invitation'
+    confirmation.showConfirmation({
+      title: `Send Invitation to ${agent.full_name || agent.email}?`,
+      description: `Are you sure you want to ${actionText} to ${agent.email}? They will receive an email with instructions to set up their account.`,
+      confirmText: agent.status === 'invited' ? 'Resend Invitation' : 'Send Invitation',
+      onConfirm: async () => {
+        console.log('Confirmation onConfirm called, sending invitation for agent:', agent.id)
+        try {
+          await sendInvitationsMutation.mutateAsync([agent.id])
+          console.log('Invitation sent successfully')
+        } catch (error) {
+          console.error('Error sending invitation:', error)
+        }
+      }
+    })
+  }
 
   // Sort agents
   const sortedAgents = useMemo(() => {
@@ -146,7 +195,7 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
               </th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                onClick={() => setSorting('full_name')}
+                onClick={() => setSorting('name')}
               >
                 Agent
               </th>
@@ -244,7 +293,7 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {agent.department || 'Not assigned'}
+                        {departments?.find(d => d.id === agent.department_id)?.name || agent.department || 'Not assigned'}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -261,23 +310,46 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex items-center gap-2">
-                        {agent.status === 'pending_invitation' && (
+                        {(agent.status === 'pending_invitation' || agent.status === 'invited') && (
                           <button
-                            className="text-primary hover:text-primary/80"
-                            title="Send Invitation"
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              console.log('Button clicked for agent:', agent.email)
+                              handleSendInvitation(agent)
+                            }}
+                            disabled={sendInvitationsMutation.isPending}
+                            className="text-primary hover:text-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors p-1"
+                            title={agent.status === 'invited' ? 'Resend Invitation' : 'Send Invitation'}
                           >
-                            <Send className="h-4 w-4" />
+                            {sendInvitationsMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : agent.status === 'invited' ? (
+                              <RefreshCcw className="h-4 w-4" />
+                            ) : (
+                              <Send className="h-4 w-4" />
+                            )}
                           </button>
                         )}
                         <button
-                          onClick={() => setDetailsModalOpen(true, agent.id)}
+                          onClick={() => setDetailsModalOpen(true, agent.id, false)}
                           className="text-gray-600 hover:text-gray-900"
                           title="View Details"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setDetailsModalOpen(true, agent.id, true)}
+                          className="text-gray-600 hover:text-gray-900"
+                          title="Edit Agent"
                         >
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
-                          className="text-red-600 hover:text-red-900"
+                          onClick={() => handleDeleteAgent(agent)}
+                          disabled={deleteAgentsMutation.isPending}
+                          className="text-red-600 hover:text-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Delete"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -291,6 +363,19 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </div>
   )
 }

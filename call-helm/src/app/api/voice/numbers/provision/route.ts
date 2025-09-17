@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         sid: purchasedNumber.sid,
         metadata: {
           purchased_at: new Date().toISOString(),
-          monthly_price: purchasedNumber.monthlyPrice || 0
+          monthly_price: 0
         }
       })
 

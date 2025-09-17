@@ -1,17 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { User } from '@supabase/supabase-js'
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/client'
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const getUser = async () => {
@@ -35,7 +33,7 @@ export function useAuth() {
     )
 
     return () => subscription.unsubscribe()
-  }, [supabase.auth])
+  }, [supabase])
 
   const signOut = async () => {
     await supabase.auth.signOut()
@@ -47,4 +45,34 @@ export function useAuth() {
     signOut,
     supabase,
   }
+}
+
+// Hook to get organization members
+export function useOrganizationMembers() {
+  const { supabase, user } = useAuth()
+  
+  return useQuery({
+    queryKey: ['organization-members'],
+    queryFn: async () => {
+      // Get current user's organization
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user?.id)
+        .single()
+      
+      if (!member) return []
+      
+      // Get all members of the organization
+      const { data: members, error } = await supabase
+        .from('organization_members')
+        .select('*')
+        .eq('organization_id', member.organization_id)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      return members || []
+    },
+    enabled: !!user,
+  })
 }

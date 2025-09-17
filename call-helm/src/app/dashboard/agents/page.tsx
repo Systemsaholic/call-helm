@@ -33,11 +33,16 @@ export default function AgentsPage() {
     selectedAgentIds,
   } = useAgentStore()
 
-  const { data: agents = [], isLoading } = useAgents({
+  const { data: agents = [], isLoading, error } = useAgents({
     searchTerm,
     status: statusFilter,
     department: departmentFilter,
   })
+
+  // Log error if it exists
+  if (error) {
+    console.error('Failed to load agents:', error)
+  }
 
   // Count statistics
   const stats = {
@@ -49,7 +54,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Agent Management</h1>
@@ -88,6 +93,13 @@ export default function AgentsPage() {
           </div>
         </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800">Failed to load agents. Please refresh the page or try again later.</p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

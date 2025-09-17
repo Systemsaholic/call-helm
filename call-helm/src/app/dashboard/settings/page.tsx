@@ -1,12 +1,15 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useOrganizationSettings } from '@/lib/hooks/useOrganizationSettings'
+import { useBilling } from '@/lib/hooks/useBilling'
 import { DepartmentManagement } from '@/components/settings/DepartmentManagement'
 import { UsageDashboard } from '@/components/dashboard/UsageDashboard'
 import { VoiceServicesSetup } from '@/components/settings/VoiceServicesSetup'
+import { BillingDashboard } from '@/components/billing/BillingDashboard'
 import { Button } from '@/components/ui/button'
 import { 
   User,
@@ -24,7 +27,8 @@ import {
   Check,
   ChevronRight,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  Lock
 } from 'lucide-react'
 
 type SettingsTab = 'profile' | 'organization' | 'phone_numbers' | 'notifications' | 'billing' | 'api' | 'integrations' | 'security'
@@ -47,16 +51,26 @@ const tabs: TabConfig[] = [
   { id: 'security', label: 'Security', icon: Shield, description: 'Security and privacy settings' },
 ]
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { user, supabase } = useAuth()
   const { profile, updateProfile, uploadAvatar } = useProfile()
   const { settings: orgSettings, updateSettings: updateOrgSettings } = useOrganizationSettings()
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
+  const { limits, showUpgradePrompt } = useBilling()
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab') as SettingsTab | null
+  const [activeTab, setActiveTab] = useState<SettingsTab>(tabParam || 'profile')
   const [saving, setSaving] = useState(false)
   const [savedTab, setSavedTab] = useState<SettingsTab | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Update active tab when URL parameter changes
+  useEffect(() => {
+    if (tabParam && tabs.some(t => t.id === tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [tabParam])
 
   // Profile state
   const [profileData, setProfileData] = useState({
@@ -346,6 +360,42 @@ export default function SettingsPage() {
         )
 
       case 'phone_numbers':
+        // Check if user has access to phone number management
+        if (!limits?.features?.phone_number_management) {
+          return (
+            <div className="text-center py-12">
+              <div className="mx-auto w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                <Lock className="h-12 w-12 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Phone Number Management Locked</h3>
+              <p className="text-gray-600 mb-6">
+                Phone number setup and management requires a Starter plan or higher.
+              </p>
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">Upgrade to unlock:</h4>
+                  <ul className="text-sm text-gray-600 space-y-1">
+                    <li>• Purchase and configure phone numbers</li>
+                    <li>• Set up voice services and routing</li>
+                    <li>• Configure call forwarding rules</li>
+                    <li>• Manage multiple phone numbers</li>
+                  </ul>
+                </div>
+                <Button 
+                  onClick={() => {
+                    setActiveTab('billing')
+                    window.history.pushState({}, '', '/dashboard/settings?tab=billing')
+                  }}
+                  className="w-full sm:w-auto"
+                >
+                  Upgrade to Starter Plan
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )
+        }
+        
         return (
           <VoiceServicesSetup />
         )
@@ -414,21 +464,113 @@ export default function SettingsPage() {
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Call Settings</h3>
               <div className="space-y-3">
-                <label className="flex items-center gap-3">
-                  <input type="checkbox" className="h-4 w-4 text-primary rounded" defaultChecked />
+                <label className={`flex items-center gap-3 ${!limits?.features?.call_recording ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 text-primary rounded" 
+                    defaultChecked={limits?.features?.call_recording}
+                    disabled={!limits?.features?.call_recording}
+                  />
                   <span className="text-sm text-gray-700">Auto-record all calls</span>
+                  {!limits?.features?.call_recording && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <Lock className="h-3 w-3 text-gray-400" />
+                      <span className="text-xs text-gray-500">Requires Starter plan</span>
+                      <Button 
+                        size="sm" 
+                        variant="link" 
+                        className="text-xs p-0 h-auto"
+                        onClick={() => {
+                          setActiveTab('billing')
+                          window.history.pushState({}, '', '/dashboard/settings?tab=billing')
+                        }}
+                      >
+                        Upgrade
+                      </Button>
+                    </div>
+                  )}
                 </label>
-                <label className="flex items-center gap-3">
-                  <input type="checkbox" className="h-4 w-4 text-primary rounded" defaultChecked />
+                <label className={`flex items-center gap-3 ${!limits?.features?.call_transcription ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 text-primary rounded" 
+                    defaultChecked={limits?.features?.call_transcription}
+                    disabled={!limits?.features?.call_transcription}
+                  />
                   <span className="text-sm text-gray-700">Enable call transcription</span>
+                  {!limits?.features?.call_transcription && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <Lock className="h-3 w-3 text-gray-400" />
+                      <span className="text-xs text-gray-500">Requires Professional plan</span>
+                      <Button 
+                        size="sm" 
+                        variant="link" 
+                        className="text-xs p-0 h-auto"
+                        onClick={() => {
+                          setActiveTab('billing')
+                          window.history.pushState({}, '', '/dashboard/settings?tab=billing')
+                        }}
+                      >
+                        Upgrade
+                      </Button>
+                    </div>
+                  )}
                 </label>
                 <label className="flex items-center gap-3">
                   <input type="checkbox" className="h-4 w-4 text-primary rounded" />
                   <span className="text-sm text-gray-700">Require call notes</span>
                 </label>
-                <label className="flex items-center gap-3">
-                  <input type="checkbox" className="h-4 w-4 text-primary rounded" defaultChecked />
+                <label className={`flex items-center gap-3 ${!limits?.features?.ai_analysis ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 text-primary rounded" 
+                    defaultChecked={limits?.features?.ai_analysis}
+                    disabled={!limits?.features?.ai_analysis}
+                  />
                   <span className="text-sm text-gray-700">Enable AI analysis</span>
+                  {!limits?.features?.ai_analysis && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <Lock className="h-3 w-3 text-gray-400" />
+                      <span className="text-xs text-gray-500">Requires Professional plan</span>
+                      <Button 
+                        size="sm" 
+                        variant="link" 
+                        className="text-xs p-0 h-auto"
+                        onClick={() => {
+                          setActiveTab('billing')
+                          window.history.pushState({}, '', '/dashboard/settings?tab=billing')
+                        }}
+                      >
+                        Upgrade
+                      </Button>
+                    </div>
+                  )}
+                </label>
+                <label className={`flex items-center gap-3 ${!limits?.features?.sentiment_analysis ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 text-primary rounded" 
+                    defaultChecked={limits?.features?.sentiment_analysis}
+                    disabled={!limits?.features?.sentiment_analysis}
+                  />
+                  <span className="text-sm text-gray-700">Enable sentiment analysis</span>
+                  {!limits?.features?.sentiment_analysis && (
+                    <div className="flex items-center gap-1 ml-auto">
+                      <Lock className="h-3 w-3 text-gray-400" />
+                      <span className="text-xs text-gray-500">Requires Professional plan</span>
+                      <Button 
+                        size="sm" 
+                        variant="link" 
+                        className="text-xs p-0 h-auto"
+                        onClick={() => {
+                          setActiveTab('billing')
+                          window.history.pushState({}, '', '/dashboard/settings?tab=billing')
+                        }}
+                      >
+                        Upgrade
+                      </Button>
+                    </div>
+                  )}
                 </label>
               </div>
             </div>
@@ -530,9 +672,7 @@ export default function SettingsPage() {
 
       case 'billing':
         return (
-          <div>
-            <UsageDashboard />
-          </div>
+          <BillingDashboard />
         )
 
       case 'api':
@@ -843,5 +983,13 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SettingsContent />
+    </Suspense>
   )
 }
