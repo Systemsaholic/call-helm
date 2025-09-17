@@ -50,6 +50,7 @@ import { AddContactModal } from './modals/AddContactModal'
 import { EditContactModal } from './modals/EditContactModal'
 import { ImportContactsModal } from './modals/ImportContactsModal'
 import { ViewContactModal } from './modals/ViewContactModal'
+import { ClickToCallButton } from '@/components/calls/ClickToCallButton'
 import { formatPhoneNumber } from '@/lib/utils'
 
 export function ContactsTable() {
@@ -303,37 +304,71 @@ export function ContactsTable() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Open menu</span>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => setViewingContact(contact)}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setEditingContact(contact)}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => {
-                            if (confirm('Are you sure you want to delete this contact?')) {
-                              deleteContacts.mutate([contact.id])
-                            }
-                          }}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex items-center justify-end gap-1">
+                      {contact.status !== 'do_not_call' && (
+                        <ClickToCallButton
+                          phoneNumber={contact.phone_number}
+                          contactId={contact.id}
+                          contactName={contact.full_name}
+                          size="icon"
+                          variant="ghost"
+                        />
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <span className="sr-only">Open menu</span>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          {contact.status !== 'do_not_call' && (
+                            <>
+                              <DropdownMenuItem 
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  // The click-to-call button will handle this
+                                }}
+                                asChild
+                              >
+                                <div className="px-2 py-1.5">
+                                  <ClickToCallButton
+                                    phoneNumber={contact.phone_number}
+                                    contactId={contact.id}
+                                    contactName={contact.full_name}
+                                    size="sm"
+                                    variant="ghost"
+                                    className="w-full justify-start h-auto p-0"
+                                  />
+                                </div>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+                          <DropdownMenuItem onClick={() => setViewingContact(contact)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setEditingContact(contact)}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (confirm('Are you sure you want to delete this contact?')) {
+                                deleteContacts.mutate([contact.id])
+                              }
+                            }}
+                            className="text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

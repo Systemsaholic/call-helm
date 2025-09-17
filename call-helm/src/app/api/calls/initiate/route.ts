@@ -43,6 +43,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No organization found' }, { status: 400 })
     }
 
+    // Check usage limits before allowing call
+    const { data: usageData } = await supabase
+      .from('usage_tracking')
+      .select('used_amount, tier_included')
+      .eq('organization_id', member.organization_id)
+      .eq('resource_type', 'call_minutes')
+      .gte('billing_period_end', new Date().toISOString())
+      .single()
+
+    const { data: orgData } = await supabase
+      .from('organizations')
+      .select('subscription_tier')
+      .eq('id', member.organization_id)
+      .single()
+
+    // Check if user has available minutes
+    const usedMinutes = usageData?.used_amount || 0
+    const includedMinutes = usageData?.tier_included || 0
+    
+    if (usedMinutes >= includedMinutes && orgData?.subscription_tier === 'starter') {
+      return NextResponse.json(
+        { 
+          error: 'Call minutes limit reached',
+          message: 'You have used all your included minutes for this month. Please upgrade your plan to continue making calls.',
+          usedMinutes,
+          includedMinutes,
+          showUpgrade: true
+        },
+        { status: 402 }
+      )
+    }
+
     // Get script if provided
     let scriptContent = null
     if (scriptId) {
@@ -147,6 +179,28 @@ export async function POST(req: NextRequest) {
         .eq('call_list_id', callListId)
         .eq('contact_id', contactId)
     }
+
+    // Track usage event for billing
+    await supabase
+      .from('usage_events')
+      .insert({
+        organization_id: member.organization_id,
+        resource_type: 'call_minutes',
+        amount: 0, // Will be updated when call completes
+        unit_cost: 0.02, // $0.02 per minute for overage
+        total_cost: 0,
+        campaign_id: callListId,
+        agent_id: user.id,
+        contact_id: contactId,
+        call_attempt_id: call.id,
+        description: `Outbound call to ${phoneNumber}`,
+        metadata: {
+          call_id: call.id,
+          external_id: externalCallId,
+          provider,
+          initiated_at: new Date().toISOString()
+        }
+      })
 
     return NextResponse.json({
       success: true,
