@@ -111,7 +111,8 @@ export function ClickToCallButton({
   }
 
   // Check if user has available minutes
-  const hasMinutes = limits?.call_minutes_remaining > 0 || limits?.plan_slug !== 'starter'
+  const remainingMinutes = limits ? limits.max_call_minutes - limits.used_call_minutes : 0
+  const hasMinutes = remainingMinutes > 0 || limits?.plan_slug !== 'starter'
 
   return (
     <>
@@ -177,7 +178,7 @@ export function ClickToCallButton({
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Minutes used:</span>
                 <span className="text-sm font-medium">
-                  {limits?.call_minutes_used || 0} / {limits?.call_minutes_included || 0}
+                  {limits?.used_call_minutes || 0} / {limits?.max_call_minutes || 0}
                 </span>
               </div>
               <div className="flex justify-between">

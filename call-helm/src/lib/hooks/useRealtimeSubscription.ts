@@ -4,6 +4,36 @@ import { useAuth } from './useAuth'
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 
+// Generic realtime subscription hook
+export function useRealtimeSubscription(
+  table: string,
+  callback: (payload: any) => void,
+  filter?: string
+) {
+  const { supabase } = useAuth()
+
+  useEffect(() => {
+    const channelName = `realtime-${table}-${Date.now()}`
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table,
+          ...(filter && { filter })
+        },
+        callback
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, table, filter, callback])
+}
+
 export function useRealtimeCallListUpdates(callListId?: string) {
   const { supabase, user } = useAuth()
   const queryClient = useQueryClient()

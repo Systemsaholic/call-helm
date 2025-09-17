@@ -253,7 +253,9 @@ export function CallHistory({
                         Available
                       </Badge>
                       {call.recordings[0].transcription && (
-                        <FileText className="h-3 w-3 text-gray-400" title="Transcript available" />
+                        <span title="Transcript available">
+                          <FileText className="h-3 w-3 text-gray-400" />
+                        </span>
                       )}
                     </div>
                   ) : (
