@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
 
-// Verify SignalWire webhook signature
+// Verify SignalWire webhook signature using timing-safe comparison
 function verifySignalWireSignature(body: string, signature: string, secret: string): boolean {
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(body)
-    .digest('hex')
-  return signature === expectedSignature
+  const expectedSignature = crypto.createHmac("sha256", secret).update(body).digest("hex")
+  const a = Buffer.from(expectedSignature || "", "utf8")
+  const b = Buffer.from(signature || "", "utf8")
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
 }
 
 // Enhanced SignalWire webhook handler that integrates with our complete call tracking system
@@ -77,8 +77,11 @@ export async function POST(request: NextRequest) {
     switch (callStatus) {
       case 'initiated':
       case 'queued':
-      case 'ringing':
         await handleCallInitiated(supabase, organizationId, callData)
+        break
+        
+      case 'ringing':
+        await handleCallRinging(supabase, organizationId, callData)
         break
         
       case 'in-progress':
@@ -112,6 +115,21 @@ export async function POST(request: NextRequest) {
 async function handleCallInitiated(supabase: any, organizationId: string, data: any) {
   try {
     const { call_sid, from, to, direction, start_time } = data
+    
+    // Update the calls table with status in metadata
+    const { data: callRecord } = await supabase
+      .from('calls')
+      .update({
+        metadata: supabase.sql`metadata || jsonb_build_object('call_status', 'initiated', 'webhook_updated_at', '${new Date().toISOString()}')`
+      })
+      .eq('organization_id', organizationId)
+      .eq('metadata->>external_id', call_sid)
+      .select()
+      .single()
+    
+    if (callRecord) {
+      console.log('Updated calls table with initiated status for:', call_sid)
+    }
     
     // Find existing call attempt or create one
     const { data: existingAttempt } = await supabase
@@ -156,9 +174,58 @@ async function handleCallInitiated(supabase: any, organizationId: string, data: 
   }
 }
 
+async function handleCallRinging(supabase: any, organizationId: string, data: any) {
+  try {
+    const { call_sid } = data
+    
+    // Update the calls table with ringing status in metadata
+    const { data: callRecord } = await supabase
+      .from('calls')
+      .update({
+        metadata: supabase.sql`metadata || jsonb_build_object('call_status', 'ringing', 'webhook_updated_at', '${new Date().toISOString()}')`
+      })
+      .eq('organization_id', organizationId)
+      .eq('metadata->>external_id', call_sid)
+      .select()
+      .single()
+    
+    if (callRecord) {
+      console.log('Updated calls table with ringing status for:', call_sid)
+    }
+    
+    // Update call attempt if exists
+    await supabase
+      .from('call_attempts')
+      .update({
+        disposition: 'initiated',
+        provider_metadata: data
+      })
+      .eq('provider_call_id', call_sid)
+      .eq('organization_id', organizationId)
+
+  } catch (error) {
+    console.error('Error handling SignalWire call ringing:', error)
+  }
+}
+
 async function handleCallAnswered(supabase: any, organizationId: string, data: any) {
   try {
     const { call_sid } = data
+    
+    // Update the calls table with status in metadata
+    const { data: callRecord } = await supabase
+      .from('calls')
+      .update({
+        metadata: supabase.sql`metadata || jsonb_build_object('call_status', 'in-progress', 'webhook_updated_at', '${new Date().toISOString()}')`
+      })
+      .eq('organization_id', organizationId)
+      .eq('metadata->>external_id', call_sid)
+      .select()
+      .single()
+    
+    if (callRecord) {
+      console.log('Updated calls table with in-progress status for:', call_sid)
+    }
     
     // Update call attempt
     await supabase
@@ -178,6 +245,25 @@ async function handleCallAnswered(supabase: any, organizationId: string, data: a
 async function handleCallCompleted(supabase: any, organizationId: string, data: any) {
   try {
     const { call_sid, end_time, duration, recording_url, recording_sid } = data
+    
+    // Update the calls table with completion details
+    const { data: callRecord } = await supabase
+      .from('calls')
+      .update({
+        end_time: end_time || new Date().toISOString(),
+        duration: duration ? parseInt(duration) : null,
+        status: 'answered', // Map completed to answered in the enum
+        recording_url,
+        metadata: supabase.sql`metadata || jsonb_build_object('call_status', 'completed', 'webhook_updated_at', '${new Date().toISOString()}', 'recording_sid', '${recording_sid || ''}')`
+      })
+      .eq('organization_id', organizationId)
+      .eq('metadata->>external_id', call_sid)
+      .select()
+      .single()
+    
+    if (callRecord) {
+      console.log('Updated calls table with completed status for:', call_sid)
+    }
     
     // Update call attempt with completion details
     const { data: callAttempt, error } = await supabase
@@ -275,7 +361,7 @@ async function handleCallFailed(supabase: any, organizationId: string, data: any
   try {
     const { call_sid, end_time } = data
     
-    // Map status to our disposition
+    // Map status to our disposition and enum values
     const dispositionMap: Record<string, string> = {
       'busy': 'busy',
       'no-answer': 'no_answer',
@@ -283,7 +369,32 @@ async function handleCallFailed(supabase: any, organizationId: string, data: any
       'canceled': 'failed'
     }
     
+    const statusMap: Record<string, string> = {
+      'busy': 'busy',
+      'no-answer': 'missed',
+      'failed': 'failed',
+      'canceled': 'failed'
+    }
+    
     const disposition = dispositionMap[status] || status
+    const dbStatus = statusMap[status] || 'failed'
+
+    // Update the calls table with failed status
+    const { data: callRecord } = await supabase
+      .from('calls')
+      .update({
+        end_time: end_time || new Date().toISOString(),
+        status: dbStatus,
+        metadata: supabase.sql`metadata || jsonb_build_object('call_status', '${status}', 'webhook_updated_at', '${new Date().toISOString()}')`
+      })
+      .eq('organization_id', organizationId)
+      .eq('metadata->>external_id', call_sid)
+      .select()
+      .single()
+    
+    if (callRecord) {
+      console.log(`Updated calls table with ${status} status for:`, call_sid)
+    }
 
     // Update call attempt
     const { data: callAttempt } = await supabase

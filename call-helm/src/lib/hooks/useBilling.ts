@@ -23,12 +23,28 @@ export function useBilling() {
   const { 
     data: limits, 
     isLoading: limitsLoading,
-    refetch: refetchLimits 
+    refetch: refetchLimits,
+    error: limitsError 
   } = useQuery({
     queryKey: ['organization-limits', organizationId],
-    queryFn: () => billingService.getOrganizationLimits(organizationId),
+    queryFn: async () => {
+      if (!organizationId) {
+        console.warn('No organization ID available for billing')
+        return null
+      }
+      
+      const result = await billingService.getOrganizationLimits(organizationId)
+      
+      // Log warning if no limits found but don't crash
+      if (!result) {
+        console.warn('No billing limits found for organization:', organizationId)
+      }
+      
+      return result
+    },
     enabled: !!organizationId,
     refetchInterval: 1000 * 60, // Refetch every minute
+    retry: 1, // Only retry once to avoid spamming
   })
 
   // Check trial status

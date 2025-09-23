@@ -35,7 +35,9 @@ export interface Contact {
 }
 
 export interface ContactInput {
-  full_name: string
+  full_name?: string // For display/backwards compatibility
+  first_name?: string
+  last_name?: string
   phone_number: string
   email?: string
   company?: string
@@ -79,15 +81,7 @@ export function useContacts(filters?: ContactFilters) {
     queryFn: async () => {
       let query = supabase
         .from('contacts')
-        .select(`
-          *,
-          call_list_contacts!inner(
-            id,
-            call_list_id,
-            assigned_to,
-            status
-          )
-        `)
+        .select('*')
         .is('deleted_at', null)
         .order('created_at', { ascending: false })
 
@@ -105,7 +99,18 @@ export function useContacts(filters?: ContactFilters) {
       }
 
       if (filters?.callListId) {
-        query = query.eq('call_list_contacts.call_list_id', filters.callListId)
+        // For call list filtering, we need to join with call_list_contacts
+        const { data: callListContacts } = await supabase
+          .from('call_list_contacts')
+          .select('contact_id')
+          .eq('call_list_id', filters.callListId)
+        
+        if (callListContacts) {
+          const contactIds = callListContacts.map(clc => clc.contact_id)
+          if (contactIds.length > 0) {
+            query = query.in('id', contactIds)
+          }
+        }
       }
 
       if (filters?.assignedToMe) {
@@ -117,7 +122,18 @@ export function useContacts(filters?: ContactFilters) {
           .single()
 
         if (member) {
-          query = query.eq('call_list_contacts.assigned_to', member.id)
+          // Get contacts assigned to this member
+          const { data: callListContacts } = await supabase
+            .from('call_list_contacts')
+            .select('contact_id')
+            .eq('assigned_to', member.id)
+          
+          if (callListContacts) {
+            const contactIds = callListContacts.map(clc => clc.contact_id)
+            if (contactIds.length > 0) {
+              query = query.in('id', contactIds)
+            }
+          }
         }
       }
 
@@ -195,13 +211,20 @@ export function useCreateContact() {
       }
 
       // Parse full name into first and last if not provided
-      let firstName = input.full_name
-      let lastName = ''
+      let firstName = input.first_name || ''
+      let lastName = input.last_name || ''
       
-      if (input.full_name.includes(' ')) {
-        const parts = input.full_name.split(' ')
-        firstName = parts[0]
-        lastName = parts.slice(1).join(' ')
+      // If full_name is provided but not first/last name, parse it
+      if (input.full_name && !input.first_name && !input.last_name) {
+        if (input.full_name.includes(' ')) {
+          const parts = input.full_name.split(' ')
+          firstName = parts[0]
+          lastName = parts.slice(1).join(' ')
+        } else {
+          firstName = input.full_name
+        }
+      } else if (!input.full_name && !input.first_name && !input.last_name) {
+        throw new Error('Contact name is required')
       }
 
       // Create contact
@@ -273,11 +296,22 @@ export function useUpdateContact() {
 
       if (!member) throw new Error('No organization found')
 
+      // Prepare the update object, excluding full_name if present
+      const updateData: any = { ...updates }
+      
+      // If full_name is provided, split it into first_name and last_name
+      if (updates.full_name) {
+        const parts = updates.full_name.split(' ')
+        updateData.first_name = parts[0]
+        updateData.last_name = parts.slice(1).join(' ') || ''
+        delete updateData.full_name // Remove full_name as it's a generated column
+      }
+
       // Update contact
       const { data, error } = await supabase
         .from('contacts')
         .update({
-          ...updates,
+          ...updateData,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
@@ -369,10 +403,10 @@ export function useImportContacts() {
       // Prepare contacts for bulk insert
       const contactRecords = contacts.map(contact => {
         // Parse full name
-        let firstName = contact.full_name
+        let firstName = contact.full_name || ''
         let lastName = ''
         
-        if (contact.full_name.includes(' ')) {
+        if (contact.full_name?.includes(' ')) {
           const parts = contact.full_name.split(' ')
           firstName = parts[0]
           lastName = parts.slice(1).join(' ')

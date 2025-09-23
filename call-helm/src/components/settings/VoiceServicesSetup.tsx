@@ -75,7 +75,7 @@ export function VoiceServicesSetup() {
       setStatus(data)
       
       // Determine setup step based on status
-      if (data.configured && data.verification_status === 'verified') {
+      if (data.configured && data.verification_status === 'verified' && data.verified_number) {
         setSetupStep('complete')
       }
     } catch (error) {
@@ -254,7 +254,7 @@ export function VoiceServicesSetup() {
   }
 
   // If enabled but not configured, show setup flow
-  if (status.enabled && (!status.configured || status.verification_status !== 'verified')) {
+  if (status.enabled && (!status.configured || status.verification_status !== 'verified' || !status.verified_number)) {
     if (setupStep === 'choose') {
       return (
         <Card>

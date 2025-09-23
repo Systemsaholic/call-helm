@@ -11,7 +11,10 @@
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "test:setup": "tsx tests/setup-test-user.ts",
-    "test:headed": "playwright test --headed"
+    "test:headed": "playwright test --headed",
+    "tunnel": "ngrok http --url=buffalo-massive-violently.ngrok-free.app 3035",
+    "webhooks:update": "curl http://localhost:3035/api/voice/fix-webhooks",
+    "dev:all": "echo 'Start ngrok first with: pnpm tunnel' && echo 'Then in another terminal: pnpm dev'"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -60,6 +63,7 @@
     "@types/papaparse": "^5.3.16",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "csv-parse": "^6.1.0",
     "dotenv": "^17.2.2",
     "tailwindcss": "^4",
     "tsx": "^4.20.5",

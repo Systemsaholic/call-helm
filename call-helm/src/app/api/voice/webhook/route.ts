@@ -4,11 +4,11 @@ import crypto from 'crypto'
 
 // Verify webhook signature
 function verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex')
-  return signature === expectedSignature
+  const expectedSignature = crypto.createHmac("sha256", secret).update(payload).digest("hex")
+  const a = Buffer.from(expectedSignature || "", "utf8")
+  const b = Buffer.from(signature || "", "utf8")
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
 }
 
 export async function POST(request: NextRequest) {
@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
         if (integration.webhook_secret && signature) {
           const isValid = verifyWebhookSignature(rawBody, signature, integration.webhook_secret)
           if (!isValid) {
-            console.warn('Invalid webhook signature')
-            // Continue processing but log the warning
+            console.warn("Invalid webhook signature - rejecting request")
+            return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
           }
         }
       }

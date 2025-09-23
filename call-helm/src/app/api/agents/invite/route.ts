@@ -3,6 +3,13 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 
+// Helper for required environment variables
+function getRequiredEnv(key: string): string {
+  const v = process.env[key]
+  if (!v) throw new Error(`Missing required environment variable: ${key}`)
+  return v
+}
+
 // Check if service role key is configured
 const hasServiceRoleKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!hasServiceRoleKey) {
@@ -11,16 +18,12 @@ if (!hasServiceRoleKey) {
 
 // Create admin client with service role key for admin operations (if available)
 const supabaseAdmin = hasServiceRoleKey
-  ? createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
+  ? createClient(getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"), getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
       }
-    )
+    })
   : null
 
 export async function POST(request: NextRequest) {
@@ -34,26 +37,21 @@ export async function POST(request: NextRequest) {
     const allCookies = cookieStore.getAll()
     console.log('Available cookies:', allCookies.map(c => c.name))
     
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // Ignore errors
-            }
-          },
+    const supabase = createServerClient(getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"), getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"), {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
         },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+          } catch {
+            // Log errors when setting cookies instead of silently swallowing
+            console.error("Failed to set cookies in invite route")
+          }
+        }
       }
-    )
+    })
 
     // Verify the user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()

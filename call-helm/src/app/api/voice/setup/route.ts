@@ -15,22 +15,20 @@ function encrypt(text: string, key: string): string {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
-    
+
     // Check authentication
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Get user's organization and check admin role
-    const { data: member } = await supabase
-      .from('organization_members')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .single()
+    const { data: member } = await supabase.from("organization_members").select("organization_id, role").eq("user_id", user.id).single()
 
-    if (!member || (member.role !== 'org_admin' && member.role !== 'super_admin')) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (!member || (member.role !== "org_admin" && member.role !== "super_admin")) {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
     // Get request body
@@ -39,60 +37,69 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!spaceUrl || !projectId || !apiToken) {
-      return NextResponse.json({ 
-        error: 'Missing required fields: spaceUrl, projectId, apiToken' 
-      }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: "Missing required fields: spaceUrl, projectId, apiToken"
+        },
+        { status: 400 }
+      )
     }
 
-    // Encrypt the API token
-    const encryptionKey = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex')
+    // Encrypt the API token - require a persistent ENCRYPTION_KEY
+    const encryptionKey = process.env.ENCRYPTION_KEY
+    if (!encryptionKey) {
+      console.error("ENCRYPTION_KEY is required for voice setup")
+      return NextResponse.json({ error: "Server not configured" }, { status: 500 })
+    }
     const encryptedToken = encrypt(apiToken, encryptionKey)
 
     // Generate webhook secret
-    const webhookSecret = crypto.randomBytes(32).toString('hex')
-    
+    const webhookSecret = crypto.randomBytes(32).toString("hex")
+
     // Store or update voice integration settings
     const { data, error } = await supabase
-      .from('voice_integrations')
-      .upsert({
-        organization_id: member.organization_id,
-        provider: 'internal', // White-labeled - hide SignalWire
-        is_active: true,
-        space_url: spaceUrl,
-        project_id: projectId,
-        api_token_encrypted: encryptedToken,
-        phone_numbers: phoneNumbers || [],
-        webhook_url: webhookUrl || `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/webhook`,
-        webhook_secret: webhookSecret,
-        status_callback_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/status`,
-        recording_enabled: true,
-        transcription_enabled: false,
-        voicemail_enabled: true,
-        settings: {
-          max_call_duration: 3600, // 1 hour
-          recording_format: 'mp3',
-          voicemail_max_duration: 180 // 3 minutes
+      .from("voice_integrations")
+      .upsert(
+        {
+          organization_id: member.organization_id,
+          provider: "internal", // White-labeled - hide SignalWire
+          is_active: true,
+          space_url: spaceUrl,
+          project_id: projectId,
+          api_token_encrypted: encryptedToken,
+          phone_numbers: phoneNumbers || [],
+          webhook_url: webhookUrl || `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/webhook`,
+          webhook_secret: webhookSecret,
+          status_callback_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/status`,
+          recording_enabled: true,
+          transcription_enabled: false,
+          voicemail_enabled: true,
+          settings: {
+            max_call_duration: 3600, // 1 hour
+            recording_format: "mp3",
+            voicemail_max_duration: 180 // 3 minutes
+          },
+          last_verified_at: new Date().toISOString()
         },
-        last_verified_at: new Date().toISOString()
-      }, {
-        onConflict: 'organization_id'
-      })
+        {
+          onConflict: "organization_id"
+        }
+      )
       .select()
       .single()
 
     if (error) {
-      console.error('Voice integration error:', error)
-      return NextResponse.json({ error: 'Failed to save voice settings' }, { status: 500 })
+      console.error("Voice integration error:", error)
+      return NextResponse.json({ error: "Failed to save voice settings" }, { status: 500 })
     }
 
     // Return success without exposing provider details
     return NextResponse.json({
       success: true,
-      message: 'Voice integration configured successfully',
+      message: "Voice integration configured successfully",
       webhookUrl: data.webhook_url,
       webhookSecret: webhookSecret
     })
-
   } catch (error) {
     console.error('Voice setup error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

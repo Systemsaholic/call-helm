@@ -51,4 +51,3 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 COMMENT ON FUNCTION get_usage_stats IS 'Returns usage statistics for an organization and period (fixed ambiguous column)';
-EOF < /dev/null

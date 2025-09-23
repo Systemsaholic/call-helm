@@ -46,26 +46,24 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
-    
+
     // Check authentication
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user }
+    } = await supabase.auth.getUser()
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Get user's organization and check admin role
-    const { data: member } = await supabase
-      .from('organization_members')
-      .select('organization_id, role')
-      .eq('user_id', user.id)
-      .single()
+    const { data: member } = await supabase.from("organization_members").select("organization_id, role").eq("user_id", user.id).single()
 
     if (!member) {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
+      return NextResponse.json({ error: "Organization not found" }, { status: 404 })
     }
 
-    if (member.role !== 'org_admin' && member.role !== 'super_admin') {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+    if (member.role !== "org_admin" && member.role !== "super_admin") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 })
     }
 
     const body = await request.json()
@@ -73,63 +71,69 @@ export async function POST(request: NextRequest) {
 
     // Validate required fields
     if (!number || !friendly_name) {
-      return NextResponse.json({ 
-        error: 'Phone number and friendly name are required' 
-      }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: "Phone number and friendly name are required"
+        },
+        { status: 400 }
+      )
     }
 
-    // If this is marked as primary, unset other primary numbers
+    // If this is marked as primary, use an RPC to set primary atomically
     if (is_primary) {
-      await supabase
-        .from('phone_numbers')
-        .update({ is_primary: false })
-        .eq('organization_id', member.organization_id)
+      try {
+        const { error: rpcError } = await supabase.rpc("set_primary_phone_number", {
+          p_organization_id: member.organization_id,
+          p_number_id: null,
+          p_is_primary: true,
+          p_number: number
+        })
+        if (rpcError) {
+          console.error("RPC set_primary_phone_number error:", rpcError)
+          return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
+        }
+      } catch (err) {
+        console.error("RPC call failed:", err)
+        return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
+      }
     }
 
     // Create the phone number
     const { data: phoneNumber, error } = await supabase
-      .from('phone_numbers')
+      .from("phone_numbers")
       .insert({
         organization_id: member.organization_id,
         number,
         friendly_name,
         capabilities: capabilities || { voice: true, sms: false, mms: false, fax: false },
         is_primary: is_primary || false,
-        status: 'active',
-        provider: 'signalwire'
+        status: "active",
+        provider: "signalwire"
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Error creating phone number:', error)
-      return NextResponse.json({ error: 'Failed to create phone number' }, { status: 500 })
+      console.error("Error creating phone number:", error)
+      return NextResponse.json({ error: "Failed to create phone number" }, { status: 500 })
     }
 
     // Update voice integration with the new number
-    const { data: voiceIntegration } = await supabase
-      .from('voice_integrations')
-      .select('phone_numbers, default_caller_id')
-      .eq('organization_id', member.organization_id)
-      .single()
+    const { data: voiceIntegration } = await supabase.from("voice_integrations").select("phone_numbers, default_caller_id").eq("organization_id", member.organization_id).single()
 
     if (voiceIntegration) {
       const updatedNumbers = [...(voiceIntegration.phone_numbers || []), number]
       const updates: any = { phone_numbers: updatedNumbers }
-      
+
       // If this is primary or the first number, set as default caller ID
       if (is_primary || !voiceIntegration.default_caller_id) {
         updates.default_caller_id = number
       }
 
-      await supabase
-        .from('voice_integrations')
-        .update(updates)
-        .eq('organization_id', member.organization_id)
+      await supabase.from("voice_integrations").update(updates).eq("organization_id", member.organization_id)
     }
 
     return NextResponse.json({ phoneNumber })
-
   } catch (error) {
     console.error('Phone number POST error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -170,24 +174,27 @@ export async function PATCH(request: NextRequest) {
 
     // If setting as primary, unset other primary numbers
     if (updates.is_primary) {
-      await supabase
-        .from('phone_numbers')
-        .update({ is_primary: false })
-        .eq('organization_id', member.organization_id)
-        .neq('id', id)
+      try {
+        const { error: rpcError } = await supabase.rpc("set_primary_phone_number", {
+          p_organization_id: member.organization_id,
+          p_number_id: id,
+          p_is_primary: true,
+          p_number: null
+        })
+        if (rpcError) {
+          console.error("RPC set_primary_phone_number error:", rpcError)
+          return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
+        }
+      } catch (err) {
+        console.error("RPC call failed:", err)
+        return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
+      }
 
-      // Update default caller ID in voice integration
-      const { data: phoneNumber } = await supabase
-        .from('phone_numbers')
-        .select('number')
-        .eq('id', id)
-        .single()
+      // Update default caller ID in voice integration (based on updated record)
+      const { data: phoneNumber } = await supabase.from("phone_numbers").select("number").eq("id", id).single()
 
       if (phoneNumber) {
-        await supabase
-          .from('voice_integrations')
-          .update({ default_caller_id: phoneNumber.number })
-          .eq('organization_id', member.organization_id)
+        await supabase.from("voice_integrations").update({ default_caller_id: phoneNumber.number }).eq("organization_id", member.organization_id)
       }
     }
 

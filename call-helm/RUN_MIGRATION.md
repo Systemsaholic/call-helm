@@ -4,9 +4,9 @@ To complete the Agents page implementation, you need to run the database migrati
 
 ## Steps:
 
-1. Go to your Supabase Dashboard: https://supabase.com/dashboard/project/ffibwlsymbnslpjenubz
+1. Make sure your Supabase project URL is configured in an environment variable named `NEXT_PUBLIC_SUPABASE_URL` (or create a local `.env` file). Do NOT commit real project URLs into source control. A `.env.example` has been added to the repo to show the expected keys.
 
-2. Navigate to the SQL Editor
+2. Navigate to the SQL Editor in your Supabase project
 
 3. Open the file: `/supabase/migrations/add_agent_management.sql`
 

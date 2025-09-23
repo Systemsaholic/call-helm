@@ -69,18 +69,31 @@ export class BillingService {
    * Get organization's current plan and usage limits
    */
   async getOrganizationLimits(organizationId: string): Promise<PlanLimits | null> {
-    const { data, error } = await this.supabase
-      .from('organization_limits')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .single()
+    try {
+      const { data, error } = await this.supabase
+        .from('organization_limits')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .single()
 
-    if (error) {
-      console.error('Error fetching organization limits:', error)
+      if (error) {
+        // Better error logging with actual error details
+        console.error('Error fetching organization limits:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          organizationId
+        })
+        
+        // Return null instead of throwing to prevent app crashes
+        return null
+      }
+
+      return data
+    } catch (err) {
+      console.error('Unexpected error fetching organization limits:', err)
       return null
     }
-
-    return data
   }
 
   /**

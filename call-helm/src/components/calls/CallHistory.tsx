@@ -69,7 +69,7 @@ export function CallHistory({
             full_name,
             phone_number
           ),
-          agent:agents(
+          member:organization_members!member_id(
             full_name,
             email
           )
@@ -144,7 +144,7 @@ export function CallHistory({
       call_id: call.id,
       caller_number: call.caller_number,
       called_number: call.called_number,
-      agent_name: call.agent?.full_name,
+      agent_name: call.member?.full_name,
       contact_name: call.contact?.full_name,
       direction: call.direction,
       start_time: call.start_time,
@@ -228,7 +228,7 @@ export function CallHistory({
                 </TableCell>
                 <TableCell>
                   <div className="text-sm">
-                    {call.agent?.full_name || 'System'}
+                    {call.member?.full_name || 'System'}
                   </div>
                 </TableCell>
                 <TableCell>

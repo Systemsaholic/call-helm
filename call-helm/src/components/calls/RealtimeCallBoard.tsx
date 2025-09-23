@@ -122,19 +122,20 @@ export function RealtimeCallBoard() {
         .from('calls')
         .select(`
           *,
-          agent:agents(full_name, email),
+          member:organization_members!member_id(full_name, email),
           contact:contacts(full_name),
           call_list:call_lists(name)
         `)
         .in('status', ['initiated', 'ringing', 'in-progress'])
         .order('start_time', { ascending: false })
 
-      // Load agent statuses
+      // Load agent statuses (from organization_members)
       const { data: agents } = await supabase
-        .from('agents')
+        .from('organization_members')
         .select(`
           *,
-          agent_status(status, last_activity)
+          status,
+          last_activity
         `)
         .eq('is_active', true)
 
@@ -151,8 +152,8 @@ export function RealtimeCallBoard() {
       if (calls) {
         setActiveCalls(calls.map(call => ({
           id: call.id,
-          agent_id: call.agent_id,
-          agent_name: call.agent?.full_name || 'Unknown',
+          agent_id: call.member_id,
+          agent_name: call.member?.full_name || 'Unknown',
           contact_id: call.contact_id,
           contact_name: call.contact?.full_name || 'Unknown',
           phone_number: call.called_number,
@@ -202,7 +203,7 @@ export function RealtimeCallBoard() {
   const handleNewCall = (call: any) => {
     setActiveCalls(prev => [...prev, {
       id: call.id,
-      agent_id: call.agent_id,
+      agent_id: call.member_id,
       agent_name: 'Loading...',
       contact_id: call.contact_id,
       contact_name: 'Loading...',
@@ -217,7 +218,7 @@ export function RealtimeCallBoard() {
 
     // Update agent status
     setAgentStatuses(prev => prev.map(agent => 
-      agent.id === call.agent_id 
+      agent.id === call.member_id 
         ? { ...agent, status: 'busy' as const }
         : agent
     ))
@@ -243,7 +244,7 @@ export function RealtimeCallBoard() {
     
     // Update agent status
     setAgentStatuses(prev => prev.map(agent => 
-      agent.id === call.agent_id 
+      agent.id === call.member_id 
         ? { ...agent, status: 'after-call' as const }
         : agent
     ))

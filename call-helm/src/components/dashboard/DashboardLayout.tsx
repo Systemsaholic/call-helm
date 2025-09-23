@@ -9,6 +9,7 @@ import { useBilling } from '@/lib/hooks/useBilling'
 import { useGlobalRealtimeSubscriptions } from '@/lib/hooks/useRealtimeSubscription'
 import { Button } from '@/components/ui/button'
 import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
+import { CallProvider } from '@/lib/contexts/CallContext'
 import {
   LayoutDashboard,
   Users,

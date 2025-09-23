@@ -50,7 +50,7 @@ import { AddContactModal } from './modals/AddContactModal'
 import { EditContactModal } from './modals/EditContactModal'
 import { ImportContactsModal } from './modals/ImportContactsModal'
 import { ViewContactModal } from './modals/ViewContactModal'
-import { ClickToCallButton } from '@/components/calls/ClickToCallButton'
+import { SimpleCallButton } from '@/components/calls/SimpleCallButton'
 import { formatPhoneNumber } from '@/lib/utils'
 
 export function ContactsTable() {
@@ -125,10 +125,6 @@ export function ContactsTable() {
         return 'bg-gray-100 text-gray-800'
       case 'do_not_call':
         return 'bg-red-100 text-red-800'
-      case 'duplicate':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'invalid':
-        return 'bg-orange-100 text-orange-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -160,8 +156,6 @@ export function ContactsTable() {
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="inactive">Inactive</SelectItem>
               <SelectItem value="do_not_call">Do Not Call</SelectItem>
-              <SelectItem value="duplicate">Duplicate</SelectItem>
-              <SelectItem value="invalid">Invalid</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -211,7 +205,7 @@ export function ContactsTable() {
             <TableRow>
               <TableHead className="w-[50px]">
                 <Checkbox
-                  checked={contacts && selectedContacts.length === contacts.length}
+                  checked={!!contacts && contacts.length > 0 && selectedContacts.length === contacts.length}
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
@@ -306,7 +300,7 @@ export function ContactsTable() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       {contact.status !== 'do_not_call' && (
-                        <ClickToCallButton
+                        <SimpleCallButton
                           phoneNumber={contact.phone_number}
                           contactId={contact.id}
                           contactName={contact.full_name}
@@ -333,7 +327,7 @@ export function ContactsTable() {
                                 asChild
                               >
                                 <div className="px-2 py-1.5">
-                                  <ClickToCallButton
+                                  <SimpleCallButton
                                     phoneNumber={contact.phone_number}
                                     contactId={contact.id}
                                     contactName={contact.full_name}

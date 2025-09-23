@@ -37,6 +37,8 @@ export function AddContactModal({ open, onOpenChange, callListId }: AddContactMo
   
   const [formData, setFormData] = useState<ContactInput>({
     full_name: '',
+    first_name: '',
+    last_name: '',
     phone_number: '',
     email: '',
     company: '',
