@@ -72,16 +72,20 @@ export function ContactsTable() {
     const { createClient } = await import('@/lib/supabase/client')
     const supabase = createClient()
     
-    const { data: call } = await supabase
+    const { data: call, error } = await supabase
       .from('calls')
       .select('id')
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single()
+      .maybeSingle()
     
     if (call) {
       setSelectedCallId(call.id)
+    } else {
+      // Create a toast notification if no calls found
+      const { toast } = await import('sonner')
+      toast.info('No call history found for this contact')
     }
   }
 

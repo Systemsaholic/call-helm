@@ -124,31 +124,67 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
   const fetchCallDetails = async () => {
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      // First get the call details
+      const { data: callData, error } = await supabase
         .from('calls')
-        .select(`
-          *,
-          contact:contacts(*),
-          member:organization_members(id, user_id, users(email, full_name)),
-          call_list:call_lists(id, name)
-        `)
+        .select('*')
         .eq('id', callId)
-        .single()
+        .maybeSingle()
 
       if (error) throw error
+      if (!callData) {
+        throw new Error('Call not found')
+      }
 
-      // Flatten the member data
-      const flattenedData = {
-        ...data,
-        member: data.member ? {
-          id: data.member.id,
-          full_name: data.member.users?.full_name || 'Unknown',
-          email: data.member.users?.email || ''
+      // Then get related data separately to avoid join issues
+      let contact = null
+      let member = null
+      let callList = null
+
+      if (callData.contact_id) {
+        const { data: contactData } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('id', callData.contact_id)
+          .maybeSingle()
+        contact = contactData
+      }
+
+      if (callData.member_id) {
+        const { data: memberData } = await supabase
+          .from('organization_members')
+          .select(`
+            id,
+            users(email, full_name)
+          `)
+          .eq('id', callData.member_id)
+          .maybeSingle()
+        
+        member = memberData ? {
+          id: memberData.id,
+          full_name: memberData.users?.full_name || 'Unknown',
+          email: memberData.users?.email || ''
         } : null
       }
 
+      if (callData.metadata?.campaign_id) {
+        const { data: listData } = await supabase
+          .from('call_lists')
+          .select('id, name')
+          .eq('id', callData.metadata.campaign_id)
+          .maybeSingle()
+        callList = listData
+      }
+
+      const flattenedData = {
+        ...callData,
+        contact,
+        member,
+        call_list: callList
+      }
+
       setCallDetails(flattenedData)
-      setNotes(data.metadata?.notes || '')
+      setNotes(callData.metadata?.notes || '')
     } catch (error) {
       console.error('Error fetching call details:', error)
       toast.error('Failed to load call details')
