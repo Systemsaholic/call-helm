@@ -9,6 +9,7 @@ import { useBilling } from '@/lib/hooks/useBilling'
 import { useGlobalRealtimeSubscriptions } from '@/lib/hooks/useRealtimeSubscription'
 import { Button } from '@/components/ui/button'
 import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
+import { RecordingToggle } from '@/components/dashboard/RecordingToggle'
 import { CallProvider } from '@/lib/contexts/CallContext'
 import {
   LayoutDashboard,
@@ -245,6 +246,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="flex items-center gap-4">
+              {/* Recording Toggle - Only show for Pro plan users */}
+              <RecordingToggle />
+              
               {/* Notifications */}
               <NotificationCenter />
 

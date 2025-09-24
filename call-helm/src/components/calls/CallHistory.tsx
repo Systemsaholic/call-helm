@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { CallRecordingPlayer } from './CallRecordingPlayer'
+import { CallDetailsSlideout } from './CallDetailsSlideout'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -50,6 +51,7 @@ export function CallHistory({
   limit = 50 
 }: CallHistoryProps) {
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [organizationId, setOrganizationId] = useState<string | null>(null)
   const supabase = createClient()
   const queryClient = useQueryClient()
@@ -311,7 +313,18 @@ export function CallHistory({
           </TableHeader>
           <TableBody>
             {calls.map((call) => (
-              <TableRow key={call.id}>
+              <TableRow 
+                key={call.id}
+                className="cursor-pointer hover:bg-gray-50"
+                onClick={(e) => {
+                  // Don't open slideout if clicking on action buttons
+                  const target = e.target as HTMLElement
+                  if (target.closest('button')) {
+                    return
+                  }
+                  setSelectedCallId(call.id)
+                }}
+              >
                 <TableCell>
                   {call.direction === 'outbound' ? (
                     <PhoneOutgoing className="h-4 w-4 text-blue-500" />
@@ -348,7 +361,7 @@ export function CallHistory({
                   <div className="flex items-center gap-1">
                     <Clock className="h-3 w-3 text-gray-400" />
                     <span className="text-sm">
-                      {formatDuration(call.duration_seconds)}
+                      {formatDuration(call.duration || 0)}
                     </span>
                   </div>
                 </TableCell>
@@ -425,6 +438,15 @@ export function CallHistory({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Call Details Slideout */}
+      {selectedCallId && (
+        <CallDetailsSlideout
+          callId={selectedCallId}
+          isOpen={!!selectedCallId}
+          onClose={() => setSelectedCallId(null)}
+        />
+      )}
     </>
   )
 }

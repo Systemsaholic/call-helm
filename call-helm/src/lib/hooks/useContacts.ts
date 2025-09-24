@@ -286,7 +286,7 @@ export function useUpdateContact() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<ContactInput> }) => {
+    mutationFn: async ({ id, data: updates }: { id: string; data: Partial<ContactInput> }) => {
       // Get user's member ID
       const { data: member } = await supabase
         .from('organization_members')
@@ -333,13 +333,56 @@ export function useUpdateContact() {
 
       return data as Contact
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: contactKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: contactKeys.detail(data.id) })
-      toast.success('Contact updated successfully')
+    onMutate: async ({ id, data: updates }) => {
+      // Cancel outgoing refetches (so they don't overwrite our optimistic update)
+      await queryClient.cancelQueries({ queryKey: contactKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: contactKeys.detail(id) })
+      
+      // Snapshot the previous value
+      const previousContacts = queryClient.getQueryData(contactKeys.lists())
+      const previousDetail = queryClient.getQueryData(contactKeys.detail(id))
+      
+      // Optimistically update to the new value
+      queryClient.setQueriesData(
+        { queryKey: contactKeys.lists() },
+        (old: any) => {
+          if (!old) return old
+          return old.map((contact: Contact) =>
+            contact.id === id ? { ...contact, ...updates, updated_at: new Date().toISOString() } : contact
+          )
+        }
+      )
+      
+      queryClient.setQueryData(
+        contactKeys.detail(id),
+        (old: any) => {
+          if (!old) return old
+          return { ...old, ...updates, updated_at: new Date().toISOString() }
+        }
+      )
+      
+      // Return a context with the previous and new data
+      return { previousContacts, previousDetail, id }
     },
-    onError: (error: any) => {
+    onError: (error: any, variables, context: any) => {
+      // If the mutation fails, use the context to roll back
+      if (context?.previousContacts) {
+        queryClient.setQueriesData({ queryKey: contactKeys.lists() }, context.previousContacts)
+      }
+      if (context?.previousDetail) {
+        queryClient.setQueryData(contactKeys.detail(context.id), context.previousDetail)
+      }
       toast.error(error.message || 'Failed to update contact')
+    },
+    onSettled: (data, error, variables) => {
+      // Always refetch after error or success to ensure we're in sync
+      queryClient.invalidateQueries({ queryKey: contactKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: contactKeys.detail(variables.id) })
+      // Also invalidate stats queries that depend on contact details
+      queryClient.invalidateQueries({ queryKey: [...contactKeys.detail(variables.id), 'stats'] })
+    },
+    onSuccess: (data) => {
+      toast.success('Contact updated successfully')
     },
   })
 }

@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -18,6 +20,7 @@ export function CallListScripts({ callListId }: CallListScriptsProps) {
   const [showGenerator, setShowGenerator] = useState(false)
   const [editingScript, setEditingScript] = useState<any>(null)
   const [activeScriptId, setActiveScriptId] = useState<string | null>(null)
+  const confirmation = useConfirmation()
   
   const { data: scripts, isLoading } = useScripts(callListId)
   const createScript = useCreateScript()
@@ -48,9 +51,17 @@ export function CallListScripts({ callListId }: CallListScriptsProps) {
   }
 
   const handleDelete = async (scriptId: string) => {
-    if (confirm('Are you sure you want to delete this script?')) {
-      await deleteScript.mutateAsync(scriptId)
-    }
+    const script = scripts?.find(s => s.id === scriptId)
+    confirmation.showConfirmation({
+      title: 'Delete Script',
+      description: `Are you sure you want to delete "${script?.name || 'this script'}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      onConfirm: async () => {
+        await deleteScript.mutateAsync(scriptId)
+      }
+    })
   }
 
   const handleDuplicate = async (script: any) => {
@@ -275,6 +286,19 @@ export function CallListScripts({ callListId }: CallListScriptsProps) {
           }
         }}
         editingScript={editingScript}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
       />
     </div>
   )

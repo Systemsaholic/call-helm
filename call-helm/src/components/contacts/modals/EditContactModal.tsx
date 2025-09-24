@@ -23,6 +23,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { X } from 'lucide-react'
 import { useUpdateContact, type Contact, type ContactInput } from '@/lib/hooks/useContacts'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 
 interface EditContactModalProps {
   contact: Contact
@@ -32,6 +34,7 @@ interface EditContactModalProps {
 
 export function EditContactModal({ contact, open, onOpenChange }: EditContactModalProps) {
   const updateContact = useUpdateContact()
+  const confirmation = useConfirmation()
   const [tags, setTags] = useState<string[]>(contact.tags || [])
   const [tagInput, setTagInput] = useState('')
   
@@ -76,7 +79,7 @@ export function EditContactModal({ contact, open, onOpenChange }: EditContactMod
     updateContact.mutate(
       { 
         id: contact.id,
-        updates: { ...formData, tags }
+        data: { ...formData, tags }
       },
       {
         onSuccess: () => {
@@ -163,9 +166,30 @@ export function EditContactModal({ contact, open, onOpenChange }: EditContactMod
               <Label htmlFor="status">Status</Label>
               <Select
                 value={formData.status}
-                onValueChange={(value: 'active' | 'inactive' | 'do_not_call') => 
-                  setFormData({ ...formData, status: value })
-                }
+                onValueChange={(value: 'active' | 'inactive' | 'do_not_call') => {
+                  // If changing to or from do_not_call, show confirmation
+                  if (
+                    (value === 'do_not_call' && formData.status !== 'do_not_call') ||
+                    (value !== 'do_not_call' && formData.status === 'do_not_call')
+                  ) {
+                    const message = value === 'do_not_call'
+                      ? `Are you sure you want to mark ${contact.full_name} as "Do Not Call"? This will prevent any calls to this contact.`
+                      : `Are you sure you want to remove the "Do Not Call" status from ${contact.full_name}? This will allow calls to be made to this contact again.`
+                    
+                    confirmation.showConfirmation({
+                      title: value === 'do_not_call' ? 'Mark as Do Not Call' : 'Remove Do Not Call',
+                      description: message,
+                      confirmText: 'Yes, Change Status',
+                      cancelText: 'Cancel',
+                      variant: value === 'do_not_call' ? 'destructive' : 'default',
+                      onConfirm: () => {
+                        setFormData({ ...formData, status: value })
+                      }
+                    })
+                  } else {
+                    setFormData({ ...formData, status: value })
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -276,6 +300,17 @@ export function EditContactModal({ contact, open, onOpenChange }: EditContactMod
           </DialogFooter>
         </form>
       </DialogContent>
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </Dialog>
   )
 }

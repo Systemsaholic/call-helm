@@ -517,6 +517,22 @@ function SettingsContent() {
                   )}
                 </label>
                 <label className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    className="h-4 w-4 text-primary rounded"
+                    checked={orgSettings?.allow_agents_toggle_recording || false}
+                    onChange={(e) => {
+                      updateOrgSettings({
+                        allow_agents_toggle_recording: e.target.checked
+                      })
+                    }}
+                  />
+                  <span className="text-sm text-gray-700">Allow agents to toggle call recording</span>
+                  <span className="text-xs text-gray-500 ml-auto">
+                    When disabled, only administrators can control recording settings
+                  </span>
+                </label>
+                <label className="flex items-center gap-3">
                   <input type="checkbox" className="h-4 w-4 text-primary rounded" />
                   <span className="text-sm text-gray-700">Require call notes</span>
                 </label>

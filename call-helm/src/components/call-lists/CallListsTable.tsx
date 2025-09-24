@@ -1,6 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import {
   Table,
   TableBody,
@@ -49,7 +52,6 @@ import { CreateCallListWizard } from './modals/CreateCallListWizard'
 import { ViewCallListModal } from './modals/ViewCallListModal'
 import { AssignContactsModal } from './modals/AssignContactsModal'
 import { format } from 'date-fns'
-import { useRouter } from 'next/navigation'
 
 export function CallListsTable() {
   const router = useRouter()
@@ -60,6 +62,7 @@ export function CallListsTable() {
 
   const { data: callLists, isLoading } = useCallLists(filters)
   const archiveCallList = useArchiveCallList()
+  const confirmation = useConfirmation()
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -304,9 +307,16 @@ export function CallListsTable() {
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (confirm('Are you sure you want to archive this call list?')) {
-                              archiveCallList.mutate(list.id)
-                            }
+                            confirmation.showConfirmation({
+                              title: 'Archive Call List',
+                              description: `Are you sure you want to archive "${list.name}"? This will stop all calling activity for this list.`,
+                              confirmText: 'Archive',
+                              cancelText: 'Cancel',
+                              variant: 'destructive',
+                              onConfirm: async () => {
+                                archiveCallList.mutate(list.id)
+                              }
+                            })
                           }}
                         >
                           <Archive className="mr-2 h-4 w-4" />
@@ -349,6 +359,19 @@ export function CallListsTable() {
           onOpenChange={(open) => !open && setAssigningCallList(null)}
         />
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </div>
   )
 }

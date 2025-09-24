@@ -12,6 +12,7 @@ export interface UserProfile {
   bio: string | null
   created_at: string
   updated_at: string
+  default_record_calls?: boolean
 }
 
 export function useProfile() {

@@ -10,6 +10,7 @@ export interface OrganizationSettings {
   auto_record_calls: boolean
   enable_transcription: boolean
   enable_ai_analysis: boolean
+  allow_agents_toggle_recording?: boolean
   notification_preferences: Record<string, any>
   billing_email: string | null
   created_at: string

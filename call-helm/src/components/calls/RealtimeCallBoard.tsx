@@ -518,11 +518,19 @@ export function RealtimeCallBoard() {
     // Update agent status and stats
     setAgentStatuses(prev => prev.map(agent => {
       if (agent.id === call.member_id) {
-        // Calculate new average if this was a completed call
-        const newCallsToday = agent.calls_today + 1
-        const newAvgTime = call.duration && call.status === 'completed'
-          ? ((agent.avg_call_time * agent.calls_today) + call.duration) / newCallsToday
-          : agent.avg_call_time
+        // Only increment call count and update average for completed calls with duration
+        const isCompletedWithDuration = call.status === 'completed' && call.duration
+        const newCallsToday = isCompletedWithDuration ? agent.calls_today + 1 : agent.calls_today
+        
+        // Calculate new average time, guarding against division by zero
+        let newAvgTime = agent.avg_call_time
+        if (isCompletedWithDuration && agent.calls_today === 0) {
+          // First call of the day
+          newAvgTime = call.duration
+        } else if (isCompletedWithDuration && agent.calls_today > 0) {
+          // Calculate weighted average
+          newAvgTime = ((agent.avg_call_time * agent.calls_today) + call.duration) / newCallsToday
+        }
         
         return {
           ...agent,

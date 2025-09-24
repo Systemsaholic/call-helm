@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -40,6 +42,7 @@ import { toast } from 'sonner'
 import { usePhoneNumbers } from '@/lib/hooks/usePhoneNumbers'
 
 export function PhoneNumberConfiguration() {
+  const confirmation = useConfirmation()
   const {
     phoneNumbers,
     voiceIntegration,
@@ -137,13 +140,21 @@ export function PhoneNumberConfiguration() {
   }
 
   const handleDeleteNumber = async (numberId: string) => {
-    if (!confirm('Are you sure you want to remove this phone number?')) return
-
-    try {
-      await deletePhoneNumber(numberId)
-    } catch (error) {
-      // Error is already handled in the hook
-    }
+    const number = phoneNumbers?.find(n => n.id === numberId)
+    confirmation.showConfirmation({
+      title: 'Remove Phone Number',
+      description: `Are you sure you want to remove ${number?.number || 'this phone number'}? This action cannot be undone.`,
+      confirmText: 'Remove',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      onConfirm: async () => {
+        try {
+          await deletePhoneNumber(numberId)
+        } catch (error) {
+          // Error is already handled in the hook
+        }
+      }
+    })
   }
 
   const handleSetPrimary = async (numberId: string) => {
@@ -473,6 +484,19 @@ export function PhoneNumberConfiguration() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </div>
   )
 }

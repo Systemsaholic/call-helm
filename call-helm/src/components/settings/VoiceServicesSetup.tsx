@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -40,6 +42,7 @@ interface VoiceServicesStatus {
 
 export function VoiceServicesSetup() {
   const { supabase } = useAuth()
+  const confirmation = useConfirmation()
   const [status, setStatus] = useState<VoiceServicesStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [enabling, setEnabling] = useState(false)
@@ -121,9 +124,19 @@ export function VoiceServicesSetup() {
   }
 
   const handleDisableVoiceServices = async () => {
-    if (!confirm('Are you sure you want to disable voice services? This will stop all calling functionality.')) {
-      return
-    }
+    confirmation.showConfirmation({
+      title: 'Disable Voice Services',
+      description: 'Are you sure you want to disable voice services? This will stop all calling functionality and may affect active calls.',
+      confirmText: 'Disable Services',
+      cancelText: 'Cancel',
+      variant: 'destructive',
+      onConfirm: async () => {
+        await performDisableVoiceServices()
+      }
+    })
+  }
+
+  const performDisableVoiceServices = async () => {
 
     try {
       setEnabling(true)
@@ -428,6 +441,19 @@ export function VoiceServicesSetup() {
           </CardContent>
         </Card>
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </div>
   )
 }

@@ -6,6 +6,8 @@ import { Phone, Loader2 } from 'lucide-react'
 import { useCall } from '@/lib/contexts/CallContext'
 import { useBilling } from '@/lib/hooks/useBilling'
 import { useRouter } from 'next/navigation'
+import { useConfirmation } from '@/lib/hooks/useConfirmation'
+import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +21,7 @@ interface SimpleCallButtonProps {
   phoneNumber: string
   contactId?: string
   contactName?: string
+  contactStatus?: string
   callListId?: string
   scriptId?: string
   size?: 'sm' | 'default' | 'lg' | 'icon'
@@ -30,6 +33,7 @@ export function SimpleCallButton({
   phoneNumber,
   contactId,
   contactName,
+  contactStatus,
   callListId,
   scriptId,
   size = 'default',
@@ -42,6 +46,7 @@ export function SimpleCallButton({
   const { callState, startCall } = useCall()
   const { limits } = useBilling()
   const router = useRouter()
+  const confirmation = useConfirmation()
 
   const initiateCall = async () => {
     console.log('initiateCall called', { loading, isActive: callState.isActive })
@@ -51,7 +56,26 @@ export function SimpleCallButton({
       console.log('Call prevented:', { loading, isActive: callState.isActive })
       return
     }
-    
+
+    // Check if contact is marked as "Do Not Call"
+    if (contactStatus === 'do_not_call') {
+      confirmation.showConfirmation({
+        title: 'Contact Marked as Do Not Call',
+        description: `${contactName || 'This contact'} is marked as "Do Not Call". Are you sure you want to proceed with this call? Please ensure you have a valid reason to contact them.`,
+        confirmText: 'Proceed with Call',
+        cancelText: 'Cancel',
+        variant: 'warning',
+        onConfirm: async () => {
+          await performCall()
+        }
+      })
+      return
+    }
+
+    await performCall()
+  }
+
+  const performCall = async () => {
     setLoading(true)
     setSystemError(null)
     console.log('Starting call initiation...')
@@ -245,6 +269,19 @@ export function SimpleCallButton({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmation Dialog for Do Not Call */}
+      <ConfirmationDialog
+        isOpen={confirmation.isOpen}
+        onClose={confirmation.hideConfirmation}
+        onConfirm={confirmation.handleConfirm}
+        title={confirmation.title}
+        description={confirmation.description}
+        confirmText={confirmation.confirmText}
+        cancelText={confirmation.cancelText}
+        variant={confirmation.variant}
+        isLoading={confirmation.isLoading}
+      />
     </>
   )
 }
