@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 // OpenAI Whisper transcription service
-async function transcribeWithWhisper(audioUrl: string): Promise<string> {
+async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): Promise<string> {
   const openaiApiKey = process.env.OPENAI_API_KEY
   
   if (!openaiApiKey) {
@@ -10,8 +10,30 @@ async function transcribeWithWhisper(audioUrl: string): Promise<string> {
   }
 
   try {
+    // If we have a recording SID, use our proxy endpoint
+    // Otherwise, try direct URL (for non-SignalWire recordings)
+    let fetchUrl = audioUrl
+    const headers: HeadersInit = {}
+    
+    if (recordingSid) {
+      // Use proxy endpoint for SignalWire recordings
+      const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
+      fetchUrl = `${baseUrl}/api/recordings/${recordingSid}`
+    } else if (audioUrl.includes('signalwire.com')) {
+      // Add SignalWire authentication for direct URLs
+      const swProjectId = process.env.SIGNALWIRE_PROJECT_ID
+      const swApiToken = process.env.SIGNALWIRE_API_TOKEN
+      
+      if (swProjectId && swApiToken) {
+        const auth = Buffer.from(`${swProjectId}:${swApiToken}`).toString('base64')
+        headers['Authorization'] = `Basic ${auth}`
+      }
+    }
+    
+    console.log('Fetching audio from:', fetchUrl)
+    
     // First, fetch the audio file
-    const audioResponse = await fetch(audioUrl)
+    const audioResponse = await fetch(fetchUrl, { headers })
     if (!audioResponse.ok) {
       throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`)
     }
@@ -53,7 +75,7 @@ export async function POST(request: NextRequest) {
     console.log('=== TRANSCRIPTION PROCESS WEBHOOK ===')
     
     const body = await request.json()
-    const { callId, recordingUrl } = body
+    const { callId, recordingUrl, recordingSid } = body
     
     if (!callId || !recordingUrl) {
       return NextResponse.json({ 
@@ -63,6 +85,7 @@ export async function POST(request: NextRequest) {
     
     console.log('Processing transcription for call:', callId)
     console.log('Recording URL:', recordingUrl)
+    console.log('Recording SID:', recordingSid)
     
     // Use service role client to bypass RLS
     const supabase = createClient(
@@ -82,7 +105,7 @@ export async function POST(request: NextRequest) {
     try {
       // Transcribe the audio
       console.log('Starting transcription with Whisper...')
-      const transcription = await transcribeWithWhisper(recordingUrl)
+      const transcription = await transcribeWithWhisper(recordingUrl, recordingSid)
       console.log('Transcription completed:', transcription.substring(0, 100) + '...')
       
       // Update call record with transcription

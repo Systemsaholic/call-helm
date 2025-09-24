@@ -254,6 +254,7 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
         duration: duration ? parseInt(duration) : null,
         status: 'answered', // Map completed to answered in the enum
         recording_url,
+        recording_sid, // Store recording_sid at top level for proxy access
         metadata: supabase.sql`metadata || jsonb_build_object('call_status', 'completed', 'webhook_updated_at', '${new Date().toISOString()}', 'recording_sid', '${recording_sid || ''}')`
       })
       .eq('organization_id', organizationId)
@@ -263,6 +264,26 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
     
     if (callRecord) {
       console.log('Updated calls table with completed status for:', call_sid)
+      
+      // Trigger transcription if recording is available
+      if (recording_url && recording_sid) {
+        console.log('Triggering transcription for recording:', recording_sid)
+        const transcriptionUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
+        
+        fetch(`${transcriptionUrl}/api/transcription/process`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            callId: callRecord.id,
+            recordingUrl: recording_url,
+            recordingSid: recording_sid
+          })
+        }).catch(error => {
+          console.error('Failed to trigger transcription:', error)
+        })
+      }
     }
     
     // Update call attempt with completion details

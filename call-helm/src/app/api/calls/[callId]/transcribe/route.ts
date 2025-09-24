@@ -3,10 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { callId: string } }
+  { params }: { params: Promise<{ callId: string }> }
 ) {
   try {
-    const { callId } = params
+    const { callId } = await params
     
     // Get authenticated user
     const supabase = await createClient()
@@ -65,7 +65,8 @@ export async function POST(
         },
         body: JSON.stringify({
           callId: call.id,
-          recordingUrl: call.recording_url
+          recordingUrl: call.recording_url,
+          recordingSid: call.recording_sid // Pass SID for proxy authentication
         })
       })
       
