@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { CallStatusNotification } from '@/components/calls/CallStatusNotification'
+import { useQueryClient } from '@tanstack/react-query'
 
 interface CallState {
   isActive: boolean
@@ -21,6 +22,7 @@ interface CallContextType {
 const CallContext = createContext<CallContextType | undefined>(undefined)
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient()
   const [callState, setCallState] = useState<CallState>({
     isActive: false,
     callId: null,
@@ -93,6 +95,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     if (isCallEnded) {
       stopStatusPolling()
       clearTimeout(timeoutRef.current!)
+      
+      // Invalidate call history queries to show the ended call
+      console.log('📊 Call ended - invalidating call history queries')
+      queryClient.invalidateQueries({ queryKey: ['call-history'] })
+      
       // Mark as not active immediately but keep the status message visible for 5 seconds
       setTimeout(() => {
         setCallState(prev => ({
@@ -101,7 +108,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }))
       }, 100)
     }
-  }, [callState.callId])
+  }, [callState.callId, queryClient])
 
   const endCall = useCallback(async () => {
     const { callId } = callState
@@ -149,6 +156,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             updateCallStatus(mapStatusToDisplay(finalStatus))
             stopStatusPolling()
             
+            // Invalidate call history to show this completed call
+            queryClient.invalidateQueries({ queryKey: ['call-history'] })
+            
             // Clear the call state after a delay
             setTimeout(() => {
               setCallState({
@@ -167,6 +177,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           if (['completed', 'busy', 'failed', 'no-answer', 'ended', 'canceled'].includes(data.status)) {
             updateCallStatus(mapStatusToDisplay(data.status))
             stopStatusPolling()
+            
+            // Invalidate call history to show this completed call
+            queryClient.invalidateQueries({ queryKey: ['call-history'] })
             
             // Clear the call state after a delay
             setTimeout(() => {

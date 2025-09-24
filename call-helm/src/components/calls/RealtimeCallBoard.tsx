@@ -87,14 +87,21 @@ export function RealtimeCallBoard() {
   const [refreshing, setRefreshing] = useState(false)
   const [selectedView, setSelectedView] = useState<'grid' | 'list'>('grid')
   const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('CONNECTING')
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
   // Get organization ID and load initial data
   useEffect(() => {
     const initializeBoard = async () => {
+      console.log('🚀 Initializing CallBoard...')
       // Get user's organization
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        console.log('❌ No user found')
+        return
+      }
 
+      console.log('👤 User found:', user.id)
       const { data: member } = await supabase
         .from('organization_members')
         .select('organization_id')
@@ -102,9 +109,13 @@ export function RealtimeCallBoard() {
         .eq('is_active', true)
         .single()
 
+      console.log('🏢 Organization member:', member)
       if (member?.organization_id) {
+        console.log('✅ Setting organizationId:', member.organization_id)
         setOrganizationId(member.organization_id)
         // Don't call loadCallBoard here, it will be called in the useEffect below
+      } else {
+        console.log('❌ No organization found for user')
       }
     }
     
@@ -113,15 +124,22 @@ export function RealtimeCallBoard() {
 
   // Load call board when organization ID is set
   useEffect(() => {
+    console.log('📋 Organization ID changed:', organizationId)
     if (organizationId) {
+      console.log('🔄 Loading call board for organization:', organizationId)
       loadCallBoard()
     }
   }, [organizationId])
 
   // Subscribe to real-time updates for this organization's calls
   useEffect(() => {
-    if (!organizationId) return
+    if (!organizationId) {
+      console.log('⚠️ No organizationId for subscription')
+      return
+    }
 
+    console.log('🔌 Setting up real-time subscription for organization:', organizationId)
+    
     const channel = supabase
       .channel(`org-calls-board-${organizationId}`)
       .on(
@@ -133,42 +151,70 @@ export function RealtimeCallBoard() {
           filter: `organization_id=eq.${organizationId}`
         },
         async (payload) => {
+          const newData = payload.new as any
+          const oldData = payload.old as any
+          
           console.log('🔔 Call Board Real-time Update:', {
             event: payload.eventType,
-            callId: payload.new?.id || payload.old?.id,
-            hasEndTime: !!payload.new?.end_time,
-            organizationId: payload.new?.organization_id || payload.old?.organization_id
+            callId: newData?.id || oldData?.id,
+            hasEndTime: !!newData?.end_time,
+            organizationId: newData?.organization_id || oldData?.organization_id,
+            timestamp: new Date().toISOString()
           })
           
           if (payload.eventType === 'INSERT') {
             // New call started - fetch full details and add to board
-            const newCall = payload.new as any
-            console.log('📞 New call detected:', newCall.id, 'End time:', newCall.end_time)
-            if (!newCall.end_time) {
-              await handleNewCall(newCall)
+            console.log('📞 New call detected:', newData.id, 'End time:', newData.end_time)
+            if (!newData.end_time) {
+              await handleNewCall(newData)
             }
           } else if (payload.eventType === 'UPDATE') {
             // Call updated - could be status change or call ending
-            const updatedCall = payload.new as any
-            if (updatedCall.end_time && !payload.old?.end_time) {
+            if (newData.end_time && !oldData?.end_time) {
               // Call just ended
-              console.log('📴 Call ended:', updatedCall.id)
-              handleCallEnd(updatedCall)
-            } else if (!updatedCall.end_time) {
+              console.log('📴 Call ended:', newData.id)
+              handleCallEnd(newData)
+            } else if (!newData.end_time) {
               // Call still active, update its info
-              console.log('🔄 Call updated:', updatedCall.id, 'Status:', updatedCall.status)
-              handleCallUpdate(updatedCall)
+              console.log('🔄 Call updated:', newData.id, 'Status:', newData.status)
+              handleCallUpdate(newData)
             }
           } else if (payload.eventType === 'DELETE') {
             // Call deleted
-            console.log('🗑️ Call deleted:', payload.old?.id)
-            handleCallEnd(payload.old as any)
+            console.log('🗑️ Call deleted:', oldData?.id)
+            handleCallEnd(oldData)
           }
         }
       )
-      .subscribe()
+      .subscribe((status, error) => {
+        console.log('📡 CallBoard subscription status:', status)
+        setSubscriptionStatus(status)
+        
+        if (error) {
+          console.error('❌ CallBoard subscription error:', error)
+        }
+        
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ CallBoard successfully subscribed to real-time updates')
+          setLastUpdate(new Date())
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('⚠️ CallBoard channel error - will retry...')
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ CallBoard subscription timed out - will retry...')
+        } else if (status === 'CLOSED') {
+          console.log('🔌 CallBoard subscription closed')
+        }
+      })
+
+    // Log channel state for debugging
+    console.log('📊 Channel state after subscribe:', {
+      topic: channel.topic,
+      state: channel.state,
+      bindings: channel.bindings.length
+    })
 
     return () => {
+      console.log('🧹 Cleaning up CallBoard subscription')
       supabase.removeChannel(channel)
     }
   }, [organizationId])
@@ -196,6 +242,27 @@ export function RealtimeCallBoard() {
     
     return () => clearInterval(interval)
   }, [])
+
+  // Fallback polling mechanism when real-time isn't working
+  useEffect(() => {
+    if (!organizationId) return
+
+    // Poll every 10 seconds if subscription isn't working
+    const fallbackInterval = setInterval(() => {
+      const timeSinceLastUpdate = Date.now() - lastUpdate.getTime()
+      const isSubscriptionHealthy = subscriptionStatus === 'SUBSCRIBED' && timeSinceLastUpdate < 30000
+      
+      if (!isSubscriptionHealthy) {
+        console.log('⚠️ Real-time may be stale, using fallback polling', {
+          subscriptionStatus,
+          timeSinceLastUpdate: Math.round(timeSinceLastUpdate / 1000) + 's'
+        })
+        loadCallBoard(true) // Silent refresh
+      }
+    }, 10000) // Poll every 10 seconds
+
+    return () => clearInterval(fallbackInterval)
+  }, [organizationId, subscriptionStatus, lastUpdate])
 
   const loadCallBoard = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -321,12 +388,16 @@ export function RealtimeCallBoard() {
   }
   
   const handleManualRefresh = async () => {
+    console.log('Manual refresh triggered, organizationId:', organizationId)
     setRefreshing(true)
     await loadCallBoard(true)
     setRefreshing(false)
   }
 
   const handleNewCall = async (call: any) => {
+    // Update last update timestamp
+    setLastUpdate(new Date())
+    
     // Fetch additional details for the call
     let member = null
     let contact = null
@@ -390,6 +461,9 @@ export function RealtimeCallBoard() {
   }
 
   const handleCallUpdate = (call: any) => {
+    // Update last update timestamp
+    setLastUpdate(new Date())
+    
     setActiveCalls(prev => prev.map(c => {
       if (c.id === call.id) {
         // Calculate duration in seconds
@@ -408,6 +482,9 @@ export function RealtimeCallBoard() {
   }
 
   const handleCallEnd = (call: any) => {
+    // Update last update timestamp
+    setLastUpdate(new Date())
+    
     setActiveCalls(prev => prev.filter(c => c.id !== call.id))
     
     // Update agent status

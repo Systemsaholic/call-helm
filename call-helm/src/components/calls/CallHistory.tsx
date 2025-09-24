@@ -144,7 +144,12 @@ export function CallHistory({
 
   // Subscribe to real-time updates for calls
   useEffect(() => {
-    if (!organizationId) return
+    if (!organizationId) {
+      console.log('⚠️ CallHistory: No organizationId for subscription')
+      return
+    }
+
+    console.log('🔌 CallHistory: Setting up real-time subscription for organization:', organizationId)
 
     const channel = supabase
       .channel(`call-history-${organizationId}`)
@@ -157,16 +162,40 @@ export function CallHistory({
           filter: `organization_id=eq.${organizationId}`
         },
         (payload) => {
-          console.log('Call history update:', payload)
+          const newData = payload.new as any
+          const oldData = payload.old as any
+          
+          console.log('📜 Call history real-time update:', {
+            event: payload.eventType,
+            callId: newData?.id || oldData?.id,
+            hasEndTime: !!newData?.end_time,
+            timestamp: new Date().toISOString()
+          })
+          
           // Invalidate and refetch the query when calls change
+          // This is especially important when calls end (UPDATE with end_time)
+          if (payload.eventType === 'UPDATE' && newData?.end_time && !oldData?.end_time) {
+            console.log('🔄 Call ended - invalidating call history cache')
+          }
+          
           queryClient.invalidateQueries({ 
             queryKey: ['call-history', contactId, callListId, agentId] 
           })
         }
       )
-      .subscribe()
+      .subscribe((status, error) => {
+        console.log('📡 CallHistory subscription status:', status)
+        if (error) {
+          console.error('❌ CallHistory subscription error:', error)
+        }
+        
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ CallHistory successfully subscribed to real-time updates')
+        }
+      })
 
     return () => {
+      console.log('🧹 Cleaning up CallHistory subscription')
       supabase.removeChannel(channel)
     }
   }, [organizationId, contactId, callListId, agentId, queryClient])
