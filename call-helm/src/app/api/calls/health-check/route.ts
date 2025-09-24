@@ -49,15 +49,27 @@ export async function GET(request: NextRequest) {
       call.failure_reason?.includes('timeout')
     ).length || 0
     
-    // Check if any active calls haven't received webhooks recently
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-    const activeCalls = recentCalls?.filter(call => 
-      !call.status || call.status === 'initiated' || call.status === 'answered'
-    ) || []
+    // Check if any CURRENTLY active calls haven't received webhooks recently
+    // Only check calls that are truly in progress (no end_time)
+    const { data: activeCalls } = await supabase
+      .from('calls')
+      .select('id, webhook_last_received_at, created_at')
+      .eq('organization_id', member.organization_id)
+      .is('end_time', null) // Only get calls that haven't ended
+      .gte('created_at', tenMinutesAgo) // Only recent calls
     
-    const webhookStale = activeCalls.some(call => {
-      if (!call.webhook_last_received_at) return true
-      return call.webhook_last_received_at < fiveMinutesAgo
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+    const webhookStale = (activeCalls || []).some(call => {
+      // If call is more than 30 seconds old and has no webhook received, it's stale
+      const callAge = Date.now() - new Date(call.created_at).getTime()
+      if (callAge > 30000 && !call.webhook_last_received_at) return true
+      
+      // If webhook was last received more than 2 minutes ago, it's stale
+      if (call.webhook_last_received_at && call.webhook_last_received_at < twoMinutesAgo) {
+        return true
+      }
+      
+      return false
     })
     
     // Calculate health metrics
@@ -65,11 +77,20 @@ export async function GET(request: NextRequest) {
     const failureRate = totalRecentCalls > 0 ? 
       (recentTimeouts / totalRecentCalls) * 100 : 0
     
+    // Debug logging
+    console.log('Health check:', {
+      activeCalls: activeCalls?.length || 0,
+      recentTimeouts,
+      webhookStale,
+      totalRecentCalls
+    })
+    
     return NextResponse.json({
       healthy: recentTimeouts <= 3 && !webhookStale,
       recentTimeouts,
       webhookStale,
       totalRecentCalls,
+      activeCallsCount: activeCalls?.length || 0,
       failureRate: Math.round(failureRate),
       message: recentTimeouts > 3 ? 
         'High number of call failures detected' : 
