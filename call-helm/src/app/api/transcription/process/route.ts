@@ -10,31 +10,35 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
   }
 
   try {
-    // If we have a recording SID, use our proxy endpoint
-    // Otherwise, try direct URL (for non-SignalWire recordings)
+    // Always use direct URL with authentication for server-side fetching
     let fetchUrl = audioUrl
     const headers: HeadersInit = {}
     
-    if (recordingSid) {
-      // Use proxy endpoint for SignalWire recordings
-      const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
-      fetchUrl = `${baseUrl}/api/recordings/${recordingSid}`
-    } else if (audioUrl.includes('signalwire.com')) {
-      // Add SignalWire authentication for direct URLs
+    // Add SignalWire authentication if it's a SignalWire URL
+    if (audioUrl.includes('signalwire.com')) {
       const swProjectId = process.env.SIGNALWIRE_PROJECT_ID
       const swApiToken = process.env.SIGNALWIRE_API_TOKEN
       
       if (swProjectId && swApiToken) {
         const auth = Buffer.from(`${swProjectId}:${swApiToken}`).toString('base64')
         headers['Authorization'] = `Basic ${auth}`
+      } else {
+        console.warn('SignalWire credentials not configured')
       }
     }
     
     console.log('Fetching audio from:', fetchUrl)
+    console.log('Using authentication:', audioUrl.includes('signalwire.com') ? 'Yes' : 'No')
     
     // First, fetch the audio file
     const audioResponse = await fetch(fetchUrl, { headers })
     if (!audioResponse.ok) {
+      console.error('Audio fetch failed:', {
+        status: audioResponse.status,
+        statusText: audioResponse.statusText,
+        url: fetchUrl,
+        hasAuth: !!headers['Authorization']
+      })
       throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`)
     }
     
