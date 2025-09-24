@@ -44,6 +44,7 @@ import {
   Eye,
   Tag,
   PhoneOff,
+  History,
 } from 'lucide-react'
 import { useContacts, useDeleteContacts, type Contact, type ContactFilters } from '@/lib/hooks/useContacts'
 import { AddContactModal } from './modals/AddContactModal'
@@ -51,6 +52,7 @@ import { EditContactModal } from './modals/EditContactModal'
 import { ImportContactsModal } from './modals/ImportContactsModal'
 import { ViewContactModal } from './modals/ViewContactModal'
 import { SimpleCallButton } from '@/components/calls/SimpleCallButton'
+import { CallDetailsSlideout } from '@/components/calls/CallDetailsSlideout'
 import { formatPhoneNumber } from '@/lib/utils'
 
 export function ContactsTable() {
@@ -60,9 +62,28 @@ export function ContactsTable() {
   const [showImportModal, setShowImportModal] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [viewingContact, setViewingContact] = useState<Contact | null>(null)
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
 
   const { data: contacts, isLoading } = useContacts(filters)
   const deleteContacts = useDeleteContacts()
+  
+  const handleViewCallHistory = async (contactId: string) => {
+    // Get the most recent call for this contact
+    const { createClient } = await import('@/lib/supabase/client')
+    const supabase = createClient()
+    
+    const { data: call } = await supabase
+      .from('calls')
+      .select('id')
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+    
+    if (call) {
+      setSelectedCallId(call.id)
+    }
+  }
 
   const handleSelectAll = (checked: boolean) => {
     if (checked && contacts) {
@@ -344,6 +365,10 @@ export function ContactsTable() {
                             <Eye className="mr-2 h-4 w-4" />
                             View Details
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewCallHistory(contact.id)}>
+                            <History className="mr-2 h-4 w-4" />
+                            Call History
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditingContact(contact)}>
                             <Edit className="mr-2 h-4 w-4" />
                             Edit
@@ -401,6 +426,14 @@ export function ContactsTable() {
           contact={viewingContact}
           open={!!viewingContact}
           onOpenChange={(open) => !open && setViewingContact(null)}
+        />
+      )}
+
+      {selectedCallId && (
+        <CallDetailsSlideout
+          callId={selectedCallId}
+          isOpen={!!selectedCallId}
+          onClose={() => setSelectedCallId(null)}
         />
       )}
     </div>

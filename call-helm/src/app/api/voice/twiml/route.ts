@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,20 +19,66 @@ export async function POST(request: NextRequest) {
     const targetNumber = searchParams.get('TargetNumber')
     const agentNumber = searchParams.get('AgentNumber')
     const isAgentLeg = searchParams.get('IsAgentLeg')
+    const callId = searchParams.get('CallId') // Pass the call ID for recording preference check
+    const organizationId = searchParams.get('OrgId') // Pass org ID for plan check
+    const enableRecording = searchParams.get('EnableRecording') === 'true' // Explicit recording preference
     
     console.log('Form data from SignalWire:', { from, to, callSid, direction })
-    console.log('Custom parameters:', { targetNumber, agentNumber, isAgentLeg })
+    console.log('Custom parameters:', { targetNumber, agentNumber, isAgentLeg, callId, organizationId, enableRecording })
     
     // If this is the agent leg of the call, connect them to the target number
     if (isAgentLeg === 'true' && targetNumber) {
       console.log('This is the agent leg - will connect to target number:', targetNumber)
       
+      // Check if recording should be enabled
+      let shouldRecord = false
+      let recordingParams = ''
+      
+      if (enableRecording && organizationId) {
+        // Double-check Pro plan status before recording
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+        
+        const { data: limits } = await supabase
+          .from('organization_limits')
+          .select('features')
+          .eq('organization_id', organizationId)
+          .single()
+        
+        if (limits?.features?.call_recording_transcription === true) {
+          shouldRecord = true
+          const recordingCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/recording-complete`
+          recordingParams = `record="true" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackEvent="completed" recordingStatusCallbackMethod="POST"`
+          console.log('Recording ENABLED - Pro plan confirmed')
+        } else {
+          console.log('Recording DISABLED - Not on Pro plan')
+        }
+      } else {
+        console.log('Recording DISABLED - Not requested or missing org ID')
+      }
+      
       const actionUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/status`
       const statusCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/status`
+      
+      // Update call record with recording status if we have a callId
+      if (callId && shouldRecord) {
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        )
+        
+        await supabase
+          .from('calls')
+          .update({ recording_enabled: true })
+          .eq('id', callId)
+      }
+      
       const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="alice">Connecting your call. Please wait.</Say>
-  <Dial callerId="${from}" timeout="30" action="${actionUrl}" method="POST" record="true" recordingStatusCallback="${statusCallback}">
+  <Dial callerId="${from}" timeout="30" action="${actionUrl}" method="POST" ${recordingParams}>
     <Number statusCallback="${statusCallback}" statusCallbackEvent="initiated ringing answered completed" statusCallbackMethod="POST">${targetNumber}</Number>
   </Dial>
   <Say voice="alice">The call has ended. Goodbye.</Say>

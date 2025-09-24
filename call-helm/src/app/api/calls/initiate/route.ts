@@ -225,14 +225,38 @@ export async function POST(req: NextRequest) {
         console.log('  To (Agent):', agentPhone)
         console.log('  Target (Contact):', formattedPhoneNumber)
         
+        // Check if user wants to record and has Pro plan
+        const { data: userPrefs } = await supabase
+          .from('organization_members')
+          .select('default_record_calls')
+          .eq('id', member.id)
+          .single()
+        
+        const { data: limits } = await supabase
+          .from('organization_limits')
+          .select('features')
+          .eq('organization_id', member.organization_id)
+          .single()
+        
+        const canRecord = limits?.features?.call_recording_transcription === true
+        const wantsToRecord = userPrefs?.default_record_calls === true // TODO: Add toggle in UI
+        const enableRecording = canRecord && wantsToRecord
+        
+        if (wantsToRecord && !canRecord) {
+          console.log('User wants to record but not on Pro plan')
+        }
+        
         const callSid = await signalwireService.initiateCallWithParams({
           from: phoneNumberData.number,
           to: agentPhone, // Call the agent first
           callerId: phoneNumberData.number,
-          recordingEnabled: true,
+          recordingEnabled: false, // Don't use SW's built-in recording, we control it via TwiML
           params: {
             TargetNumber: formattedPhoneNumber, // The contact to connect to
-            IsAgentLeg: 'true'
+            IsAgentLeg: 'true',
+            CallId: callData.id, // Pass call ID for updating recording status
+            OrgId: member.organization_id, // Pass org ID for plan check
+            EnableRecording: enableRecording ? 'true' : 'false' // Pass recording preference
           }
         })
         
