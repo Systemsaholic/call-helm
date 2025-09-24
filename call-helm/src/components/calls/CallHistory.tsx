@@ -56,12 +56,18 @@ export function CallHistory({
   const { user } = useAuth()
 
   const { data: calls, isLoading, error } = useQuery({
-    queryKey: ['call-history', contactId, callListId, agentId],
+    queryKey: ['call-history', contactId, callListId, agentId, organizationId],
+    enabled: !!organizationId, // Only run query when we have organizationId
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    staleTime: 1000 * 10, // Consider data stale after 10 seconds
     queryFn: async () => {
+      console.log('🔄 Fetching call history for org:', organizationId)
       // First get the calls
       let query = supabase
         .from('calls')
         .select('*')
+        .eq('organization_id', organizationId!) // Filter by organization
         .order('start_time', { ascending: false })
         .limit(limit)
 
@@ -179,7 +185,7 @@ export function CallHistory({
           }
           
           queryClient.invalidateQueries({ 
-            queryKey: ['call-history', contactId, callListId, agentId] 
+            queryKey: ['call-history', contactId, callListId, agentId, organizationId] 
           })
         }
       )
