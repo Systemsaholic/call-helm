@@ -3,10 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { recordingSid: string } }
+  { params }: { params: Promise<{ recordingSid: string }> }
 ) {
   try {
-    const { recordingSid } = params
+    const { recordingSid } = await params
     
     console.log('Recording proxy request for SID:', recordingSid)
     
