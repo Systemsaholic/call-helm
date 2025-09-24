@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { signalwireService } from '@/lib/services/signalwire'
 
 export async function POST(
   request: NextRequest,
@@ -38,7 +39,6 @@ export async function POST(
     // End the call with the provider
     if (externalCallId && provider === 'signalwire') {
       try {
-        const { signalwireService } = await import('@/lib/services/signalwire')
         await signalwireService.endCall(externalCallId)
         console.log('Successfully ended SignalWire call:', externalCallId)
       } catch (providerError) {

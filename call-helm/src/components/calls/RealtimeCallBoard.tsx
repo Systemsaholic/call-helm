@@ -104,12 +104,19 @@ export function RealtimeCallBoard() {
 
       if (member?.organization_id) {
         setOrganizationId(member.organization_id)
-        await loadCallBoard()
+        // Don't call loadCallBoard here, it will be called in the useEffect below
       }
     }
     
     initializeBoard()
   }, [])
+
+  // Load call board when organization ID is set
+  useEffect(() => {
+    if (organizationId) {
+      loadCallBoard()
+    }
+  }, [organizationId])
 
   // Subscribe to real-time updates for this organization's calls
   useEffect(() => {
@@ -186,11 +193,16 @@ export function RealtimeCallBoard() {
     
     try {
       // Load active calls - only get calls that haven't ended
-      const { data: callsData } = await supabase
+      const { data: callsData, error: callsError } = await supabase
         .from('calls')
         .select('*')
+        .eq('organization_id', organizationId) // Filter by organization
         .is('end_time', null) // Only get calls without an end time
         .order('start_time', { ascending: false })
+      
+      if (callsError) {
+        console.error('Error loading active calls:', callsError)
+      }
 
       // Enrich calls with related data
       let calls = []
@@ -231,6 +243,7 @@ export function RealtimeCallBoard() {
       const { data: agents } = await supabase
         .from('organization_members')
         .select('*')
+        .eq('organization_id', organizationId) // Filter by organization
         .eq('is_active', true)
 
       // Load today's call stats
@@ -240,9 +253,11 @@ export function RealtimeCallBoard() {
       const { data: stats } = await supabase
         .from('calls')
         .select('status, duration, end_time')
+        .eq('organization_id', organizationId) // Filter by organization
         .gte('start_time', today.toISOString())
 
       // Process data
+      console.log('Active calls loaded:', callsData?.length || 0, 'calls')
       if (calls) {
         setActiveCalls(calls.map(call => ({
           id: call.id,

@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/lib/hooks/useAuth'
 import { CallRecordingPlayer } from './CallRecordingPlayer'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -49,7 +50,10 @@ export function CallHistory({
   limit = 50 
 }: CallHistoryProps) {
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
   const supabase = createClient()
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const { data: calls, isLoading, error } = useQuery({
     queryKey: ['call-history', contactId, callListId, agentId],
@@ -117,6 +121,55 @@ export function CallHistory({
       return enrichedCalls
     }
   })
+
+  // Get organization ID
+  useEffect(() => {
+    async function getOrganizationId() {
+      if (!user?.id) return
+
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .single()
+
+      if (member?.organization_id) {
+        setOrganizationId(member.organization_id)
+      }
+    }
+
+    getOrganizationId()
+  }, [user])
+
+  // Subscribe to real-time updates for calls
+  useEffect(() => {
+    if (!organizationId) return
+
+    const channel = supabase
+      .channel(`call-history-${organizationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'calls',
+          filter: `organization_id=eq.${organizationId}`
+        },
+        (payload) => {
+          console.log('Call history update:', payload)
+          // Invalidate and refetch the query when calls change
+          queryClient.invalidateQueries({ 
+            queryKey: ['call-history', contactId, callListId, agentId] 
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [organizationId, contactId, callListId, agentId, queryClient])
 
   const getCallStatusIcon = (status: string) => {
     switch (status) {
