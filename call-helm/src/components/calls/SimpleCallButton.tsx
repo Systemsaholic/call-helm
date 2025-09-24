@@ -38,6 +38,7 @@ export function SimpleCallButton({
 }: SimpleCallButtonProps) {
   const [loading, setLoading] = useState(false)
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false)
+  const [systemError, setSystemError] = useState<string | null>(null)
   const { callState, startCall } = useCall()
   const { limits } = useBilling()
   const router = useRouter()
@@ -47,8 +48,19 @@ export function SimpleCallButton({
     if (loading || callState.isActive) return
     
     setLoading(true)
+    setSystemError(null)
 
     try {
+      // Check recent call health (pre-flight check)
+      const healthCheck = await checkCallSystemHealth()
+      if (!healthCheck.healthy) {
+        setSystemError(healthCheck.message || 'System health check failed')
+        setLoading(false)
+        // Show error for 5 seconds
+        setTimeout(() => setSystemError(null), 5000)
+        return
+      }
+
       const response = await fetch('/api/calls/initiate', {
         method: 'POST',
         headers: {
@@ -79,8 +91,47 @@ export function SimpleCallButton({
       
     } catch (err) {
       console.error('Call initiation error:', err)
+      setSystemError('Failed to start call - Please try again')
+      setTimeout(() => setSystemError(null), 5000)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const checkCallSystemHealth = async (): Promise<{ healthy: boolean; message?: string }> => {
+    try {
+      // Check if recent calls have been failing
+      const response = await fetch('/api/calls/health-check')
+      if (!response.ok) {
+        return { 
+          healthy: false, 
+          message: '⚠️ Call system may be experiencing issues' 
+        }
+      }
+      
+      const data = await response.json()
+      
+      // If more than 3 recent calls failed with timeouts, warn the user
+      if (data.recentTimeouts > 3) {
+        return {
+          healthy: false,
+          message: '⚠️ Call system connectivity issues detected - Please contact support'
+        }
+      }
+      
+      // If webhook hasn't been received in last 5 minutes for active calls
+      if (data.webhookStale) {
+        return {
+          healthy: false,
+          message: '⚠️ Call system not responding properly - Please try again later'
+        }
+      }
+      
+      return { healthy: true, message: undefined }
+    } catch (error) {
+      // If health check fails, allow call but log error
+      console.error('Health check failed:', error)
+      return { healthy: true, message: undefined } // Don't block calls if health check itself fails
     }
   }
 
@@ -100,25 +151,38 @@ export function SimpleCallButton({
 
   return (
     <>
-      <Button
-        onClick={initiateCall}
-        disabled={loading || !hasMinutes}
-        size={size}
-        variant={variant}
-        className={className}
-        title={hasMinutes ? `Call ${contactName || phoneNumber}` : 'No minutes available'}
-      >
-        {loading ? (
-          <Loader2 className={size === 'icon' ? 'h-4 w-4' : 'h-4 w-4 animate-spin'} />
-        ) : size === 'icon' ? (
-          <Phone className="h-4 w-4" />
-        ) : (
-          <>
-            <Phone className="h-4 w-4 mr-2" />
-            Call
-          </>
+      <div className="relative inline-block">
+        <Button
+          onClick={initiateCall}
+          disabled={loading || !hasMinutes || !!systemError}
+          size={size}
+          variant={systemError ? 'destructive' : variant}
+          className={className}
+          title={
+            systemError ? systemError :
+            hasMinutes ? `Call ${contactName || phoneNumber}` : 
+            'No minutes available'
+          }
+        >
+          {loading ? (
+            <Loader2 className={size === 'icon' ? 'h-4 w-4' : 'h-4 w-4 animate-spin'} />
+          ) : size === 'icon' ? (
+            <Phone className="h-4 w-4" />
+          ) : (
+            <>
+              <Phone className="h-4 w-4 mr-2" />
+              Call
+            </>
+          )}
+        </Button>
+        {systemError && (
+          <div className="absolute top-full mt-1 left-0 right-0 min-w-[200px] z-50">
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-xs">
+              {systemError}
+            </div>
+          </div>
         )}
-      </Button>
+      </div>
 
       {/* Upgrade Dialog */}
       <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>

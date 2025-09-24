@@ -142,7 +142,8 @@ export async function POST(request: NextRequest) {
         const updateData: any = {
           status: dbStatus,
           metadata: updatedMetadata,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          webhook_last_received_at: new Date().toISOString() // Track webhook receipt
         }
 
         // Add end_time and duration for completed calls

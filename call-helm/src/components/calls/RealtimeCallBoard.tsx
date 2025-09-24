@@ -29,9 +29,11 @@ import {
   Loader2,
   Mic,
   MicOff,
-  Volume2
+  Volume2,
+  RefreshCw
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
+import { SystemHealthIndicator } from '@/components/system/SystemHealthIndicator'
 
 interface ActiveCall {
   id: string
@@ -82,26 +84,78 @@ export function RealtimeCallBoard() {
     total_duration: 0
   })
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [selectedView, setSelectedView] = useState<'grid' | 'list'>('grid')
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
 
-  // Load initial data
+  // Get organization ID and load initial data
   useEffect(() => {
-    loadCallBoard()
-  }, [])
+    const initializeBoard = async () => {
+      // Get user's organization
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-  // Subscribe to real-time updates
-  useRealtimeSubscription(
-    'calls',
-    (payload) => {
-      if (payload.eventType === 'INSERT') {
-        handleNewCall(payload.new as any)
-      } else if (payload.eventType === 'UPDATE') {
-        handleCallUpdate(payload.new as any)
-      } else if (payload.eventType === 'DELETE') {
-        handleCallEnd(payload.old as any)
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .single()
+
+      if (member?.organization_id) {
+        setOrganizationId(member.organization_id)
+        await loadCallBoard()
       }
     }
-  )
+    
+    initializeBoard()
+  }, [])
+
+  // Subscribe to real-time updates for this organization's calls
+  useEffect(() => {
+    if (!organizationId) return
+
+    const channel = supabase
+      .channel(`org-calls-board-${organizationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'calls',
+          filter: `organization_id=eq.${organizationId}`
+        },
+        async (payload) => {
+          console.log('Call update received:', payload)
+          
+          if (payload.eventType === 'INSERT') {
+            // New call started - fetch full details and add to board
+            const newCall = payload.new as any
+            if (!newCall.end_time) {
+              await handleNewCall(newCall)
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            // Call updated - could be status change or call ending
+            const updatedCall = payload.new as any
+            if (updatedCall.end_time && !payload.old?.end_time) {
+              // Call just ended
+              handleCallEnd(updatedCall)
+            } else if (!updatedCall.end_time) {
+              // Call still active, update its info
+              handleCallUpdate(updatedCall)
+            }
+          } else if (payload.eventType === 'DELETE') {
+            // Call deleted
+            handleCallEnd(payload.old as any)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [organizationId])
 
   // Subscribe to agent status updates
   useRealtimeSubscription(
@@ -112,31 +166,71 @@ export function RealtimeCallBoard() {
       }
     }
   )
+  
+  // Update call durations every second for active calls
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveCalls(prev => prev.map(call => {
+        const startTime = new Date(call.start_time).getTime()
+        const now = new Date().getTime()
+        const durationSeconds = Math.floor((now - startTime) / 1000)
+        return { ...call, duration_seconds: durationSeconds }
+      }))
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
-  const loadCallBoard = async () => {
-    setLoading(true)
+  const loadCallBoard = async (silent = false) => {
+    if (!silent) setLoading(true)
     
     try {
-      // Load active calls
-      const { data: calls } = await supabase
+      // Load active calls - only get calls that haven't ended
+      const { data: callsData } = await supabase
         .from('calls')
-        .select(`
-          *,
-          member:organization_members!member_id(full_name, email),
-          contact:contacts(full_name),
-          call_list:call_lists(name)
-        `)
-        .in('status', ['initiated', 'ringing', 'in-progress'])
+        .select('*')
+        .is('end_time', null) // Only get calls without an end time
         .order('start_time', { ascending: false })
+
+      // Enrich calls with related data
+      let calls = []
+      if (callsData) {
+        calls = await Promise.all(
+          callsData.map(async (call) => {
+            let member = null
+            let contact = null
+
+            if (call.member_id) {
+              const { data: memberData } = await supabase
+                .from('organization_members')
+                .select('full_name, email')
+                .eq('id', call.member_id)
+                .maybeSingle()
+              
+              member = memberData ? {
+                full_name: memberData.full_name,
+                email: memberData.email
+              } : null
+            }
+
+            if (call.contact_id) {
+              const { data: contactData } = await supabase
+                .from('contacts')
+                .select('full_name')
+                .eq('id', call.contact_id)
+                .maybeSingle()
+              contact = contactData
+            }
+
+            return { ...call, member, contact }
+          })
+        )
+      }
 
       // Load agent statuses (from organization_members)
       const { data: agents } = await supabase
         .from('organization_members')
-        .select(`
-          *,
-          status,
-          last_activity
-        `)
+        .select('*')
         .eq('is_active', true)
 
       // Load today's call stats
@@ -145,7 +239,7 @@ export function RealtimeCallBoard() {
       
       const { data: stats } = await supabase
         .from('calls')
-        .select('status, duration_seconds')
+        .select('status, duration, end_time')
         .gte('start_time', today.toISOString())
 
       // Process data
@@ -160,8 +254,8 @@ export function RealtimeCallBoard() {
           direction: call.direction,
           status: call.status,
           start_time: call.start_time,
-          duration_seconds: call.duration_seconds || 0,
-          call_list_name: call.call_list?.name,
+          duration_seconds: call.duration || 0,
+          call_list_name: call.metadata?.campaign_name,
           muted: false,
           on_hold: false
         })))
@@ -170,23 +264,25 @@ export function RealtimeCallBoard() {
       if (agents) {
         setAgentStatuses(agents.map(agent => ({
           id: agent.id,
-          name: agent.full_name,
-          email: agent.email,
-          status: agent.agent_status?.[0]?.status || 'offline',
+          name: agent.full_name || 'Unknown',
+          email: agent.email || '',
+          status: 'available', // Default status since we don't have agent status tracking yet
           calls_today: 0,
           avg_call_time: 0,
-          last_activity: agent.agent_status?.[0]?.last_activity || agent.created_at
+          last_activity: agent.created_at
         })))
       }
 
       if (stats) {
-        const completed = stats.filter(s => s.status === 'completed')
-        const failed = stats.filter(s => s.status === 'failed')
-        const totalDuration = completed.reduce((acc, c) => acc + (c.duration_seconds || 0), 0)
+        // Completed calls are those with an end_time
+        const completed = stats.filter(s => s.end_time !== null)
+        const failed = stats.filter(s => s.status === 'failed' || s.status === 'abandoned')
+        const active = stats.filter(s => s.end_time === null)
+        const totalDuration = completed.reduce((acc, c) => acc + (c.duration || 0), 0)
         
         setCallStats({
           total_calls: stats.length,
-          active_calls: calls?.length || 0,
+          active_calls: active.length,
           completed_calls: completed.length,
           failed_calls: failed.length,
           avg_duration: completed.length > 0 ? totalDuration / completed.length : 0,
@@ -196,25 +292,63 @@ export function RealtimeCallBoard() {
     } catch (error) {
       console.error('Error loading call board:', error)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
+  
+  const handleManualRefresh = async () => {
+    setRefreshing(true)
+    await loadCallBoard(true)
+    setRefreshing(false)
+  }
 
-  const handleNewCall = (call: any) => {
-    setActiveCalls(prev => [...prev, {
+  const handleNewCall = async (call: any) => {
+    // Fetch additional details for the call
+    let member = null
+    let contact = null
+
+    if (call.member_id) {
+      const { data: memberData } = await supabase
+        .from('organization_members')
+        .select('full_name, email')
+        .eq('id', call.member_id)
+        .maybeSingle()
+      member = memberData
+    }
+
+    if (call.contact_id) {
+      const { data: contactData } = await supabase
+        .from('contacts')
+        .select('full_name')
+        .eq('id', call.contact_id)
+        .maybeSingle()
+      contact = contactData
+    }
+
+    const activeCall: ActiveCall = {
       id: call.id,
       agent_id: call.member_id,
-      agent_name: 'Loading...',
+      agent_name: member?.full_name || 'Unknown',
       contact_id: call.contact_id,
-      contact_name: 'Loading...',
+      contact_name: contact?.full_name || call.called_number || 'Unknown',
       phone_number: call.called_number,
       direction: call.direction,
       status: call.status,
       start_time: call.start_time,
       duration_seconds: 0,
+      call_list_name: call.metadata?.campaign_name,
       muted: false,
       on_hold: false
-    }])
+    }
+
+    setActiveCalls(prev => {
+      // Check if call already exists (to avoid duplicates)
+      const exists = prev.some(c => c.id === call.id)
+      if (exists) {
+        return prev.map(c => c.id === call.id ? activeCall : c)
+      }
+      return [...prev, activeCall]
+    })
 
     // Update agent status
     setAgentStatuses(prev => prev.map(agent => 
@@ -232,11 +366,21 @@ export function RealtimeCallBoard() {
   }
 
   const handleCallUpdate = (call: any) => {
-    setActiveCalls(prev => prev.map(c => 
-      c.id === call.id 
-        ? { ...c, status: call.status, duration_seconds: call.duration_seconds || c.duration_seconds }
-        : c
-    ))
+    setActiveCalls(prev => prev.map(c => {
+      if (c.id === call.id) {
+        // Calculate duration in seconds
+        const startTime = new Date(call.start_time).getTime()
+        const now = new Date().getTime()
+        const durationSeconds = Math.floor((now - startTime) / 1000)
+        
+        return {
+          ...c,
+          status: call.status,
+          duration_seconds: call.duration || durationSeconds
+        }
+      }
+      return c
+    }))
   }
 
   const handleCallEnd = (call: any) => {
@@ -319,6 +463,11 @@ export function RealtimeCallBoard() {
 
   return (
     <div className="space-y-6">
+      {/* System Health Status */}
+      <div className="flex justify-end">
+        <SystemHealthIndicator variant="compact" />
+      </div>
+      
       {/* Stats Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <Card>
@@ -400,6 +549,18 @@ export function RealtimeCallBoard() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleManualRefresh}
+                disabled={refreshing}
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
               <Button
                 size="sm"
                 variant={selectedView === 'grid' ? 'default' : 'outline'}

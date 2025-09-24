@@ -54,26 +54,10 @@ export function CallHistory({
   const { data: calls, isLoading, error } = useQuery({
     queryKey: ['call-history', contactId, callListId, agentId],
     queryFn: async () => {
+      // First get the calls
       let query = supabase
         .from('calls')
-        .select(`
-          *,
-          recordings:call_recordings(
-            id,
-            recording_url,
-            duration,
-            transcription,
-            status
-          ),
-          contact:contacts(
-            full_name,
-            phone_number
-          ),
-          member:organization_members!member_id(
-            full_name,
-            email
-          )
-        `)
+        .select('*')
         .order('start_time', { ascending: false })
         .limit(limit)
 
@@ -81,16 +65,56 @@ export function CallHistory({
         query = query.eq('contact_id', contactId)
       }
       if (callListId) {
-        query = query.eq('call_list_id', callListId)
+        query = query.eq('metadata->>campaign_id', callListId)
       }
       if (agentId) {
-        query = query.eq('agent_id', agentId)
+        query = query.eq('member_id', agentId)
       }
 
-      const { data, error } = await query
+      const { data: callsData, error } = await query
 
       if (error) throw error
-      return data || []
+      if (!callsData) return []
+
+      // Then get related data for each call
+      const enrichedCalls = await Promise.all(
+        callsData.map(async (call) => {
+          let contact = null
+          let member = null
+
+          // Get contact info
+          if (call.contact_id) {
+            const { data: contactData } = await supabase
+              .from('contacts')
+              .select('full_name, phone_number')
+              .eq('id', call.contact_id)
+              .maybeSingle()
+            contact = contactData
+          }
+
+          // Get member info
+          if (call.member_id) {
+            const { data: memberData } = await supabase
+              .from('organization_members')
+              .select('full_name, email')
+              .eq('id', call.member_id)
+              .maybeSingle()
+            
+            member = memberData ? {
+              full_name: memberData.full_name,
+              email: memberData.email
+            } : null
+          }
+
+          return {
+            ...call,
+            contact,
+            member
+          }
+        })
+      )
+
+      return enrichedCalls
     }
   })
 
@@ -137,10 +161,11 @@ export function CallHistory({
   }
 
   const handlePlayRecording = (call: any) => {
-    if (!call.recordings || call.recordings.length === 0) return
+    if (!call.recording_url) return
 
     const recording = {
-      ...call.recordings[0],
+      recording_url: call.recording_url,
+      transcription: call.transcription,
       call_id: call.id,
       caller_number: call.caller_number,
       called_number: call.called_number,
@@ -246,13 +271,13 @@ export function CallHistory({
                   </div>
                 </TableCell>
                 <TableCell>
-                  {call.recordings && call.recordings.length > 0 ? (
+                  {call.recording_url ? (
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-xs">
                         <Play className="h-3 w-3 mr-1" />
                         Available
                       </Badge>
-                      {call.recordings[0].transcription && (
+                      {call.transcription && (
                         <span title="Transcript available">
                           <FileText className="h-3 w-3 text-gray-400" />
                         </span>
@@ -264,7 +289,7 @@ export function CallHistory({
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
-                    {call.recordings && call.recordings.length > 0 && (
+                    {call.recording_url && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -274,13 +299,13 @@ export function CallHistory({
                         Play
                       </Button>
                     )}
-                    {call.recordings && call.recordings.length > 0 && (
+                    {call.recording_url && (
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => {
                           const link = document.createElement('a')
-                          link.href = call.recordings[0].recording_url
+                          link.href = call.recording_url
                           link.download = `call-${call.id}.mp3`
                           document.body.appendChild(link)
                           link.click()

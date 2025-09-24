@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react'
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { CallStatusNotification } from '@/components/calls/CallStatusNotification'
 
 interface CallState {
@@ -31,6 +31,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const statusPollingRef = useRef<NodeJS.Timeout | null>(null)
   const lastStatusRef = useRef<string>('')
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const callStartTimeRef = useRef<number | null>(null)
+  const cleanupIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Timeout constants
+  const INITIATED_TIMEOUT = 30000 // 30 seconds for initiated status
+  const RINGING_TIMEOUT = 45000   // 45 seconds for ringing status
+  const MAX_CALL_TIMEOUT = 60000  // 60 seconds max for any call to start
 
   const startCall = useCallback((callId: string, contactName?: string, phoneNumber?: string) => {
     setCallState({
@@ -40,6 +48,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       contactName,
       phoneNumber
     })
+    
+    // Track call start time
+    callStartTimeRef.current = Date.now()
+    
+    // Start timeout for initiated status
+    startTimeout('initiated', INITIATED_TIMEOUT, callId)
     
     // Start polling for status
     startStatusPolling(callId)
@@ -55,11 +69,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       status
     }))
 
+    // Clear timeout on successful progress
+    if (status.includes('Calling your phone') || status.includes('You answered')) {
+      clearTimeout(timeoutRef.current!)
+      // Set new timeout for ringing state
+      if (status.includes('Calling your phone')) {
+        const callId = callState.callId
+        if (callId) {
+          startTimeout('ringing', RINGING_TIMEOUT, callId)
+        }
+      }
+    }
+    
+    // Clear all timeouts if connected or call in progress
+    if (status.includes('Contact answered') || status.includes('Call in progress')) {
+      clearTimeout(timeoutRef.current!)
+      timeoutRef.current = null
+    }
+
     // Check if call ended - look for specific keywords in the mapped status
     const isCallEnded = ['✅ Call completed', '📵 Line busy', '❌ Call failed', '📞 No answer', '📱 Call ended'].some(s => status === s)
     
     if (isCallEnded) {
       stopStatusPolling()
+      clearTimeout(timeoutRef.current!)
       // Mark as not active immediately but keep the status message visible for 5 seconds
       setTimeout(() => {
         setCallState(prev => ({
@@ -68,7 +101,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }))
       }, 100)
     }
-  }, [])
+  }, [callState.callId])
 
   const endCall = useCallback(async () => {
     const { callId } = callState
@@ -81,6 +114,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
 
     stopStatusPolling()
+    clearTimeout(timeoutRef.current!)
+    timeoutRef.current = null
+    callStartTimeRef.current = null
+    
     setCallState({
       isActive: false,
       callId: null,
@@ -164,6 +201,64 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  const startTimeout = (stage: string, duration: number, callId: string) => {
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    timeoutRef.current = setTimeout(async () => {
+      console.error(`Call timeout detected at stage: ${stage}`)
+      
+      // Stop polling
+      stopStatusPolling()
+      
+      // Update status with timeout message
+      let timeoutMessage = '⚠️ Connection timeout - Unable to establish call'
+      if (stage === 'ringing') {
+        timeoutMessage = '📞 Call timeout - No answer received'
+      } else if (stage === 'max') {
+        timeoutMessage = '❌ Call system not responding - Please try again'
+      }
+      
+      setCallState(prev => ({
+        ...prev,
+        status: timeoutMessage
+      }))
+      
+      // Mark call as failed in database
+      await markCallAsTimedOut(callId, stage)
+      
+      // Clear call state after showing error for 5 seconds
+      setTimeout(() => {
+        setCallState({
+          isActive: false,
+          callId: null,
+          status: '',
+          contactName: undefined,
+          phoneNumber: undefined
+        })
+        lastStatusRef.current = ''
+      }, 5000)
+    }, duration)
+  }
+
+  const markCallAsTimedOut = async (callId: string, timeoutStage: string) => {
+    try {
+      // Call an API to mark the call as timed out
+      await fetch(`/api/calls/${callId}/timeout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timeoutStage,
+          timeoutAt: new Date().toISOString()
+        })
+      })
+    } catch (error) {
+      console.error('Failed to mark call as timed out:', error)
+    }
+  }
+
   const mapStatusToDisplay = (status: string): string => {
     switch (status) {
       case 'initiated':
@@ -200,6 +295,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       isActive: false
     }))
     lastStatusRef.current = ''
+  }, [])
+
+  // Periodic cleanup of orphaned calls
+  useEffect(() => {
+    const runCleanup = async () => {
+      try {
+        const response = await fetch('/api/calls/cleanup-orphaned', {
+          method: 'POST'
+        })
+        if (response.ok) {
+          const data = await response.json()
+          if (data.cleanedCount > 0) {
+            console.log(`Cleaned up ${data.cleanedCount} orphaned calls`)
+          }
+        }
+      } catch (error) {
+        console.error('Orphaned call cleanup failed:', error)
+      }
+    }
+
+    // Run cleanup every 60 seconds
+    cleanupIntervalRef.current = setInterval(runCleanup, 60000)
+    
+    // Run initial cleanup after 5 seconds
+    const initialTimer = setTimeout(runCleanup, 5000)
+
+    return () => {
+      if (cleanupIntervalRef.current) {
+        clearInterval(cleanupIntervalRef.current)
+      }
+      clearTimeout(initialTimer)
+    }
   }, [])
 
   return (

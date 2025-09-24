@@ -153,17 +153,14 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
       if (callData.member_id) {
         const { data: memberData } = await supabase
           .from('organization_members')
-          .select(`
-            id,
-            users(email, full_name)
-          `)
+          .select('id, full_name, email')
           .eq('id', callData.member_id)
           .maybeSingle()
         
         member = memberData ? {
           id: memberData.id,
-          full_name: memberData.users?.full_name || 'Unknown',
-          email: memberData.users?.email || ''
+          full_name: memberData.full_name || 'Unknown',
+          email: memberData.email || ''
         } : null
       }
 
