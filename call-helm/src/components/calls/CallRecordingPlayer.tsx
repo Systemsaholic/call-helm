@@ -34,6 +34,7 @@ interface CallRecording {
   id: string
   call_id: string
   recording_url: string
+  recording_sid?: string
   duration: number
   start_time: string
   end_time: string
@@ -148,7 +149,11 @@ export function CallRecordingPlayer({
   if (compact) {
     return (
       <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-        <audio ref={audioRef} src={recording.recording_url} preload="metadata" />
+        <audio 
+          ref={audioRef} 
+          src={recording.recording_sid ? `/api/recordings/${recording.recording_sid}` : recording.recording_url} 
+          preload="metadata" 
+        />
         
         <Button
           size="icon"
@@ -214,7 +219,11 @@ export function CallRecordingPlayer({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <audio ref={audioRef} src={recording.recording_url} preload="metadata" />
+          <audio 
+          ref={audioRef} 
+          src={recording.recording_sid ? `/api/recordings/${recording.recording_sid}` : recording.recording_url} 
+          preload="metadata" 
+        />
           
           {/* Call Details */}
           <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">

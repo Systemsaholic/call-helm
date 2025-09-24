@@ -255,15 +255,19 @@ export function CallHistory({
 
     const recording = {
       recording_url: call.recording_url,
+      recording_sid: call.recording_sid, // Add recording_sid for proxy
       transcription: call.transcription,
       call_id: call.id,
+      duration: call.duration || 0,
       caller_number: call.caller_number,
       called_number: call.called_number,
       agent_name: call.member?.full_name,
       contact_name: call.contact?.full_name,
       direction: call.direction,
       start_time: call.start_time,
-      end_time: call.end_time
+      end_time: call.end_time,
+      id: call.id,
+      status: 'completed'
     }
 
     setSelectedRecording(recording)

@@ -81,12 +81,30 @@ export async function POST(request: NextRequest) {
       console.error('Error creating transcription job:', jobError)
     }
     
-    // Queue transcription processing (this would normally trigger a background job)
-    // For now, we'll just log it
-    console.log('Recording saved and transcription job queued for call:', call.id)
+    // Queue transcription processing 
+    console.log('Recording saved and triggering transcription for call:', call.id)
     
-    // In production, you would trigger transcription here:
-    // await triggerTranscription(call.id, recordingUrl)
+    // Trigger transcription processing asynchronously
+    try {
+      const transcriptionResponse = await fetch(`${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/transcription/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          callId: call.id,
+          recordingUrl: recordingUrl
+        })
+      })
+      
+      if (!transcriptionResponse.ok) {
+        console.error('Failed to trigger transcription:', transcriptionResponse.statusText)
+      } else {
+        console.log('Transcription triggered successfully')
+      }
+    } catch (transcriptionError) {
+      console.error('Error triggering transcription:', transcriptionError)
+    }
     
     return NextResponse.json({ 
       received: true,

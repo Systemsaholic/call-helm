@@ -124,6 +124,25 @@ export async function POST(req: NextRequest) {
       scriptContent = script?.content
     }
 
+    // Check if user wants to record and has Pro plan
+    const { data: userPrefs } = await supabase
+      .from('user_profiles')
+      .select('default_record_calls')
+      .eq('id', user.id)
+      .single()
+    
+    const { data: limits } = await supabase
+      .from('organization_limits')
+      .select('features')
+      .eq('organization_id', member.organization_id)
+      .single()
+    
+    const canRecord = limits?.features?.call_recording_transcription === true
+    const wantsToRecord = userPrefs?.default_record_calls === true
+    const enableRecording = canRecord && wantsToRecord
+    
+    console.log('Global recording check:', { canRecord, wantsToRecord, enableRecording })
+
     // Initiate call based on provider
     let externalCallId = null
     let callData: any = {
@@ -135,6 +154,7 @@ export async function POST(req: NextRequest) {
       status: "answered",  // Using 'answered' as the initial status since 'initiated' isn't valid
       member_id: member.id,
       start_time: new Date().toISOString(),
+      recording_enabled: enableRecording,
       metadata: {
         call_list_id: callListId,
         script_id: scriptId,
@@ -149,19 +169,30 @@ export async function POST(req: NextRequest) {
       if (!twilioClient) {
         return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 })
       }
+      
       try {
-        // Initiate call via Twilio
-        const call = await twilioClient.calls.create({
+        // Build call parameters
+        const callParams: any = {
           to: formattedPhoneNumber,
           from: process.env.TWILIO_PHONE_NUMBER,
           // Use server-side APP_URL for webhook callbacks
           url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio/voice`, // TwiML endpoint
           statusCallback: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio`,
           statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
-          statusCallbackMethod: "POST",
-          record: true, // Enable recording if needed
-          recordingStatusCallback: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio/recording`
-        })
+          statusCallbackMethod: "POST"
+        }
+        
+        // Add recording parameters only if enabled
+        if (enableRecording) {
+          callParams.record = true
+          callParams.recordingStatusCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio/recording`
+          console.log('Twilio recording ENABLED')
+        } else {
+          console.log('Twilio recording DISABLED')
+        }
+        
+        // Initiate call via Twilio
+        const call = await twilioClient.calls.create(callParams)
 
         externalCallId = call.sid
         callData.metadata.external_id = call.sid
@@ -224,23 +255,6 @@ export async function POST(req: NextRequest) {
         console.log('  From:', phoneNumberData.number)
         console.log('  To (Agent):', agentPhone)
         console.log('  Target (Contact):', formattedPhoneNumber)
-        
-        // Check if user wants to record and has Pro plan
-        const { data: userPrefs } = await supabase
-          .from('organization_members')
-          .select('default_record_calls')
-          .eq('id', member.id)
-          .single()
-        
-        const { data: limits } = await supabase
-          .from('organization_limits')
-          .select('features')
-          .eq('organization_id', member.organization_id)
-          .single()
-        
-        const canRecord = limits?.features?.call_recording_transcription === true
-        const wantsToRecord = userPrefs?.default_record_calls === true // TODO: Add toggle in UI
-        const enableRecording = canRecord && wantsToRecord
         
         if (wantsToRecord && !canRecord) {
           console.log('User wants to record but not on Pro plan')

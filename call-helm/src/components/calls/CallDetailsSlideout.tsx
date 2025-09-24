@@ -76,6 +76,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
   const [loading, setLoading] = useState(true)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
   
   // Audio player state
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -110,14 +111,36 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
       setIsPlaying(false)
     }
 
+    const handleError = (e: Event) => {
+      const audio = e.target as HTMLAudioElement
+      console.error('Audio loading error:', {
+        error: audio.error,
+        errorCode: audio.error?.code,
+        errorMessage: audio.error?.message,
+        src: audio.src,
+        readyState: audio.readyState,
+        networkState: audio.networkState
+      })
+      setAudioLoading(false)
+      // You could set an error state here if needed
+    }
+
+    const handleCanPlay = () => {
+      setAudioLoading(false)
+    }
+
     audio.addEventListener('loadedmetadata', handleLoadedMetadata)
     audio.addEventListener('timeupdate', handleTimeUpdate)
     audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('error', handleError)
+    audio.addEventListener('canplay', handleCanPlay)
 
     return () => {
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
       audio.removeEventListener('timeupdate', handleTimeUpdate)
       audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
+      audio.removeEventListener('canplay', handleCanPlay)
     }
   }, [callDetails?.recording_url])
 
@@ -274,6 +297,36 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
     }
   }
 
+  const handleTranscribe = async () => {
+    if (!callDetails?.id) return
+    
+    setTranscribing(true)
+    try {
+      const response = await fetch(`/api/calls/${callDetails.id}/transcribe`, {
+        method: 'POST',
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to start transcription')
+      }
+      
+      toast.success('Transcription started - this may take a few minutes')
+      
+      // Update the call details to show processing status
+      setCallDetails(prev => prev ? {
+        ...prev,
+        transcription_status: 'processing'
+      } : null)
+      
+    } catch (error) {
+      console.error('Transcription error:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to start transcription')
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
   const getSentimentIcon = () => {
     switch (callDetails?.mood_sentiment) {
       case 'positive':
@@ -416,7 +469,24 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                 <TabsContent value="recording" className="px-6 py-4 space-y-4">
                   {callDetails.recording_url ? (
                     <>
-                      <audio ref={audioRef} src={callDetails.recording_url} preload="metadata" />
+                      {(() => {
+                        const audioSrc = callDetails.recording_sid 
+                          ? `/api/recordings/${callDetails.recording_sid}` 
+                          : callDetails.recording_url;
+                        console.log('Audio src configuration:', {
+                          recording_sid: callDetails.recording_sid,
+                          recording_url: callDetails.recording_url,
+                          computed_src: audioSrc
+                        });
+                        return (
+                          <audio 
+                            ref={audioRef} 
+                            src={audioSrc}
+                            preload="metadata" 
+                            crossOrigin="anonymous"
+                          />
+                        );
+                      })()}
                       
                       {/* Player Controls */}
                       <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
@@ -522,11 +592,32 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p>
+                      <p className="mb-4">
                         {callDetails.transcription_status === 'processing' 
                           ? 'Transcription in progress...' 
+                          : callDetails.transcription_status === 'failed'
+                          ? 'Transcription failed'
                           : 'No transcript available'}
                       </p>
+                      {callDetails.recording_url && callDetails.transcription_status !== 'processing' && (
+                        <Button 
+                          onClick={handleTranscribe}
+                          disabled={transcribing}
+                          size="sm"
+                        >
+                          {transcribing ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Transcribing...
+                            </>
+                          ) : (
+                            <>
+                              <FileText className="h-4 w-4 mr-2" />
+                              {callDetails.transcription_status === 'failed' ? 'Retry Transcription' : 'Generate Transcript'}
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </TabsContent>
