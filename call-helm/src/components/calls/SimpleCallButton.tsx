@@ -44,15 +44,24 @@ export function SimpleCallButton({
   const router = useRouter()
 
   const initiateCall = async () => {
+    console.log('initiateCall called', { loading, isActive: callState.isActive })
+    
     // Prevent multiple calls
-    if (loading || callState.isActive) return
+    if (loading || callState.isActive) {
+      console.log('Call prevented:', { loading, isActive: callState.isActive })
+      return
+    }
     
     setLoading(true)
     setSystemError(null)
+    console.log('Starting call initiation...')
 
     try {
       // Check recent call health (pre-flight check)
+      console.log('Checking system health...')
       const healthCheck = await checkCallSystemHealth()
+      console.log('Health check result:', healthCheck)
+      
       if (!healthCheck.healthy) {
         setSystemError(healthCheck.message || 'System health check failed')
         setLoading(false)
@@ -61,6 +70,7 @@ export function SimpleCallButton({
         return
       }
 
+      console.log('Sending call initiation request...')
       const response = await fetch('/api/calls/initiate', {
         method: 'POST',
         headers: {
@@ -76,6 +86,7 @@ export function SimpleCallButton({
       })
 
       const data = await response.json()
+      console.log('Call initiation response:', { status: response.status, data })
 
       if (!response.ok) {
         if (response.status === 402) {
@@ -87,6 +98,7 @@ export function SimpleCallButton({
       }
 
       // Start call tracking in context
+      console.log('Starting call tracking with ID:', data.callId)
       startCall(data.callId, contactName, phoneNumber)
       
     } catch (err) {
@@ -142,7 +154,17 @@ export function SimpleCallButton({
 
   // Check if user has available minutes
   const remainingMinutes = limits ? limits.max_call_minutes - limits.used_call_minutes : 0
-  const hasMinutes = remainingMinutes > 0 || limits?.plan_slug !== 'starter'
+  const hasMinutes = !limits || remainingMinutes > 0
+  
+  // Debug logging
+  console.log('SimpleCallButton state:', {
+    limits,
+    remainingMinutes,
+    hasMinutes,
+    loading,
+    systemError,
+    callStateIsActive: callState.isActive
+  })
   
   // Don't show button if a call is already active
   if (callState.isActive) {
@@ -153,7 +175,10 @@ export function SimpleCallButton({
     <>
       <div className="relative inline-block">
         <Button
-          onClick={initiateCall}
+          onClick={() => {
+            console.log('Button clicked! Initiating call...', { phoneNumber, contactId, contactName })
+            initiateCall()
+          }}
           disabled={loading || !hasMinutes || !!systemError}
           size={size}
           variant={systemError ? 'destructive' : variant}

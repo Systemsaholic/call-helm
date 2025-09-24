@@ -133,11 +133,17 @@ export function RealtimeCallBoard() {
           filter: `organization_id=eq.${organizationId}`
         },
         async (payload) => {
-          console.log('Call update received:', payload)
+          console.log('🔔 Call Board Real-time Update:', {
+            event: payload.eventType,
+            callId: payload.new?.id || payload.old?.id,
+            hasEndTime: !!payload.new?.end_time,
+            organizationId: payload.new?.organization_id || payload.old?.organization_id
+          })
           
           if (payload.eventType === 'INSERT') {
             // New call started - fetch full details and add to board
             const newCall = payload.new as any
+            console.log('📞 New call detected:', newCall.id, 'End time:', newCall.end_time)
             if (!newCall.end_time) {
               await handleNewCall(newCall)
             }
@@ -146,13 +152,16 @@ export function RealtimeCallBoard() {
             const updatedCall = payload.new as any
             if (updatedCall.end_time && !payload.old?.end_time) {
               // Call just ended
+              console.log('📴 Call ended:', updatedCall.id)
               handleCallEnd(updatedCall)
             } else if (!updatedCall.end_time) {
               // Call still active, update its info
+              console.log('🔄 Call updated:', updatedCall.id, 'Status:', updatedCall.status)
               handleCallUpdate(updatedCall)
             }
           } else if (payload.eventType === 'DELETE') {
             // Call deleted
+            console.log('🗑️ Call deleted:', payload.old?.id)
             handleCallEnd(payload.old as any)
           }
         }
@@ -257,7 +266,7 @@ export function RealtimeCallBoard() {
         .gte('start_time', today.toISOString())
 
       // Process data
-      console.log('Active calls loaded:', callsData?.length || 0, 'calls')
+      console.log('Active calls loaded:', callsData?.length || 0, 'calls', callsData)
       if (calls) {
         setActiveCalls(calls.map(call => ({
           id: call.id,
