@@ -322,13 +322,13 @@ export function RealtimeCallBoard() {
         .eq('organization_id', organizationId) // Filter by organization
         .eq('is_active', true)
 
-      // Load today's call stats
+      // Load today's call stats including agent data
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       
       const { data: stats } = await supabase
         .from('calls')
-        .select('status, duration, end_time')
+        .select('status, duration, end_time, member_id, start_time')
         .eq('organization_id', organizationId) // Filter by organization
         .gte('start_time', today.toISOString())
 
@@ -353,15 +353,43 @@ export function RealtimeCallBoard() {
       }
 
       if (agents) {
-        setAgentStatuses(agents.map(agent => ({
-          id: agent.id,
-          name: agent.full_name || 'Unknown',
-          email: agent.email || '',
-          status: 'available', // Default status since we don't have agent status tracking yet
-          calls_today: 0,
-          avg_call_time: 0,
-          last_activity: agent.created_at
-        })))
+        // Calculate stats for each agent
+        const agentStats = agents.map(agent => {
+          // Filter calls for this agent
+          const agentCalls = stats?.filter(call => call.member_id === agent.id) || []
+          const completedCalls = agentCalls.filter(call => call.end_time !== null)
+          
+          // Calculate average call time
+          const totalDuration = completedCalls.reduce((acc, call) => acc + (call.duration || 0), 0)
+          const avgCallTime = completedCalls.length > 0 ? totalDuration / completedCalls.length : 0
+          
+          // Find if agent has any active calls
+          const hasActiveCall = calls?.some(call => call.member_id === agent.id)
+          
+          // Determine last activity (most recent call start time or created_at)
+          const lastCallTime = agentCalls.length > 0 
+            ? agentCalls.reduce((latest, call) => {
+                const callTime = new Date(call.start_time).getTime()
+                return callTime > latest ? callTime : latest
+              }, 0)
+            : null
+          
+          const lastActivity = lastCallTime 
+            ? new Date(lastCallTime).toISOString()
+            : agent.created_at
+          
+          return {
+            id: agent.id,
+            name: agent.full_name || 'Unknown',
+            email: agent.email || '',
+            status: hasActiveCall ? 'busy' as const : 'available' as const,
+            calls_today: agentCalls.length,
+            avg_call_time: avgCallTime,
+            last_activity: lastActivity
+          }
+        })
+        
+        setAgentStatuses(agentStats)
       }
 
       if (stats) {
@@ -487,12 +515,25 @@ export function RealtimeCallBoard() {
     
     setActiveCalls(prev => prev.filter(c => c.id !== call.id))
     
-    // Update agent status
-    setAgentStatuses(prev => prev.map(agent => 
-      agent.id === call.member_id 
-        ? { ...agent, status: 'after-call' as const }
-        : agent
-    ))
+    // Update agent status and stats
+    setAgentStatuses(prev => prev.map(agent => {
+      if (agent.id === call.member_id) {
+        // Calculate new average if this was a completed call
+        const newCallsToday = agent.calls_today + 1
+        const newAvgTime = call.duration && call.status === 'completed'
+          ? ((agent.avg_call_time * agent.calls_today) + call.duration) / newCallsToday
+          : agent.avg_call_time
+        
+        return {
+          ...agent,
+          status: 'after-call' as const,
+          calls_today: newCallsToday,
+          avg_call_time: newAvgTime,
+          last_activity: new Date().toISOString()
+        }
+      }
+      return agent
+    }))
 
     // Update stats
     setCallStats(prev => ({
@@ -806,8 +847,13 @@ export function RealtimeCallBoard() {
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-muted-foreground">
-                    {agent.calls_today} calls
+                    {agent.calls_today} {agent.calls_today === 1 ? 'call' : 'calls'} today
                   </p>
+                  {agent.avg_call_time > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Avg: {formatDuration(Math.floor(agent.avg_call_time))}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     {formatDistanceToNow(new Date(agent.last_activity), { addSuffix: true })}
                   </p>
