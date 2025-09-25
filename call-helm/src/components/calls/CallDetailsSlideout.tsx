@@ -602,9 +602,29 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       </div>
                       
                       <div className="p-4 bg-gray-50 rounded-lg">
-                        <p className="text-sm whitespace-pre-wrap font-mono">
-                          {maskSensitiveData(callDetails.transcription)}
-                        </p>
+                        <div className="text-sm space-y-3">
+                          {maskSensitiveData(callDetails.transcription).split('\n\n').map((line, index) => {
+                            const [speaker, ...textParts] = line.split(':')
+                            const text = textParts.join(':').trim()
+                            
+                            if (text) {
+                              return (
+                                <div key={index} className="flex gap-3">
+                                  <span className={cn(
+                                    "font-semibold min-w-[80px]",
+                                    speaker.trim() === 'Agent' ? 'text-blue-600' : 'text-green-600'
+                                  )}>
+                                    {speaker}:
+                                  </span>
+                                  <span className="flex-1 text-gray-700">
+                                    {text}
+                                  </span>
+                                </div>
+                              )
+                            }
+                            return <p key={index} className="text-gray-700">{line}</p>
+                          })}
+                        </div>
                       </div>
 
                       {callDetails.compliance_flags?.pci_detected && (

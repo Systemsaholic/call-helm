@@ -1,6 +1,88 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+// Function to format transcript with speaker identification
+function formatTranscriptWithSpeakers(segments: any[], recordingSid?: string): string {
+  if (!segments || segments.length === 0) {
+    return ''
+  }
+
+  let formattedTranscript = ''
+  let currentSpeaker = 'Agent' // Start with Agent since calls usually begin with agent speaking
+  let lastEndTime = 0
+  let speakerTurnCount = 0
+  
+  // Analyze segments to identify speaker changes
+  // Speaker changes are indicated by:
+  // 1. Significant pause (> 1.5 seconds)
+  // 2. Change in speech patterns
+  // 3. Natural conversation flow
+  
+  segments.forEach((segment, index) => {
+    const pauseDuration = segment.start - lastEndTime
+    
+    // Detect speaker change based on pause and conversation flow
+    if (pauseDuration > 1.5 || 
+        (pauseDuration > 0.8 && containsSpeakerChangeIndicators(segment.text))) {
+      // Toggle speaker
+      if (speakerTurnCount > 0) { // Don't change on first segment
+        currentSpeaker = currentSpeaker === 'Agent' ? 'Customer' : 'Agent'
+      }
+      
+      // Add speaker label with new line
+      if (formattedTranscript.length > 0) {
+        formattedTranscript += '\n\n'
+      }
+      formattedTranscript += `${currentSpeaker}: `
+      speakerTurnCount++
+    } else if (index === 0) {
+      // First segment
+      formattedTranscript = `${currentSpeaker}: `
+      speakerTurnCount++
+    }
+    
+    // Add the text
+    formattedTranscript += segment.text.trim() + ' '
+    lastEndTime = segment.end
+  })
+  
+  // Clean up the transcript
+  formattedTranscript = formattedTranscript
+    .replace(/\s+/g, ' ') // Remove extra spaces
+    .replace(/(\w)\s+\./g, '$1.') // Fix spacing before periods
+    .replace(/\s+,/g, ',') // Fix spacing before commas
+    .replace(/\s+\?/g, '?') // Fix spacing before questions
+    .trim()
+  
+  return formattedTranscript
+}
+
+// Helper function to detect phrases that indicate speaker change
+function containsSpeakerChangeIndicators(text: string): boolean {
+  const lowerText = text.toLowerCase().trim()
+  
+  // Common conversation turn indicators
+  const turnIndicators = [
+    // Greetings and farewells
+    'hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'thank you',
+    // Questions
+    '?',
+    // Affirmatives/Negatives that often start a turn
+    '^yes', '^no', '^okay', '^sure', '^absolutely',
+    // Common response starters
+    'well,', 'actually,', 'um,', 'uh,',
+    // Professional phrases
+    'how can i help', 'may i help', 'calling about', 'calling from'
+  ]
+  
+  return turnIndicators.some(indicator => {
+    if (indicator.startsWith('^')) {
+      return lowerText.startsWith(indicator.substring(1))
+    }
+    return lowerText.includes(indicator)
+  })
+}
+
 // OpenAI Whisper transcription service
 async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): Promise<string> {
   const openaiApiKey = process.env.OPENAI_API_KEY
@@ -96,7 +178,7 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
     const transcriptionData = await transcriptionResponse.json()
     
     // verbose_json format returns an object with text, language, duration, segments, etc.
-    const transcription = transcriptionData.text || transcriptionData
+    const rawTranscription = transcriptionData.text || transcriptionData
     
     // Log detected language and duration for debugging
     if (transcriptionData.language) {
@@ -106,7 +188,13 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
       console.log('Audio duration from Whisper:', transcriptionData.duration, 'seconds')
     }
     
-    return typeof transcription === 'string' ? transcription.trim() : JSON.stringify(transcription)
+    // Process segments to identify speaker changes based on timing gaps
+    let formattedTranscript = rawTranscription
+    if (transcriptionData.segments) {
+      formattedTranscript = formatTranscriptWithSpeakers(transcriptionData.segments, recordingSid)
+    }
+    
+    return typeof formattedTranscript === 'string' ? formattedTranscript.trim() : JSON.stringify(formattedTranscript)
     
   } catch (error) {
     console.error('Whisper transcription error:', error)

@@ -61,14 +61,16 @@ async function analyzeTranscription(transcription: string, callMetadata?: any): 
   - confused: Customer doesn't understand, needs clarification
   - excited: Customer is very enthusiastic, eager`
 
-  const userPrompt = `Analyze this call transcription:
+  const userPrompt = `Analyze this call transcription (formatted as Agent: and Customer: dialogue):
 
 ${transcription}
 
 ${callMetadata ? `Call Context:
 - Duration: ${callMetadata.duration} seconds
 - Direction: ${callMetadata.direction}
-- Status: ${callMetadata.status}` : ''}`
+- Status: ${callMetadata.status}` : ''}
+
+Note: The transcript is already separated by speaker (Agent and Customer). Use this to better understand the conversation flow and calculate accurate talk ratios.`
 
   try {
     const response = await openai.chat.completions.create({
