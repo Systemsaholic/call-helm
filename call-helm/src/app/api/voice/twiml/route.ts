@@ -50,8 +50,9 @@ export async function POST(request: NextRequest) {
         if (limits?.features?.call_recording_transcription === true) {
           shouldRecord = true
           const recordingCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/recording-complete`
-          recordingParams = `record="true" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackEvent="completed" recordingStatusCallbackMethod="POST"`
-          console.log('Recording ENABLED - Pro plan confirmed')
+          // Use record-from-answer to capture the entire call from when it's answered
+          recordingParams = `record="record-from-answer" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackEvent="completed" recordingStatusCallbackMethod="POST"`
+          console.log('Recording ENABLED - Pro plan confirmed (will record entire call)')
         } else {
           console.log('Recording DISABLED - Not on Pro plan')
         }

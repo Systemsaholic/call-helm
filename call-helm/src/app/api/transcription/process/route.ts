@@ -30,8 +30,11 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
     console.log('Fetching audio from:', fetchUrl)
     console.log('Using authentication:', audioUrl.includes('signalwire.com') ? 'Yes' : 'No')
     
-    // First, fetch the audio file
-    const audioResponse = await fetch(fetchUrl, { headers })
+    // First, fetch the audio file with redirect following
+    const audioResponse = await fetch(fetchUrl, { 
+      headers,
+      redirect: 'follow' // Explicitly follow redirects
+    })
     if (!audioResponse.ok) {
       console.error('Audio fetch failed:', {
         status: audioResponse.status,
@@ -44,11 +47,24 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
     
     const audioBlob = await audioResponse.blob()
     
+    // Log audio file details
+    console.log('Audio file details:', {
+      size: audioBlob.size,
+      sizeInMB: (audioBlob.size / (1024 * 1024)).toFixed(2),
+      type: audioBlob.type || 'audio/mpeg'
+    })
+    
+    // Check if the audio file is too small (might be truncated)
+    if (audioBlob.size < 1000) {
+      console.warn('Audio file seems too small, might be truncated:', audioBlob.size)
+    }
+    
     // Create form data for OpenAI Whisper API
     const formData = new FormData()
     formData.append('file', audioBlob, 'recording.mp3')
     formData.append('model', 'whisper-1')
-    formData.append('language', 'en') // Can be made configurable
+    // Remove language specification to let Whisper auto-detect
+    // formData.append('language', 'en') 
     formData.append('response_format', 'text')
     
     // Call OpenAI Whisper API
