@@ -1,203 +1,209 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// Function to format transcript with speaker identification
-function formatTranscriptWithSpeakers(segments: any[], recordingSid?: string): string {
-  if (!segments || segments.length === 0) {
-    return ''
-  }
-
-  let formattedTranscript = ''
-  let currentSpeaker = 'Agent' // Start with Agent since calls usually begin with agent speaking
-  let lastEndTime = 0
-  let speakerTurnCount = 0
+// AssemblyAI transcription service with native speaker diarization
+async function transcribeWithAssemblyAI(audioUrl: string, recordingSid?: string): Promise<string> {
+  const assemblyApiKey = process.env.ASSEMBLYAI_API_KEY || 'f16d9ecd7fbd4a108f305b303d940954'
   
-  // Analyze segments to identify speaker changes
-  // Speaker changes are indicated by:
-  // 1. Significant pause (> 1.5 seconds)
-  // 2. Change in speech patterns
-  // 3. Natural conversation flow
-  
-  segments.forEach((segment, index) => {
-    const pauseDuration = segment.start - lastEndTime
-    
-    // Detect speaker change based on pause and conversation flow
-    if (pauseDuration > 1.5 || 
-        (pauseDuration > 0.8 && containsSpeakerChangeIndicators(segment.text))) {
-      // Toggle speaker
-      if (speakerTurnCount > 0) { // Don't change on first segment
-        currentSpeaker = currentSpeaker === 'Agent' ? 'Customer' : 'Agent'
-      }
-      
-      // Add speaker label with new line
-      if (formattedTranscript.length > 0) {
-        formattedTranscript += '\n\n'
-      }
-      formattedTranscript += `${currentSpeaker}: `
-      speakerTurnCount++
-    } else if (index === 0) {
-      // First segment
-      formattedTranscript = `${currentSpeaker}: `
-      speakerTurnCount++
-    }
-    
-    // Add the text
-    formattedTranscript += segment.text.trim() + ' '
-    lastEndTime = segment.end
-  })
-  
-  // Clean up the transcript
-  formattedTranscript = formattedTranscript
-    .replace(/\s+/g, ' ') // Remove extra spaces
-    .replace(/(\w)\s+\./g, '$1.') // Fix spacing before periods
-    .replace(/\s+,/g, ',') // Fix spacing before commas
-    .replace(/\s+\?/g, '?') // Fix spacing before questions
-    .trim()
-  
-  return formattedTranscript
-}
-
-// Helper function to detect phrases that indicate speaker change
-function containsSpeakerChangeIndicators(text: string): boolean {
-  const lowerText = text.toLowerCase().trim()
-  
-  // Common conversation turn indicators
-  const turnIndicators = [
-    // Greetings and farewells
-    'hello', 'hi', 'hey', 'goodbye', 'bye', 'thanks', 'thank you',
-    // Questions
-    '?',
-    // Affirmatives/Negatives that often start a turn
-    '^yes', '^no', '^okay', '^sure', '^absolutely',
-    // Common response starters
-    'well,', 'actually,', 'um,', 'uh,',
-    // Professional phrases
-    'how can i help', 'may i help', 'calling about', 'calling from'
-  ]
-  
-  return turnIndicators.some(indicator => {
-    if (indicator.startsWith('^')) {
-      return lowerText.startsWith(indicator.substring(1))
-    }
-    return lowerText.includes(indicator)
-  })
-}
-
-// OpenAI Whisper transcription service
-async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): Promise<string> {
-  const openaiApiKey = process.env.OPENAI_API_KEY
-  
-  if (!openaiApiKey) {
-    throw new Error('OpenAI API key not configured')
+  if (!assemblyApiKey) {
+    throw new Error('AssemblyAI API key not configured')
   }
 
   try {
-    // Always use direct URL with authentication for server-side fetching
-    let fetchUrl = audioUrl
-    const headers: HeadersInit = {}
+    // For SignalWire URLs, we need to fetch the audio and upload it to AssemblyAI
+    // since the ngrok URL might not be accessible externally
+    let audioUrlForAssembly = audioUrl
     
-    // Add SignalWire authentication if it's a SignalWire URL
     if (audioUrl.includes('signalwire.com')) {
+      console.log('Fetching audio from SignalWire for AssemblyAI upload...')
+      
+      // Fetch the audio with SignalWire authentication
       const swProjectId = process.env.SIGNALWIRE_PROJECT_ID
       const swApiToken = process.env.SIGNALWIRE_API_TOKEN
+      const headers: HeadersInit = {}
       
       if (swProjectId && swApiToken) {
         const auth = Buffer.from(`${swProjectId}:${swApiToken}`).toString('base64')
         headers['Authorization'] = `Basic ${auth}`
-      } else {
-        console.warn('SignalWire credentials not configured')
       }
-    }
-    
-    console.log('Fetching audio from:', fetchUrl)
-    console.log('Using authentication:', audioUrl.includes('signalwire.com') ? 'Yes' : 'No')
-    
-    // First, fetch the audio file with redirect following
-    const audioResponse = await fetch(fetchUrl, { 
-      headers,
-      redirect: 'follow' // Explicitly follow redirects
-    })
-    if (!audioResponse.ok) {
-      console.error('Audio fetch failed:', {
-        status: audioResponse.status,
-        statusText: audioResponse.statusText,
-        url: fetchUrl,
-        hasAuth: !!headers['Authorization']
+      
+      const audioResponse = await fetch(audioUrl, { 
+        headers,
+        redirect: 'follow'
       })
-      throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`)
+      
+      if (!audioResponse.ok) {
+        throw new Error(`Failed to fetch audio: ${audioResponse.statusText}`)
+      }
+      
+      const audioBlob = await audioResponse.blob()
+      console.log('Audio fetched, size:', (audioBlob.size / 1024 / 1024).toFixed(2), 'MB')
+      
+      // Upload the audio file to AssemblyAI
+      console.log('Uploading audio to AssemblyAI...')
+      const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': assemblyApiKey,
+          'Content-Type': audioBlob.type || 'audio/mpeg',
+        },
+        body: audioBlob,
+      })
+      
+      if (!uploadResponse.ok) {
+        const error = await uploadResponse.text()
+        throw new Error(`AssemblyAI upload error: ${uploadResponse.status} - ${error}`)
+      }
+      
+      const uploadData = await uploadResponse.json()
+      audioUrlForAssembly = uploadData.upload_url
+      console.log('Audio uploaded to AssemblyAI successfully')
     }
     
-    const audioBlob = await audioResponse.blob()
+    console.log('Submitting transcription request to AssemblyAI...')
     
-    // Log audio file details
-    console.log('Audio file details:', {
-      size: audioBlob.size,
-      sizeInMB: (audioBlob.size / (1024 * 1024)).toFixed(2),
-      type: audioBlob.type || 'audio/mpeg'
-    })
-    
-    // Check if the audio file is too small (might be truncated)
-    if (audioBlob.size < 1000) {
-      console.warn('Audio file seems too small, might be truncated:', audioBlob.size)
-    }
-    
-    // Create form data for OpenAI Whisper API
-    const formData = new FormData()
-    
-    // Ensure proper file naming for better processing
-    const fileName = `recording_${Date.now()}.mp3`
-    formData.append('file', audioBlob, fileName)
-    
-    // Use the best Whisper model
-    formData.append('model', 'whisper-1')
-    
-    // Get detailed output with word-level timestamps
-    formData.append('response_format', 'verbose_json')
-    
-    // Use deterministic mode for consistent results
-    formData.append('temperature', '0')
-    
-    // Provide context to improve accuracy
-    // This helps Whisper understand domain-specific terms and names
-    formData.append('prompt', 'A business phone call between a sales agent and customer. Common terms: appointment, schedule, product, service, pricing, promotion, travel, cruise, voyages.')
-    
-    // Call OpenAI Whisper API
-    const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    // Submit the transcription request to AssemblyAI
+    const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
+        'Authorization': assemblyApiKey,
+        'Content-Type': 'application/json',
       },
-      body: formData,
+      body: JSON.stringify({
+        audio_url: audioUrlForAssembly,
+        speaker_labels: true, // Enable speaker diarization
+        speakers_expected: 2, // We typically expect 2 speakers (agent and customer)
+        language_detection: true, // Auto-detect language
+        punctuate: true, // Add punctuation
+        format_text: true, // Format text for better readability
+        disfluencies: false, // Remove filler words like "um", "uh"
+        word_boost: [ // Boost accuracy for common business terms
+          'appointment', 'schedule', 'product', 'service', 'pricing', 
+          'promotion', 'travel', 'cruise', 'voyages', 'booking', 'reservation'
+        ],
+        boost_param: 'default', // Use default boost weight
+        auto_highlights: true, // Highlight important phrases
+        content_safety: true, // Detect sensitive content
+        iab_categories: true, // Categorize content
+        sentiment_analysis: true, // Analyze sentiment
+        entity_detection: true, // Detect entities (names, locations, etc.)
+        summarization: true, // Generate summary
+        summary_model: 'conversational', // Use conversational summary model
+        summary_type: 'bullets' // Get bullet point summary
+      })
     })
     
-    if (!transcriptionResponse.ok) {
-      const error = await transcriptionResponse.text()
-      throw new Error(`OpenAI API error: ${transcriptionResponse.status} - ${error}`)
+    if (!transcriptResponse.ok) {
+      const error = await transcriptResponse.text()
+      throw new Error(`AssemblyAI transcript error: ${transcriptResponse.status} - ${error}`)
     }
     
-    const transcriptionData = await transcriptionResponse.json()
+    const transcriptData = await transcriptResponse.json()
+    const transcriptId = transcriptData.id
     
-    // verbose_json format returns an object with text, language, duration, segments, etc.
-    const rawTranscription = transcriptionData.text || transcriptionData
+    console.log('AssemblyAI transcript ID:', transcriptId)
     
-    // Log detected language and duration for debugging
-    if (transcriptionData.language) {
-      console.log('Detected language:', transcriptionData.language)
+    // Poll for the transcription result
+    let transcriptionData: any = null
+    let pollCount = 0
+    const maxPolls = 120 // Max 10 minutes (5 seconds * 120)
+    
+    while (pollCount < maxPolls) {
+      await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
+      
+      const statusResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: {
+          'Authorization': assemblyApiKey,
+        },
+      })
+      
+      if (!statusResponse.ok) {
+        throw new Error(`AssemblyAI status error: ${statusResponse.status}`)
+      }
+      
+      transcriptionData = await statusResponse.json()
+      
+      console.log(`Transcription status (attempt ${pollCount + 1}):`, transcriptionData.status)
+      
+      if (transcriptionData.status === 'completed') {
+        break
+      } else if (transcriptionData.status === 'error') {
+        throw new Error(`AssemblyAI transcription failed: ${transcriptionData.error}`)
+      }
+      
+      pollCount++
     }
-    if (transcriptionData.duration) {
-      console.log('Audio duration from Whisper:', transcriptionData.duration, 'seconds')
+    
+    if (!transcriptionData || transcriptionData.status !== 'completed') {
+      throw new Error('Transcription timed out')
     }
     
-    // Process segments to identify speaker changes based on timing gaps
-    let formattedTranscript = rawTranscription
-    if (transcriptionData.segments) {
-      formattedTranscript = formatTranscriptWithSpeakers(transcriptionData.segments, recordingSid)
+    // Step 3: Format the transcript with speaker labels
+    let formattedTranscript = ''
+    
+    if (transcriptionData.utterances && transcriptionData.utterances.length > 0) {
+      // AssemblyAI provides utterances with speaker labels
+      const utterances = transcriptionData.utterances
+      
+      // Map speakers to Agent/Customer based on who speaks first
+      // Typically, the agent answers and speaks first
+      const speakerMapping: { [key: string]: string } = {}
+      const firstSpeaker = utterances[0].speaker
+      speakerMapping[firstSpeaker] = 'Agent'
+      
+      // Find the other speaker
+      for (const utterance of utterances) {
+        if (utterance.speaker !== firstSpeaker && !speakerMapping[utterance.speaker]) {
+          speakerMapping[utterance.speaker] = 'Customer'
+          break
+        }
+      }
+      
+      // Format the transcript
+      utterances.forEach((utterance: any, index: number) => {
+        const speaker = speakerMapping[utterance.speaker] || utterance.speaker
+        if (index > 0) {
+          formattedTranscript += '\n\n'
+        }
+        formattedTranscript += `${speaker}: ${utterance.text}`
+      })
+      
+      // Log additional insights from AssemblyAI
+      if (transcriptionData.sentiment_analysis_results) {
+        console.log('Sentiment analysis available:', transcriptionData.sentiment_analysis_results.length, 'segments')
+      }
+      if (transcriptionData.entities) {
+        console.log('Entities detected:', transcriptionData.entities.length)
+      }
+      if (transcriptionData.summary) {
+        console.log('Summary generated:', transcriptionData.summary.substring(0, 100) + '...')
+      }
+      
+      // Store additional insights for later use
+      if (transcriptionData.summary || transcriptionData.sentiment_analysis_results) {
+        // We could pass these to the AI analysis service
+        formattedTranscript += `\n\n[AssemblyAI Insights]`
+        if (transcriptionData.summary) {
+          formattedTranscript += `\nSummary: ${transcriptionData.summary}`
+        }
+        if (transcriptionData.content_safety_labels) {
+          const sensitiveTopics = transcriptionData.content_safety_labels.results
+            .filter((label: any) => label.confidence > 0.5)
+            .map((label: any) => label.text)
+          if (sensitiveTopics.length > 0) {
+            formattedTranscript += `\nSensitive Topics Detected: ${sensitiveTopics.join(', ')}`
+          }
+        }
+      }
+    } else {
+      // Fallback to plain text if no utterances
+      formattedTranscript = transcriptionData.text || ''
     }
     
-    return typeof formattedTranscript === 'string' ? formattedTranscript.trim() : JSON.stringify(formattedTranscript)
+    return formattedTranscript.trim()
     
   } catch (error) {
-    console.error('Whisper transcription error:', error)
+    console.error('AssemblyAI transcription error:', error)
     throw error
   }
 }
@@ -236,8 +242,8 @@ export async function POST(request: NextRequest) {
     
     try {
       // Transcribe the audio
-      console.log('Starting transcription with Whisper...')
-      const transcription = await transcribeWithWhisper(recordingUrl, recordingSid)
+      console.log('Starting transcription with AssemblyAI...')
+      const transcription = await transcribeWithAssemblyAI(recordingUrl, recordingSid)
       console.log('Transcription completed:', transcription.substring(0, 100) + '...')
       
       // Update call record with transcription

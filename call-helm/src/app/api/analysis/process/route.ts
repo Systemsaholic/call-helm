@@ -26,8 +26,32 @@ interface CallAnalysis {
 }
 
 async function analyzeTranscription(transcription: string, callMetadata?: any): Promise<CallAnalysis> {
+  // Check if we have AssemblyAI insights in the transcription
+  let mainTranscript = transcription
+  let assemblyInsights: any = null
+  
+  const insightsIndex = transcription.indexOf('[AssemblyAI Insights]')
+  if (insightsIndex > -1) {
+    mainTranscript = transcription.substring(0, insightsIndex).trim()
+    const insightsText = transcription.substring(insightsIndex)
+    
+    // Parse AssemblyAI insights
+    assemblyInsights = {}
+    const summaryMatch = insightsText.match(/Summary: (.+?)(?=\n|$)/)
+    if (summaryMatch) {
+      assemblyInsights.summary = summaryMatch[1]
+    }
+    const sensitiveMatch = insightsText.match(/Sensitive Topics Detected: (.+?)(?=\n|$)/)
+    if (sensitiveMatch) {
+      assemblyInsights.sensitiveTopics = sensitiveMatch[1].split(', ')
+    }
+  }
+  
   const systemPrompt = `You are an AI assistant specialized in analyzing sales and support call transcriptions.
   Analyze the following call transcription and provide structured insights.
+  
+  ${assemblyInsights?.summary ? `AssemblyAI has already provided this summary: ${assemblyInsights.summary}\nUse this as context but provide your own deeper analysis.` : ''}
+  ${assemblyInsights?.sensitiveTopics ? `Note: Sensitive topics detected by AssemblyAI: ${assemblyInsights.sensitiveTopics.join(', ')}` : ''}
   
   Pay special attention to the emotional tone and sentiment of the customer throughout the call.
   
@@ -63,7 +87,7 @@ async function analyzeTranscription(transcription: string, callMetadata?: any): 
 
   const userPrompt = `Analyze this call transcription (formatted as Agent: and Customer: dialogue):
 
-${transcription}
+${mainTranscript}
 
 ${callMetadata ? `Call Context:
 - Duration: ${callMetadata.duration} seconds
@@ -144,7 +168,8 @@ export async function POST(request: NextRequest) {
         hasSummary: !!analysis.summary,
         actionItemsCount: analysis.action_items.length,
         keyPointsCount: analysis.key_points.length,
-        sentiment: analysis.mood_sentiment
+        sentiment: analysis.mood_sentiment,
+        hadAssemblyInsights: !!assemblyInsights
       })
       
       // Update call record with analysis
