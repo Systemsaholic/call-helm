@@ -607,18 +607,45 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                             const [speaker, ...textParts] = line.split(':')
                             const text = textParts.join(':').trim()
                             
-                            if (text) {
+                            if (text && !line.startsWith('[')) {
+                              // Determine if this speaker is the agent (member) or contact
+                              // We'll check if the speaker name contains the member or contact name
+                              const speakerName = speaker.trim()
+                              const isAgent = callDetails.member && 
+                                (speakerName === callDetails.member.full_name || 
+                                 speakerName === 'Agent' ||
+                                 (callDetails.direction === 'outbound' && index === 1)) // Agent usually speaks second in outbound calls
+                              
+                              // Use distinct colors:
+                              // Agent/Member: Blue (professional, trustworthy)
+                              // Contact/Customer: Purple (friendly, approachable)
+                              const speakerColor = isAgent 
+                                ? 'text-blue-600 bg-blue-50 border-blue-200' 
+                                : 'text-purple-600 bg-purple-50 border-purple-200'
+                              
+                              const textBgColor = isAgent
+                                ? 'bg-blue-50/50'
+                                : 'bg-purple-50/50'
+                              
                               return (
                                 <div key={index} className="flex gap-3">
                                   <span className={cn(
-                                    "font-semibold min-w-[80px]",
-                                    speaker.trim() === 'Agent' ? 'text-blue-600' : 'text-green-600'
+                                    "font-semibold px-2 py-1 rounded border text-xs whitespace-nowrap",
+                                    speakerColor
                                   )}>
-                                    {speaker}:
+                                    {speakerName}
                                   </span>
-                                  <span className="flex-1 text-gray-700">
+                                  <span className={cn("flex-1 text-gray-700 px-3 py-1 rounded", textBgColor)}>
                                     {text}
                                   </span>
+                                </div>
+                              )
+                            }
+                            // Handle summary sections and other non-dialogue content
+                            if (line.startsWith('[') && line.endsWith(']')) {
+                              return (
+                                <div key={index} className="mt-4 pt-4 border-t border-gray-200">
+                                  <p className="font-semibold text-gray-600">{line}</p>
                                 </div>
                               )
                             }
