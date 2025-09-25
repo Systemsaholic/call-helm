@@ -61,11 +61,23 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
     
     // Create form data for OpenAI Whisper API
     const formData = new FormData()
-    formData.append('file', audioBlob, 'recording.mp3')
+    
+    // Ensure proper file naming for better processing
+    const fileName = `recording_${Date.now()}.mp3`
+    formData.append('file', audioBlob, fileName)
+    
+    // Use the best Whisper model
     formData.append('model', 'whisper-1')
-    // Remove language specification to let Whisper auto-detect
-    // formData.append('language', 'en') 
-    formData.append('response_format', 'text')
+    
+    // Get detailed output with word-level timestamps
+    formData.append('response_format', 'verbose_json')
+    
+    // Use deterministic mode for consistent results
+    formData.append('temperature', '0')
+    
+    // Provide context to improve accuracy
+    // This helps Whisper understand domain-specific terms and names
+    formData.append('prompt', 'A business phone call between a sales agent and customer. Common terms: appointment, schedule, product, service, pricing, promotion, travel, cruise, voyages.')
     
     // Call OpenAI Whisper API
     const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
@@ -81,8 +93,20 @@ async function transcribeWithWhisper(audioUrl: string, recordingSid?: string): P
       throw new Error(`OpenAI API error: ${transcriptionResponse.status} - ${error}`)
     }
     
-    const transcription = await transcriptionResponse.text()
-    return transcription.trim()
+    const transcriptionData = await transcriptionResponse.json()
+    
+    // verbose_json format returns an object with text, language, duration, segments, etc.
+    const transcription = transcriptionData.text || transcriptionData
+    
+    // Log detected language and duration for debugging
+    if (transcriptionData.language) {
+      console.log('Detected language:', transcriptionData.language)
+    }
+    if (transcriptionData.duration) {
+      console.log('Audio duration from Whisper:', transcriptionData.duration, 'seconds')
+    }
+    
+    return typeof transcription === 'string' ? transcription.trim() : JSON.stringify(transcription)
     
   } catch (error) {
     console.error('Whisper transcription error:', error)
