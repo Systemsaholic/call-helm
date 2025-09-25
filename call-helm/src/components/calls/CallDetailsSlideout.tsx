@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Phone, FileText, Brain, Info, Download, Copy, Flag, Loader2, Play, Pause, Volume2, Clock, Calendar, User, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { getSentimentInfo, getSatisfactionInfo, needsAttention } from '@/lib/utils/sentiment'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Slider } from '@/components/ui/slider'
@@ -46,8 +47,9 @@ interface CallDetails {
     topics_discussed?: string[]
     follow_up_required?: boolean
     call_quality_score?: number
+    customer_satisfaction_level?: 'very_satisfied' | 'satisfied' | 'neutral' | 'dissatisfied' | 'very_dissatisfied'
   }
-  mood_sentiment?: 'positive' | 'neutral' | 'negative' | 'mixed'
+  mood_sentiment?: 'happy' | 'satisfied' | 'neutral' | 'frustrated' | 'angry' | 'sad' | 'confused' | 'excited'
   key_points?: string[]
   compliance_flags?: {
     pci_detected?: boolean
@@ -367,31 +369,6 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
     }
   }
 
-  const getSentimentIcon = () => {
-    switch (callDetails?.mood_sentiment) {
-      case 'positive':
-        return <TrendingUp className="h-4 w-4 text-green-600" />
-      case 'negative':
-        return <TrendingDown className="h-4 w-4 text-red-600" />
-      case 'mixed':
-        return <Minus className="h-4 w-4 text-yellow-600" />
-      default:
-        return <Minus className="h-4 w-4 text-gray-400" />
-    }
-  }
-
-  const getSentimentColor = () => {
-    switch (callDetails?.mood_sentiment) {
-      case 'positive':
-        return 'bg-green-100 text-green-800'
-      case 'negative':
-        return 'bg-red-100 text-red-800'
-      case 'mixed':
-        return 'bg-yellow-100 text-yellow-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
 
   const maskSensitiveData = (text: string) => {
     // Mask credit card numbers (16 digits)
@@ -471,12 +448,21 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                     Campaign: {callDetails.call_list.name}
                   </Badge>
                 )}
-                {callDetails.mood_sentiment && (
-                  <Badge className={cn('flex items-center gap-1', getSentimentColor())}>
-                    {getSentimentIcon()}
-                    {callDetails.mood_sentiment}
-                  </Badge>
-                )}
+                {callDetails.mood_sentiment && (() => {
+                  const sentimentInfo = getSentimentInfo(callDetails.mood_sentiment)
+                  return (
+                    <Badge 
+                      className={cn('flex items-center gap-1', sentimentInfo.bgColor, sentimentInfo.color)}
+                      title={sentimentInfo.description}
+                    >
+                      <span className="text-lg">{sentimentInfo.emoji}</span>
+                      {sentimentInfo.label}
+                      {needsAttention(callDetails.mood_sentiment) && (
+                        <span className="ml-1 text-xs">⚠️</span>
+                      )}
+                    </Badge>
+                  )
+                })()}
                 {callDetails.transcription_status === 'completed' && (
                   <Badge variant="secondary">Transcribed</Badge>
                 )}
@@ -666,6 +652,44 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                 <TabsContent value="analysis" className="px-6 py-4 space-y-4">
                   {callDetails.ai_analysis && callDetails.ai_analysis.summary ? (
                     <>
+                      {/* Sentiment & Satisfaction Overview */}
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500 mb-2">Customer Sentiment</p>
+                          {(() => {
+                            const sentimentInfo = getSentimentInfo(callDetails.mood_sentiment)
+                            return (
+                              <div className="flex items-center gap-2">
+                                <span className="text-3xl">{sentimentInfo.emoji}</span>
+                                <div>
+                                  <p className={`font-medium ${sentimentInfo.color}`}>
+                                    {sentimentInfo.label}
+                                  </p>
+                                  <p className="text-xs text-gray-500">
+                                    {sentimentInfo.description}
+                                  </p>
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                        
+                        <div className="p-4 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500 mb-2">Satisfaction Level</p>
+                          {(() => {
+                            const satisfactionInfo = getSatisfactionInfo(callDetails.ai_analysis.customer_satisfaction_level)
+                            return (
+                              <div>
+                                <p className="text-lg mb-1">{satisfactionInfo.emoji}</p>
+                                <p className={`font-medium ${satisfactionInfo.color}`}>
+                                  {satisfactionInfo.label}
+                                </p>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      </div>
+
                       {/* Summary */}
                       {callDetails.ai_analysis.summary && (
                         <div>

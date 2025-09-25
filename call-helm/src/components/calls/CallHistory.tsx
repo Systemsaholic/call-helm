@@ -36,6 +36,7 @@ import {
   AlertCircle,
   Loader2
 } from 'lucide-react'
+import { getSentimentInfo } from '@/lib/utils/sentiment'
 
 interface CallHistoryProps {
   contactId?: string
@@ -311,6 +312,7 @@ export function CallHistory({
               <TableHead>Agent</TableHead>
               <TableHead>Duration</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Sentiment</TableHead>
               <TableHead>Recording</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -374,6 +376,23 @@ export function CallHistory({
                     {getCallStatusIcon(call.status)}
                     {getCallStatusBadge(call.status)}
                   </div>
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    const sentimentInfo = getSentimentInfo(call.mood_sentiment)
+                    return (
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl" title={sentimentInfo.description}>
+                          {sentimentInfo.emoji}
+                        </span>
+                        {call.mood_sentiment && (
+                          <span className={`text-xs ${sentimentInfo.color} font-medium hidden xl:inline`}>
+                            {sentimentInfo.label}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </TableCell>
                 <TableCell>
                   {call.recording_url ? (

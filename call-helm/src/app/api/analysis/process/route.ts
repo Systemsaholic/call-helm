@@ -13,10 +13,11 @@ interface CallAnalysis {
   opportunities: string[]
   talk_ratio?: { agent: number; contact: number }
   key_points: string[]
-  mood_sentiment: 'positive' | 'neutral' | 'negative' | 'mixed'
+  mood_sentiment: 'happy' | 'satisfied' | 'neutral' | 'frustrated' | 'angry' | 'sad' | 'confused' | 'excited'
   topics_discussed: string[]
   follow_up_required: boolean
   call_quality_score: number // 1-10
+  customer_satisfaction_level: 'very_satisfied' | 'satisfied' | 'neutral' | 'dissatisfied' | 'very_dissatisfied'
   compliance_flags?: {
     pci_detected?: boolean
     pii_detected?: boolean
@@ -28,6 +29,8 @@ async function analyzeTranscription(transcription: string, callMetadata?: any): 
   const systemPrompt = `You are an AI assistant specialized in analyzing sales and support call transcriptions.
   Analyze the following call transcription and provide structured insights.
   
+  Pay special attention to the emotional tone and sentiment of the customer throughout the call.
+  
   Return a JSON object with the following structure:
   {
     "summary": "2-3 sentence summary of the call",
@@ -35,17 +38,28 @@ async function analyzeTranscription(transcription: string, callMetadata?: any): 
     "concerns": ["any concerns or issues raised by the customer"],
     "opportunities": ["potential sales or service opportunities identified"],
     "key_points": ["3-5 main points from the conversation"],
-    "mood_sentiment": "positive|neutral|negative|mixed",
+    "mood_sentiment": "Choose ONE from: happy|satisfied|neutral|frustrated|angry|sad|confused|excited based on the overall customer emotion",
+    "customer_satisfaction_level": "Choose ONE from: very_satisfied|satisfied|neutral|dissatisfied|very_dissatisfied",
     "topics_discussed": ["main topics covered in the call"],
     "follow_up_required": true|false,
-    "call_quality_score": 1-10,
-    "talk_ratio": { "agent": percentage, "contact": percentage },
+    "call_quality_score": 1-10 (based on agent performance, resolution, professionalism),
+    "talk_ratio": { "agent": percentage as number, "contact": percentage as number },
     "compliance_flags": {
-      "pci_detected": true|false,
-      "pii_detected": true|false,
+      "pci_detected": true|false (credit card numbers mentioned),
+      "pii_detected": true|false (SSN, personal info mentioned),
       "sensitive_data": ["list of sensitive data types mentioned"]
     }
-  }`
+  }
+  
+  For mood_sentiment, consider:
+  - happy: Customer is pleased, laughing, enthusiastic
+  - satisfied: Customer got what they needed, content
+  - neutral: No strong emotion, business-like
+  - frustrated: Customer is annoyed, struggling, impatient
+  - angry: Customer is upset, raising voice, threatening
+  - sad: Customer is disappointed, dejected
+  - confused: Customer doesn't understand, needs clarification
+  - excited: Customer is very enthusiastic, eager`
 
   const userPrompt = `Analyze this call transcription:
 
@@ -79,6 +93,7 @@ ${callMetadata ? `Call Context:
       talk_ratio: analysis.talk_ratio || undefined,
       key_points: analysis.key_points || [],
       mood_sentiment: analysis.mood_sentiment || 'neutral',
+      customer_satisfaction_level: analysis.customer_satisfaction_level || 'neutral',
       topics_discussed: analysis.topics_discussed || [],
       follow_up_required: analysis.follow_up_required || false,
       call_quality_score: analysis.call_quality_score || 5,
@@ -142,7 +157,8 @@ export async function POST(request: NextRequest) {
             talk_ratio: analysis.talk_ratio,
             topics_discussed: analysis.topics_discussed,
             follow_up_required: analysis.follow_up_required,
-            call_quality_score: analysis.call_quality_score
+            call_quality_score: analysis.call_quality_score,
+            customer_satisfaction_level: analysis.customer_satisfaction_level
           },
           mood_sentiment: analysis.mood_sentiment,
           key_points: analysis.key_points,
