@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Phone, FileText, Brain, Info, Download, Copy, Flag, Loader2, Play, Pause, Volume2, Clock, Calendar, User, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { X, Phone, FileText, Brain, Info, Download, Copy, Flag, Loader2, Play, Pause, Volume2, Clock, Calendar, User, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getSentimentInfo, getSatisfactionInfo, needsAttention } from '@/lib/utils/sentiment'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -13,6 +13,7 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { EnhancedAnalysisView } from './EnhancedAnalysisView'
 
 interface CallDetailsSlideoutProps {
   callId: string
@@ -338,14 +339,22 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
     
     setAnalyzing(true)
     try {
-      const response = await fetch('/api/analysis/process', {
+      // Extract transcript ID if available
+      let transcriptId: string | undefined
+      const transcriptIdMatch = callDetails.transcription.match(/\[Transcript ID: ([^\]]+)\]/)
+      if (transcriptIdMatch) {
+        transcriptId = transcriptIdMatch[1]
+      }
+      
+      // Use enhanced analysis endpoint
+      const response = await fetch('/api/analysis/enhanced', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           callId: callDetails.id,
-          transcription: callDetails.transcription
+          transcriptId
         })
       })
       
@@ -696,8 +705,13 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                 </TabsContent>
 
                 {/* Analysis Tab */}
-                <TabsContent value="analysis" className="px-6 py-4 space-y-4">
-                  {callDetails.ai_analysis && callDetails.ai_analysis.summary ? (
+                <TabsContent value="analysis" className="px-6 py-4">
+                  {callDetails.ai_analysis ? (
+                    <EnhancedAnalysisView 
+                      analysis={callDetails.ai_analysis} 
+                      transcription={callDetails.transcription}
+                    />
+                  ) : callDetails.ai_analysis && callDetails.ai_analysis.summary ? (
                     <>
                       {/* Sentiment & Satisfaction Overview */}
                       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -868,7 +882,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                           ) : (
                             <>
                               <Brain className="h-4 w-4 mr-2" />
-                              Generate AI Analysis
+                              {callDetails.ai_analysis ? 'Refresh Analysis' : 'Generate AI Analysis'}
                             </>
                           )}
                         </Button>

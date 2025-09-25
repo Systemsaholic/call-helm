@@ -266,6 +266,8 @@ async function transcribeWithAssemblyAI(
             formattedTranscript += `\nSensitive Topics Detected: ${sensitiveTopics.join(', ')}`
           }
         }
+        // Add transcript ID for later retrieval of full analysis data
+        formattedTranscript += `\n[Transcript ID: ${transcriptId}]`
       }
     } else {
       // Fallback to plain text if no utterances
@@ -359,18 +361,25 @@ export async function POST(request: NextRequest) {
       
       console.log('Transcription saved successfully for call:', callId)
       
-      // Trigger AI analysis
-      console.log('Triggering AI analysis for transcription...')
+      // Extract transcript ID from the transcription if present
+      let assemblyTranscriptId: string | undefined
+      const transcriptIdMatch = transcription.match(/\[Transcript ID: ([^\]]+)\]/)
+      if (transcriptIdMatch) {
+        assemblyTranscriptId = transcriptIdMatch[1]
+      }
+      
+      // Trigger enhanced AI analysis with AssemblyAI data
+      console.log('Triggering enhanced AI analysis...')
       const analysisUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
       
-      fetch(`${analysisUrl}/api/analysis/process`, {
+      fetch(`${analysisUrl}/api/analysis/enhanced`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           callId,
-          transcription
+          transcriptId: assemblyTranscriptId
         })
       }).catch(error => {
         console.error('Failed to trigger AI analysis:', error)
