@@ -145,6 +145,23 @@ export async function POST(request: NextRequest) {
       
       console.log('Transcription saved successfully for call:', callId)
       
+      // Trigger AI analysis
+      console.log('Triggering AI analysis for transcription...')
+      const analysisUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
+      
+      fetch(`${analysisUrl}/api/analysis/process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          callId,
+          transcription
+        })
+      }).catch(error => {
+        console.error('Failed to trigger AI analysis:', error)
+      })
+      
       return NextResponse.json({
         success: true,
         callId,

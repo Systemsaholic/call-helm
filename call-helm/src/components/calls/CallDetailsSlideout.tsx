@@ -43,6 +43,9 @@ interface CallDetails {
     talk_ratio?: { agent: number; contact: number }
     interruptions?: number
     silence_duration?: number
+    topics_discussed?: string[]
+    follow_up_required?: boolean
+    call_quality_score?: number
   }
   mood_sentiment?: 'positive' | 'neutral' | 'negative' | 'mixed'
   key_points?: string[]
@@ -77,6 +80,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
   
   // Audio player state
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -324,6 +328,42 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
       toast.error(error instanceof Error ? error.message : 'Failed to start transcription')
     } finally {
       setTranscribing(false)
+    }
+  }
+
+  const handleAnalyze = async () => {
+    if (!callDetails?.id || !callDetails?.transcription) return
+    
+    setAnalyzing(true)
+    try {
+      const response = await fetch('/api/analysis/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          callId: callDetails.id,
+          transcription: callDetails.transcription
+        })
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to start analysis')
+      }
+      
+      toast.success('AI analysis started - this may take a moment')
+      
+      // Refresh call details after a short delay
+      setTimeout(() => {
+        fetchCallDetails()
+      }, 3000)
+      
+    } catch (error) {
+      console.error('Analysis error:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to start analysis')
+    } finally {
+      setAnalyzing(false)
     }
   }
 
@@ -624,7 +664,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
 
                 {/* Analysis Tab */}
                 <TabsContent value="analysis" className="px-6 py-4 space-y-4">
-                  {callDetails.ai_analysis ? (
+                  {callDetails.ai_analysis && callDetails.ai_analysis.summary ? (
                     <>
                       {/* Summary */}
                       {callDetails.ai_analysis.summary && (
@@ -666,11 +706,42 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                         </div>
                       )}
 
+                      {/* Concerns & Opportunities */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {callDetails.ai_analysis.concerns && callDetails.ai_analysis.concerns.length > 0 && (
+                          <div>
+                            <h3 className="font-medium mb-2 text-orange-600">Concerns</h3>
+                            <ul className="space-y-1">
+                              {callDetails.ai_analysis.concerns.map((concern, index) => (
+                                <li key={index} className="text-sm text-gray-600 flex items-start">
+                                  <span className="mr-2 text-orange-500">⚠</span>
+                                  <span>{concern}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        {callDetails.ai_analysis.opportunities && callDetails.ai_analysis.opportunities.length > 0 && (
+                          <div>
+                            <h3 className="font-medium mb-2 text-green-600">Opportunities</h3>
+                            <ul className="space-y-1">
+                              {callDetails.ai_analysis.opportunities.map((opportunity, index) => (
+                                <li key={index} className="text-sm text-gray-600 flex items-start">
+                                  <span className="mr-2 text-green-500">✓</span>
+                                  <span>{opportunity}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Call Metrics */}
                       {callDetails.ai_analysis.talk_ratio && (
                         <div>
                           <h3 className="font-medium mb-2">Call Metrics</h3>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-3 gap-4">
                             <div className="p-3 bg-gray-50 rounded">
                               <p className="text-xs text-gray-500">Agent Talk Time</p>
                               <p className="text-lg font-medium">{callDetails.ai_analysis.talk_ratio.agent}%</p>
@@ -679,14 +750,58 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                               <p className="text-xs text-gray-500">Contact Talk Time</p>
                               <p className="text-lg font-medium">{callDetails.ai_analysis.talk_ratio.contact}%</p>
                             </div>
+                            <div className="p-3 bg-gray-50 rounded">
+                              <p className="text-xs text-gray-500">Quality Score</p>
+                              <p className="text-lg font-medium">
+                                {callDetails.ai_analysis.call_quality_score || '-'}/10
+                              </p>
+                            </div>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Follow-up Required */}
+                      {callDetails.ai_analysis.follow_up_required && (
+                        <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                          <p className="text-sm text-yellow-800 font-medium">
+                            <Flag className="h-4 w-4 inline mr-2" />
+                            Follow-up Required
+                          </p>
+                          {callDetails.ai_analysis.action_items && callDetails.ai_analysis.action_items.length > 0 && (
+                            <p className="text-xs text-yellow-700 mt-1">
+                              {callDetails.ai_analysis.action_items.length} action items pending
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       <Brain className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p>No analysis available yet</p>
+                      <p className="mb-4">
+                        {callDetails.transcription 
+                          ? 'No AI analysis available yet'
+                          : 'Transcript required for analysis'}
+                      </p>
+                      {callDetails.transcription && (
+                        <Button 
+                          onClick={handleAnalyze}
+                          disabled={analyzing}
+                          size="sm"
+                        >
+                          {analyzing ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Analyzing...
+                            </>
+                          ) : (
+                            <>
+                              <Brain className="h-4 w-4 mr-2" />
+                              Generate AI Analysis
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </TabsContent>
