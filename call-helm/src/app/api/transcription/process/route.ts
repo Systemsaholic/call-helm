@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
 // AssemblyAI transcription service with native speaker diarization
-async function transcribeWithAssemblyAI(audioUrl: string, recordingSid?: string): Promise<string> {
+async function transcribeWithAssemblyAI(
+  audioUrl: string, 
+  recordingSid?: string,
+  callData?: {
+    direction: 'inbound' | 'outbound',
+    memberName?: string,
+    contactName?: string
+  }
+): Promise<string> {
   const assemblyApiKey = process.env.ASSEMBLYAI_API_KEY || 'f16d9ecd7fbd4a108f305b303d940954'
   
   if (!assemblyApiKey) {
@@ -145,17 +153,81 @@ async function transcribeWithAssemblyAI(audioUrl: string, recordingSid?: string)
       // AssemblyAI provides utterances with speaker labels
       const utterances = transcriptionData.utterances
       
-      // Map speakers to Agent/Customer based on who speaks first
-      // Typically, the agent answers and speaks first
+      // Map speakers to actual names based on call direction
       const speakerMapping: { [key: string]: string } = {}
-      const firstSpeaker = utterances[0].speaker
-      speakerMapping[firstSpeaker] = 'Agent'
       
-      // Find the other speaker
-      for (const utterance of utterances) {
-        if (utterance.speaker !== firstSpeaker && !speakerMapping[utterance.speaker]) {
-          speakerMapping[utterance.speaker] = 'Customer'
-          break
+      // Get unique speakers from utterances
+      const speakers = new Set(utterances.map((u: any) => u.speaker))
+      const speakerArray = Array.from(speakers)
+      
+      if (callData) {
+        // Use actual names when available
+        const agentName = callData.memberName || 'Agent'
+        const customerName = callData.contactName || 'Customer'
+        
+        // Analyze first few utterances to determine who is the agent
+        // Look for typical agent greetings or patterns
+        const firstUtterances = utterances.slice(0, 5)
+        let agentSpeaker: string | null = null
+        
+        for (const utterance of firstUtterances) {
+          const text = utterance.text.toLowerCase()
+          // Common agent/business greetings
+          if (text.includes('thank') && text.includes('calling') ||
+              text.includes('how can i help') ||
+              text.includes('how may i help') ||
+              text.includes('calling from') ||
+              text.includes('calling because') ||
+              text.includes('i\'m calling') ||
+              text.includes('this is') && text.includes('from')) {
+            agentSpeaker = utterance.speaker
+            break
+          }
+        }
+        
+        // If we couldn't identify agent from speech patterns, use call direction as hint
+        if (!agentSpeaker && speakerArray.length === 2) {
+          if (callData.direction === 'outbound') {
+            // For outbound: Agent usually initiates after customer picks up
+            // Look for the speaker who introduces themselves or states purpose
+            const introSpeaker = firstUtterances.find((u: any) => 
+              u.text.toLowerCase().includes('from') || 
+              u.text.toLowerCase().includes('calling')
+            )?.speaker
+            agentSpeaker = introSpeaker || speakerArray[1] // Second speaker often agent in outbound
+          } else {
+            // For inbound: Agent typically answers first
+            agentSpeaker = speakerArray[0]
+          }
+        }
+        
+        // Assign names based on identified agent
+        if (speakerArray.length === 2) {
+          const customerSpeaker = speakerArray.find(s => s !== agentSpeaker)
+          if (agentSpeaker) {
+            speakerMapping[agentSpeaker] = agentName
+          }
+          if (customerSpeaker) {
+            speakerMapping[customerSpeaker] = customerName
+          }
+        } else if (speakerArray.length === 1) {
+          // Single speaker - likely agent for short calls
+          speakerMapping[speakerArray[0]] = agentName
+        }
+        
+        // Fallback if mapping incomplete
+        for (const speaker of speakerArray) {
+          if (!speakerMapping[speaker]) {
+            speakerMapping[speaker] = speaker === speakerArray[0] ? agentName : customerName
+          }
+        }
+      } else {
+        // Fallback to generic labels
+        if (speakerArray.length >= 1) {
+          speakerMapping[speakerArray[0]] = 'Agent'
+        }
+        if (speakerArray.length >= 2) {
+          speakerMapping[speakerArray[1]] = 'Customer'
         }
       }
       
@@ -182,7 +254,7 @@ async function transcribeWithAssemblyAI(audioUrl: string, recordingSid?: string)
       // Store additional insights for later use
       if (transcriptionData.summary || transcriptionData.sentiment_analysis_results) {
         // We could pass these to the AI analysis service
-        formattedTranscript += `\n\n[AssemblyAI Insights]`
+        formattedTranscript += `\n\n[CallHelm AI Summary]`
         if (transcriptionData.summary) {
           formattedTranscript += `\nSummary: ${transcriptionData.summary}`
         }
@@ -241,9 +313,33 @@ export async function POST(request: NextRequest) {
       .eq('id', callId)
     
     try {
+      // Get call details for speaker mapping
+      const { data: callData } = await supabase
+        .from('calls')
+        .select(`
+          direction,
+          member_id,
+          contact_id,
+          organization_members!calls_member_id_fkey (
+            full_name
+          ),
+          contacts (
+            full_name
+          )
+        `)
+        .eq('id', callId)
+        .single()
+      
+      // Prepare speaker names
+      const speakerData = callData ? {
+        direction: callData.direction as 'inbound' | 'outbound',
+        memberName: callData.organization_members?.full_name,
+        contactName: callData.contacts?.full_name
+      } : undefined
+      
       // Transcribe the audio
       console.log('Starting transcription with AssemblyAI...')
-      const transcription = await transcribeWithAssemblyAI(recordingUrl, recordingSid)
+      const transcription = await transcribeWithAssemblyAI(recordingUrl, recordingSid, speakerData)
       console.log('Transcription completed:', transcription.substring(0, 100) + '...')
       
       // Update call record with transcription
