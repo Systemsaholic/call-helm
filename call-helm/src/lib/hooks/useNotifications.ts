@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { toast } from 'sonner'
+import { useNewMessageSubscription } from './useRealtimeSubscription'
 
 export interface Notification {
   id: string
@@ -463,5 +464,175 @@ export function useSendNotification() {
   return {
     sendNotification,
     sendBulkNotifications,
+  }
+}
+
+// SMS Notification settings interface
+interface SMSNotificationSettings {
+  showToasts: boolean
+  playSound: boolean
+  soundEnabled: boolean
+}
+
+/**
+ * Hook for managing SMS notifications
+ * Follows Single Responsibility Principle - ONLY handles SMS notifications
+ *
+ * @returns Notification settings and helper functions
+ */
+export function useSMSNotifications() {
+  const { user } = useAuth()
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const [notificationSettings, setNotificationSettings] = useState<SMSNotificationSettings>({
+    showToasts: true,
+    playSound: true,
+    soundEnabled: true
+  })
+
+  // Load notification preferences from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('sms-notification-settings')
+      if (saved) {
+        setNotificationSettings(JSON.parse(saved))
+      }
+    } catch (error) {
+      console.log('Could not load notification settings:', error)
+    }
+  }, [])
+
+  // Save notification preferences to localStorage
+  const updateNotificationSettings = useCallback((settings: SMSNotificationSettings) => {
+    setNotificationSettings(settings)
+    try {
+      localStorage.setItem('sms-notification-settings', JSON.stringify(settings))
+    } catch (error) {
+      console.log('Could not save notification settings:', error)
+    }
+  }, [])
+
+  // Initialize audio for notifications
+  useEffect(() => {
+    // Create audio element for notification sound using Web Audio API
+    const createNotificationSound = () => {
+      try {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        const oscillator = audioContext.createOscillator()
+        const gainNode = audioContext.createGain()
+
+        oscillator.connect(gainNode)
+        gainNode.connect(audioContext.destination)
+
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime)
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1)
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2)
+
+        return () => {
+          oscillator.start(audioContext.currentTime)
+          oscillator.stop(audioContext.currentTime + 0.2)
+        }
+      } catch {
+        return null
+      }
+    }
+
+    const playBeep = createNotificationSound()
+    if (playBeep) {
+      audioRef.current = {
+        play: () => Promise.resolve(playBeep()),
+        currentTime: 0
+      } as HTMLAudioElement
+    } else {
+      // Fallback to simple data URI beep
+      audioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+PyvGMcBiqRwu68ijEI')
+    }
+  }, [])
+
+  // Fetch organization ID
+  useEffect(() => {
+    if (!user) {
+      setOrganizationId(null)
+      return
+    }
+
+    const getOrganization = async () => {
+      try {
+        const response = await fetch('/api/sms/read-status?type=organization')
+        if (response.ok) {
+          const data = await response.json()
+          setOrganizationId(data.organizationId)
+        }
+      } catch (error) {
+        console.error('Error fetching organization:', error)
+      }
+    }
+
+    getOrganization()
+  }, [user])
+
+  // Play notification sound
+  const playNotificationSound = useCallback(() => {
+    if (!notificationSettings.playSound || !notificationSettings.soundEnabled) return
+
+    try {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0
+        audioRef.current.play().catch(e => {
+          console.log('Could not play notification sound:', e)
+        })
+      }
+    } catch (error) {
+      console.log('Notification sound error:', error)
+    }
+  }, [notificationSettings.playSound, notificationSettings.soundEnabled])
+
+  // Show toast notification for new message
+  const showNewMessageNotification = useCallback((messageData: any) => {
+    if (!notificationSettings.showToasts) return
+
+    const senderInfo = messageData.from_number ?
+      `New message from ${messageData.from_number}` :
+      'New message'
+
+    toast.success(senderInfo, {
+      description: messageData.message_body ?
+        `${messageData.message_body.substring(0, 50)}${messageData.message_body.length > 50 ? '...' : ''}` :
+        'Tap to view message',
+      action: {
+        label: 'View',
+        onClick: () => {
+          window.location.href = '/dashboard/messages'
+        }
+      },
+      duration: 5000,
+    })
+  }, [notificationSettings.showToasts])
+
+  // Subscribe to new messages and show notifications
+  useNewMessageSubscription(
+    organizationId,
+    useCallback((payload) => {
+      // Only notify for inbound messages
+      if (payload.new && payload.new.direction === 'inbound') {
+        console.log('📨 Inbound message confirmed, showing notification')
+
+        // Show toast notification
+        showNewMessageNotification(payload.new)
+
+        // Play notification sound
+        playNotificationSound()
+      }
+    }, [showNewMessageNotification, playNotificationSound]),
+    !!user && !!organizationId
+  )
+
+  return {
+    notificationSettings,
+    updateNotificationSettings,
+    showNewMessageNotification,
+    playNotificationSound
   }
 }

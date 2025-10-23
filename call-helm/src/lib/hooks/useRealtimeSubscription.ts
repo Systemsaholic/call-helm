@@ -1,233 +1,248 @@
-import { useEffect } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { useAuth } from './useAuth'
-import { RealtimeChannel } from '@supabase/supabase-js'
-import { toast } from 'sonner'
+/**
+ * Realtime Subscription Hooks
+ *
+ * Clean React hooks for subscribing to Supabase realtime events.
+ * Uses the centralized realtimeService for all subscriptions.
+ *
+ * Benefits:
+ * - Simple, declarative API
+ * - Automatic cleanup on unmount
+ * - Type-safe event handlers
+ * - No duplicate subscriptions
+ * - Uses centralized service (DRY principle)
+ */
 
-// Generic realtime subscription hook
-export function useRealtimeSubscription(
-  table: string,
-  callback: (payload: any) => void,
-  filter?: string
+'use client'
+
+import { useEffect, useCallback } from 'react'
+import { realtimeService } from '@/lib/services/realtimeService'
+import type { PostgresChangeCallback, BroadcastCallback } from '@/lib/services/realtimeService'
+
+/**
+ * Subscribe to INSERT events on sms_messages table for an organization
+ *
+ * @param organizationId - Organization to filter messages for
+ * @param onNewMessage - Callback when new message is inserted
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useNewMessageSubscription(
+  organizationId: string | null | undefined,
+  onNewMessage: PostgresChangeCallback,
+  enabled: boolean = true
 ) {
-  const { supabase } = useAuth()
-
   useEffect(() => {
-    const channelName = `realtime-${table}-${Date.now()}`
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table,
-          ...(filter && { filter })
-        },
-        callback
-      )
-      .subscribe()
+    if (!enabled || !organizationId) return
+
+    console.log(`📨 Subscribing to new messages for org: ${organizationId}`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `sms-messages-${organizationId}`,
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'sms_messages',
+        filter: `organization_id=eq.${organizationId}`
+      },
+      onNewMessage
+    )
 
     return () => {
-      supabase.removeChannel(channel)
+      console.log(`📨 Unsubscribing from new messages for org: ${organizationId}`)
+      unsubscribe()
     }
-  }, [supabase, table, filter, callback])
+  }, [organizationId, onNewMessage, enabled])
 }
 
-export function useRealtimeCallListUpdates(callListId?: string) {
-  const { supabase, user } = useAuth()
-  const queryClient = useQueryClient()
-
+/**
+ * Subscribe to changes on message_read_status table
+ *
+ * @param onReadStatusChange - Callback when read status changes
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useReadStatusSubscription(
+  onReadStatusChange: PostgresChangeCallback,
+  enabled: boolean = true
+) {
   useEffect(() => {
-    if (!user || !callListId) return
+    if (!enabled) return
 
-    const channel = supabase
-      .channel(`call-list-${callListId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'call_list_contacts',
-          filter: `call_list_id=eq.${callListId}`
-        },
-        (payload) => {
-          // Invalidate relevant queries
-          queryClient.invalidateQueries({ queryKey: ['call-lists', callListId] })
-          queryClient.invalidateQueries({ queryKey: ['callLists', 'contacts', callListId] })
-          
-          // Show notification for important events
-          if (payload.eventType === 'UPDATE' && payload.new.status === 'completed') {
-            toast.success('Contact marked as completed')
-          }
-        }
-      )
-      .subscribe()
+    console.log('📖 Subscribing to read status changes')
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      'message-read-status',
+      {
+        event: '*', // INSERT, UPDATE, DELETE
+        schema: 'public',
+        table: 'message_read_status'
+      },
+      onReadStatusChange
+    )
 
     return () => {
-      supabase.removeChannel(channel)
+      console.log('📖 Unsubscribing from read status changes')
+      unsubscribe()
     }
-  }, [supabase, user, callListId, queryClient])
+  }, [onReadStatusChange, enabled])
 }
 
-export function useRealtimeAgentUpdates() {
-  const { supabase, user } = useAuth()
-  const queryClient = useQueryClient()
-
+/**
+ * Subscribe to read status changes for a specific conversation
+ *
+ * @param conversationId - Conversation to filter for
+ * @param onReadStatusChange - Callback when read status changes
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useConversationReadStatusSubscription(
+  conversationId: string | null | undefined,
+  onReadStatusChange: PostgresChangeCallback,
+  enabled: boolean = true
+) {
   useEffect(() => {
-    if (!user) return
+    if (!enabled || !conversationId) return
 
-    // Get user's organization
-    const getOrgAndSubscribe = async () => {
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .single()
+    console.log(`📖 Subscribing to read status for conversation: ${conversationId}`)
 
-      if (!member?.organization_id) return
-
-      const channel = supabase
-        .channel(`org-agents-${member.organization_id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'organization_members',
-            filter: `organization_id=eq.${member.organization_id}`
-          },
-          (payload) => {
-            // Invalidate agent queries
-            queryClient.invalidateQueries({ queryKey: ['agents'] })
-            
-            // Show notifications
-            if (payload.eventType === 'INSERT') {
-              toast.info('New agent added to organization')
-            } else if (payload.eventType === 'UPDATE') {
-              const newData = payload.new as any
-              if (newData.status === 'active' && payload.old?.status !== 'active') {
-                toast.success(`${newData.full_name || newData.email} is now active`)
-              }
-            }
-          }
-        )
-        .subscribe()
-
-      return () => {
-        supabase.removeChannel(channel)
-      }
-    }
-
-    const cleanup = getOrgAndSubscribe()
+    const unsubscribe = realtimeService.subscribeToTable(
+      `read-status-${conversationId}`,
+      {
+        event: '*',
+        schema: 'public',
+        table: 'message_read_status',
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      onReadStatusChange
+    )
 
     return () => {
-      cleanup.then(fn => fn?.())
+      console.log(`📖 Unsubscribing from read status for conversation: ${conversationId}`)
+      unsubscribe()
     }
-  }, [supabase, user, queryClient])
+  }, [conversationId, onReadStatusChange, enabled])
 }
 
-export function useRealtimeCallUpdates() {
-  const { supabase, user } = useAuth()
-  const queryClient = useQueryClient()
-
+/**
+ * Subscribe to typing indicator broadcasts
+ *
+ * @param conversationId - Conversation to listen for typing in
+ * @param onTyping - Callback when someone types
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useTypingSubscription(
+  conversationId: string | null | undefined,
+  onTyping: BroadcastCallback,
+  enabled: boolean = true
+) {
   useEffect(() => {
-    if (!user) return
+    if (!enabled || !conversationId) return
 
-    const getOrgAndSubscribe = async () => {
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .single()
+    console.log(`⌨️ Subscribing to typing indicators for conversation: ${conversationId}`)
 
-      if (!member?.organization_id) return
-
-      const channel = supabase
-        .channel(`org-calls-${member.organization_id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'calls',
-            filter: `organization_id=eq.${member.organization_id}`
-          },
-          (payload) => {
-            const call = payload.new as any
-            
-            // Invalidate relevant queries
-            queryClient.invalidateQueries({ queryKey: ['calls'] })
-            queryClient.invalidateQueries({ queryKey: ['analytics'] })
-            
-            // Show notification for calls
-            if (call.direction === 'inbound') {
-              toast.info(`Incoming call from ${call.caller_number}`)
-            } else if (call.status === 'answered') {
-              toast.success('Call connected successfully')
-            }
-          }
-        )
-        .subscribe()
-
-      return () => {
-        supabase.removeChannel(channel)
-      }
-    }
-
-    const cleanup = getOrgAndSubscribe()
+    const unsubscribe = realtimeService.subscribeToBroadcast(
+      `typing-${conversationId}`,
+      'typing',
+      onTyping
+    )
 
     return () => {
-      cleanup.then(fn => fn?.())
+      console.log(`⌨️ Unsubscribing from typing indicators for conversation: ${conversationId}`)
+      unsubscribe()
     }
-  }, [supabase, user, queryClient])
+  }, [conversationId, onTyping, enabled])
 }
 
-export function useRealtimeContactAssignments() {
-  const { supabase, user } = useAuth()
-  const queryClient = useQueryClient()
+/**
+ * Send a typing indicator broadcast
+ *
+ * @param conversationId - Conversation ID
+ * @param userId - User ID who is typing
+ * @param isTyping - Whether user is currently typing
+ */
+export async function sendTypingIndicator(
+  conversationId: string,
+  userId: string,
+  isTyping: boolean
+): Promise<void> {
+  await realtimeService.broadcast(`typing-${conversationId}`, 'typing', {
+    conversationId,
+    userId,
+    isTyping,
+    timestamp: new Date().toISOString()
+  })
+}
 
+/**
+ * Subscribe to messages for a specific conversation
+ *
+ * @param conversationId - Conversation to listen for messages in
+ * @param onMessage - Callback when message is added/updated
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useConversationMessagesSubscription(
+  conversationId: string | null | undefined,
+  onMessage: PostgresChangeCallback,
+  enabled: boolean = true
+) {
   useEffect(() => {
-    if (!user) return
+    if (!enabled || !conversationId) return
 
-    const channel = supabase
-      .channel(`agent-assignments-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'call_list_contacts',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        (payload) => {
-          // Invalidate queries
-          queryClient.invalidateQueries({ queryKey: ['my-assignments'] })
-          queryClient.invalidateQueries({ queryKey: ['callLists'] })
-          
-          // Show notifications
-          if (payload.eventType === 'INSERT' || 
-              (payload.eventType === 'UPDATE' && payload.old?.assigned_to !== user.id)) {
-            const contact = payload.new as any
-            toast.info('New contact assigned to you', {
-              description: `Contact ${contact.id} has been assigned to your queue`
-            })
-          }
-        }
-      )
-      .subscribe()
+    console.log(`💬 Subscribing to messages for conversation: ${conversationId}`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `messages-${conversationId}`,
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sms_messages',
+        filter: `conversation_id=eq.${conversationId}`
+      },
+      onMessage
+    )
 
     return () => {
-      supabase.removeChannel(channel)
+      console.log(`💬 Unsubscribing from messages for conversation: ${conversationId}`)
+      unsubscribe()
     }
-  }, [supabase, user, queryClient])
+  }, [conversationId, onMessage, enabled])
 }
 
-// Global subscription hook to use in the app layout
-export function useGlobalRealtimeSubscriptions() {
-  useRealtimeAgentUpdates()
-  useRealtimeCallUpdates()
-  useRealtimeContactAssignments()
+/**
+ * Subscribe to conversation updates
+ *
+ * @param organizationId - Organization to filter conversations for
+ * @param onConversationChange - Callback when conversation changes
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useConversationUpdatesSubscription(
+  organizationId: string | null | undefined,
+  onConversationChange: PostgresChangeCallback,
+  enabled: boolean = true
+) {
+  useEffect(() => {
+    if (!enabled || !organizationId) return
+
+    console.log(`💼 Subscribing to conversation updates for org: ${organizationId}`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `conversations-${organizationId}`,
+      {
+        event: '*',
+        schema: 'public',
+        table: 'sms_conversations',
+        filter: `organization_id=eq.${organizationId}`
+      },
+      onConversationChange
+    )
+
+    return () => {
+      console.log(`💼 Unsubscribing from conversation updates for org: ${organizationId}`)
+      unsubscribe()
+    }
+  }, [organizationId, onConversationChange, enabled])
+}
+
+/**
+ * Get realtime service status (useful for debugging)
+ */
+export function useRealtimeStatus() {
+  return realtimeService.getStatus()
 }
