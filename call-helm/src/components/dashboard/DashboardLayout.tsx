@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useBilling } from '@/lib/hooks/useBilling'
 import { useGlobalRealtimeSubscriptions } from '@/lib/hooks/useRealtimeSubscription'
+import { useUnreadCounts } from '@/lib/hooks/useUnreadCounts'
 import { Button } from '@/components/ui/button'
 import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
 import { RecordingToggle } from '@/components/dashboard/RecordingToggle'
@@ -44,7 +45,7 @@ const navigation: NavItem[] = [
   { name: 'Call Lists', href: '/dashboard/call-lists', icon: FileText },
   { name: 'Contacts', href: '/dashboard/contacts', icon: Users },
   { name: 'Agents', href: '/dashboard/agents', icon: UserCheck, roles: ['org_admin', 'team_lead'] },
-  { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare, badge: 3 },
+  { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
@@ -106,6 +107,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { profile } = useProfile()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
+
+  // Get unread message counts (using new centralized hook)
+  const { unreadCounts } = useUnreadCounts()
 
   // Enable real-time subscriptions
   useGlobalRealtimeSubscriptions()
@@ -169,11 +173,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <item.icon className="h-5 w-5 mr-3" />
                   <span className="font-medium">{item.name}</span>
                 </div>
-                {item.badge && (
+                {((item.name === 'Messages' && unreadCounts.totalUnread > 0) || (item.name !== 'Messages' && item.badge)) && (
                   <span className={`px-2 py-0.5 text-xs rounded-full ${
                     isActive ? 'bg-white text-primary' : 'bg-primary text-white'
                   }`}>
-                    {item.badge}
+                    {item.name === 'Messages' ? unreadCounts.totalUnread : item.badge}
                   </span>
                 )}
               </Link>
@@ -210,11 +214,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <item.icon className="h-5 w-5 mr-3" />
                   <span className="font-medium">{item.name}</span>
                 </div>
-                {item.badge && (
+                {((item.name === 'Messages' && unreadCounts.totalUnread > 0) || (item.name !== 'Messages' && item.badge)) && (
                   <span className={`px-2 py-0.5 text-xs rounded-full ${
                     isActive ? 'bg-white text-primary' : 'bg-primary text-white'
                   }`}>
-                    {item.badge}
+                    {item.name === 'Messages' ? unreadCounts.totalUnread : item.badge}
                   </span>
                 )}
               </Link>
