@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
 import { 
   Send, Paperclip, MoreVertical, Check, CheckCheck, Clock,
@@ -39,12 +39,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { useSignalWireRealtime } from '@/hooks/useSignalWireRealtime'
 import { useSMSStore } from '@/lib/stores/smsStore'
-import { 
-  useConversation, 
-  useMessages, 
-  useSendMessage, 
-  useMarkAsRead 
+import {
+  useConversation,
+  useMessages,
+  useSendMessage,
+  useMarkAsRead
 } from '@/lib/hooks/useSMSQueries'
+import { useScrollManager } from '@/lib/hooks/useScrollManager'
 
 // Types are now imported from the SMS store
 import type { Message, Conversation } from '@/lib/stores/smsStore'
@@ -66,7 +67,7 @@ interface SMSConversationProps {
   className?: string
 }
 
-export function SMSConversation({ 
+export function SMSConversation({
   conversationId: initialConversationId,
   contactId,
   phoneNumber,
@@ -83,13 +84,11 @@ export function SMSConversation({
   const [messageReactions, setMessageReactions] = useState<Record<string, any>>({})
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null)
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
   const draftSaveDebounceRef = useRef<NodeJS.Timeout | null>(null)
-  const markedAsReadRef = useRef<string | null>(null) // Track which conversation we've marked as read
   const supabase = createClient()
   
   // Query hooks
@@ -97,7 +96,21 @@ export function SMSConversation({
   const { data: messages = [], isLoading: messagesLoading } = useMessages(initialConversationId || '')
   const sendMessage = useSendMessage()
   const markAsRead = useMarkAsRead()
-  
+
+  // Scroll manager - centralized scroll control
+  const {
+    scrollContainerRef,
+    isAtBottom,
+    scrollToBottom,
+    newMessageCount,
+    showScrollButton,
+    resetNewItemCount
+  } = useScrollManager(messages.length, {
+    bottomThreshold: 100,
+    autoScrollOnNew: true,
+    showNewMessageButton: true
+  })
+
   // Use SignalWire Realtime hooks
   const { connection, typing: typingIndicator, messages: realtimeMessages, presence } = useSignalWireRealtime(
     initialConversationId || '',
@@ -108,63 +121,48 @@ export function SMSConversation({
   const { unreadMessages, isUnread } = useConversationReadStatus(initialConversationId || '')
   
   // Use SMS store for draft persistence and state
-  const { 
-    setDraft, 
-    getDraft, 
+  const {
+    setDraft,
+    getDraft,
     clearDraft,
     setTyping: setStoreTyping,
-    getTypingUsers 
+    getTypingUsers
   } = useSMSStore()
 
-  // Scroll to bottom of messages
-  const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior })
-    }, 100)
-  }
+  // Scroll manager handles initial scroll automatically
 
-  // Auto-scroll when new messages arrive
-  useEffect(() => {
-    scrollToBottom('auto')
-  }, [messages])
+  // TEMPORARILY DISABLED - Reactions loading was causing flashing
+  // TODO: Re-implement with proper dependency management
+  // const messageIds = useMemo(() => messages.map(m => m.id).join(','), [messages])
 
-  // Scroll to bottom on initial load
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom('auto')
-    }
-  }, [conversation?.id])
+  // Load reactions for messages - DISABLED FOR NOW
+  // useEffect(() => {
+  //   if (!messageIds) return
 
-  // Removed duplicate mark-as-read - now handled by single implementation below
+  //   const loadReactions = async () => {
+  //     const ids = messageIds.split(',')
+  //     const { data, error } = await supabase
+  //       .from('message_reactions')
+  //       .select('*')
+  //       .in('message_id', ids)
 
-  // Load reactions for messages
-  useEffect(() => {
-    if (messages.length === 0) return
+  //     if (!error && data) {
+  //       const reactionsByMessage: Record<string, any> = {}
+  //       data.forEach(reaction => {
+  //         if (!reactionsByMessage[reaction.message_id]) {
+  //           reactionsByMessage[reaction.message_id] = {}
+  //         }
+  //         if (!reactionsByMessage[reaction.message_id][reaction.reaction]) {
+  //           reactionsByMessage[reaction.message_id][reaction.reaction] = []
+  //         }
+  //         reactionsByMessage[reaction.message_id][reaction.reaction].push(reaction.user_id)
+  //       })
+  //       setMessageReactions(reactionsByMessage)
+  //     }
+  //   }
 
-    const loadReactions = async () => {
-      const messageIds = messages.map(m => m.id)
-      const { data, error } = await supabase
-        .from('message_reactions')
-        .select('*')
-        .in('message_id', messageIds)
-
-      if (!error && data) {
-        const reactionsByMessage: Record<string, any> = {}
-        data.forEach(reaction => {
-          if (!reactionsByMessage[reaction.message_id]) {
-            reactionsByMessage[reaction.message_id] = {}
-          }
-          if (!reactionsByMessage[reaction.message_id][reaction.reaction]) {
-            reactionsByMessage[reaction.message_id][reaction.reaction] = []
-          }
-          reactionsByMessage[reaction.message_id][reaction.reaction].push(reaction.user_id)
-        })
-        setMessageReactions(reactionsByMessage)
-      }
-    }
-
-    loadReactions()
-  }, [messages, supabase])
+  //   loadReactions()
+  // }, [messageIds])
 
   // Handle adding/removing reactions
   const handleReaction = async (messageId: string, reaction: string) => {
@@ -275,34 +273,27 @@ export function SMSConversation({
   }, [typingIndicator.isAnyoneTyping])
 
   // Load conversation and messages
-  // Restore draft when conversation changes and reset mark-as-read tracking
+  // Restore draft when conversation changes
   useEffect(() => {
     if (initialConversationId) {
       const savedDraft = getDraft(initialConversationId)
       setMessageText(savedDraft)
-      // Reset mark-as-read tracking when conversation changes
-      markedAsReadRef.current = null
     }
   }, [initialConversationId, getDraft])
 
-  // Mark messages as read when conversation is viewed (single implementation)
+  // Mark messages as read when conversation is viewed
   useEffect(() => {
-    if (initialConversationId && messages.length > 0 && markedAsReadRef.current !== initialConversationId) {
+    if (initialConversationId && unreadMessages.length > 0) {
       // Mark all messages as read after a short delay to ensure they're visible
       const timer = setTimeout(() => {
         markAsRead.mutate({ conversationId: initialConversationId })
-        markedAsReadRef.current = initialConversationId // Mark this conversation as processed
       }, 1000)
       return () => clearTimeout(timer)
     }
-  }, [initialConversationId, messages.length, markAsRead]) // Include markAsRead to ensure fresh reference
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialConversationId, unreadMessages.length]) // markAsRead.mutate is stable, excluded from deps
 
-  // Auto-scroll when messages update
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom('smooth')
-    }
-  }, [messages.length])
+  // Scroll manager handles new message detection and auto-scroll automatically
 
   // Cleanup on unmount
   useEffect(() => {
@@ -386,9 +377,8 @@ export function SMSConversation({
       // Clear input (draft is cleared in mutation)
       setMessageText('')
       textareaRef.current?.focus()
-      
-      // Scroll to the bottom to see the new message
-      setTimeout(() => scrollToBottom('smooth'), 100)
+
+      // Scroll manager handles auto-scroll for sent messages
     } catch (error) {
       console.error('Error uploading files:', error)
       toast.error('Failed to upload files')
@@ -579,7 +569,27 @@ export function SMSConversation({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 min-h-0">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 min-h-0 relative"
+      >
+        {/* New Message Button */}
+        {showScrollButton && (
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10">
+            <Button
+              onClick={() => {
+                scrollToBottom('smooth')
+                resetNewItemCount()
+              }}
+              className="shadow-lg bg-blue-500 hover:bg-blue-600 text-white"
+              size="sm"
+            >
+              <span className="mr-2">↓</span>
+              {newMessageCount} new {newMessageCount === 1 ? 'message' : 'messages'}
+            </Button>
+          </div>
+        )}
+
         <div className="space-y-4">
           {messages.map((message, index) => {
             const isInbound = message.direction === 'inbound'
@@ -679,8 +689,9 @@ export function SMSConversation({
                     )}
                     </div>
 
+                    {/* REACTIONS TEMPORARILY DISABLED - CAUSING FLASHING */}
                     {/* Reaction Picker on Hover/Long Press */}
-                    {(hoveredMessage === message.id || showReactionPicker === message.id) && (
+                    {/* {(hoveredMessage === message.id || showReactionPicker === message.id) && (
                       <div className="absolute top-0 z-50" style={{ [isInbound ? 'left' : 'right']: '100%' }}>
                         <ReactionPicker
                           messageId={message.id}
@@ -692,17 +703,17 @@ export function SMSConversation({
                           }}
                         />
                       </div>
-                    )}
+                    )} */}
 
                     {/* Message Reactions Display */}
-                    {messageReactions[message.id] && Object.keys(messageReactions[message.id]).length > 0 && (
+                    {/* {messageReactions[message.id] && Object.keys(messageReactions[message.id]).length > 0 && (
                       <MessageReactions
                         reactions={messageReactions[message.id]}
                         currentUserId={userId}
                         onToggleReaction={(reaction) => handleReaction(message.id, reaction)}
                         messageId={message.id}
                       />
-                    )}
+                    )} */}
                   </div>
                 </div>
               </div>
