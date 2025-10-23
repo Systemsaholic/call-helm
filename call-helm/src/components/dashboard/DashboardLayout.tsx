@@ -6,7 +6,6 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useBilling } from '@/lib/hooks/useBilling'
-import { useGlobalRealtimeSubscriptions } from '@/lib/hooks/useRealtimeSubscription'
 import { useUnreadCounts } from '@/lib/hooks/useUnreadCounts'
 import { Button } from '@/components/ui/button'
 import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
@@ -109,10 +108,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
 
   // Get unread message counts (using new centralized hook)
+  // Note: useUnreadCounts handles realtime subscriptions internally
   const { unreadCounts } = useUnreadCounts()
-
-  // Enable real-time subscriptions
-  useGlobalRealtimeSubscriptions()
 
   // Mock user role - in production, this would come from the user's organization member data
   const userRole = 'org_admin' // This should be fetched from the actual user data
