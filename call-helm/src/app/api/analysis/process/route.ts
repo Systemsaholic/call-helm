@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
+import { billingService } from '@/lib/services/billing'
+import { trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -153,12 +155,44 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
     
-    // Get call metadata for context
+    // Get call metadata for context and organization
     const { data: call } = await supabase
       .from('calls')
-      .select('duration, direction, status, caller_number, called_number')
+      .select(`
+        duration, 
+        direction, 
+        status, 
+        caller_number, 
+        called_number,
+        organization_id,
+        member_id,
+        contact_id
+      `)
       .eq('id', callId)
       .single()
+
+    if (!call?.organization_id) {
+      return NextResponse.json({ 
+        error: 'Call organization not found' 
+      }, { status: 404 })
+    }
+
+    // Check AI analysis quota
+    const quotaCheck = await billingService.canUseAIService(
+      call.organization_id,
+      'ai_analysis_requests',
+      1
+    )
+
+    if (!quotaCheck.canUse) {
+      console.log('AI analysis quota exceeded:', quotaCheck.reason)
+      return NextResponse.json({
+        error: 'AI analysis quota exceeded',
+        details: quotaCheck.reason,
+        available: quotaCheck.available,
+        limit: quotaCheck.limit
+      }, { status: 402 })
+    }
     
     try {
       // Analyze the transcription
@@ -168,10 +202,26 @@ export async function POST(request: NextRequest) {
         hasSummary: !!analysis.summary,
         actionItemsCount: analysis.action_items.length,
         keyPointsCount: analysis.key_points.length,
-        sentiment: analysis.mood_sentiment,
-        hadAssemblyInsights: !!assemblyInsights
+        sentiment: analysis.mood_sentiment
       })
       
+      // Track AI analysis usage
+      await trackAIAnalysisUsage({
+        organizationId: call.organization_id,
+        analysisCount: 1,
+        analysisType: 'call_analysis',
+        model: 'gpt-4-turbo-preview',
+        agentId: call.member_id,
+        contactId: call.contact_id,
+        callAttemptId: callId,
+        metadata: {
+          transcription_length: transcription.length,
+          sentiment: analysis.mood_sentiment,
+          action_items_count: analysis.action_items.length,
+          compliance_flags: analysis.compliance_flags
+        }
+      })
+
       // Update call record with analysis
       const { error: updateError } = await supabase
         .from('calls')
@@ -200,6 +250,7 @@ export async function POST(request: NextRequest) {
       }
       
       console.log('AI analysis saved successfully for call:', callId)
+      console.log('Tracked AI analysis usage for organization:', call.organization_id)
       
       // If follow-up is required, create a task or notification
       if (analysis.follow_up_required && analysis.action_items.length > 0) {

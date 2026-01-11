@@ -711,7 +711,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       analysis={callDetails.ai_analysis} 
                       transcription={callDetails.transcription}
                     />
-                  ) : callDetails.ai_analysis && callDetails.ai_analysis.summary ? (
+                  ) : callDetails.ai_analysis && (callDetails.ai_analysis as any).summary ? (
                     <>
                       {/* Sentiment & Satisfaction Overview */}
                       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -738,7 +738,7 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                         <div className="p-4 bg-gray-50 rounded-lg">
                           <p className="text-xs text-gray-500 mb-2">Satisfaction Level</p>
                           {(() => {
-                            const satisfactionInfo = getSatisfactionInfo(callDetails.ai_analysis.customer_satisfaction_level)
+                            const satisfactionInfo = getSatisfactionInfo((callDetails.ai_analysis as any).customer_satisfaction_level)
                             return (
                               <div>
                                 <p className="text-lg mb-1">{satisfactionInfo.emoji}</p>
@@ -752,11 +752,11 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       </div>
 
                       {/* Summary */}
-                      {callDetails.ai_analysis.summary && (
+                      {(callDetails.ai_analysis as any).summary && (
                         <div>
                           <h3 className="font-medium mb-2">Summary</h3>
                           <p className="text-sm text-gray-600">
-                            {callDetails.ai_analysis.summary}
+                            {(callDetails.ai_analysis as any).summary}
                           </p>
                         </div>
                       )}
@@ -777,11 +777,11 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       )}
 
                       {/* Action Items */}
-                      {callDetails.ai_analysis.action_items && callDetails.ai_analysis.action_items.length > 0 && (
+                      {(callDetails.ai_analysis as any).action_items && (callDetails.ai_analysis as any).action_items.length > 0 && (
                         <div>
                           <h3 className="font-medium mb-2">Action Items</h3>
                           <ul className="space-y-1">
-                            {callDetails.ai_analysis.action_items.map((item, index) => (
+                            {(callDetails.ai_analysis as any).action_items.map((item: string, index: number) => (
                               <li key={index} className="text-sm text-gray-600 flex items-start">
                                 <span className="mr-2">☐</span>
                                 <span>{item}</span>
@@ -793,11 +793,11 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
 
                       {/* Concerns & Opportunities */}
                       <div className="grid grid-cols-2 gap-4">
-                        {callDetails.ai_analysis.concerns && callDetails.ai_analysis.concerns.length > 0 && (
+                        {(callDetails.ai_analysis as any).concerns && (callDetails.ai_analysis as any).concerns.length > 0 && (
                           <div>
                             <h3 className="font-medium mb-2 text-orange-600">Concerns</h3>
                             <ul className="space-y-1">
-                              {callDetails.ai_analysis.concerns.map((concern, index) => (
+                              {(callDetails.ai_analysis as any).concerns.map((concern: string, index: number) => (
                                 <li key={index} className="text-sm text-gray-600 flex items-start">
                                   <span className="mr-2 text-orange-500">⚠</span>
                                   <span>{concern}</span>
@@ -807,11 +807,11 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                           </div>
                         )}
                         
-                        {callDetails.ai_analysis.opportunities && callDetails.ai_analysis.opportunities.length > 0 && (
+                        {(callDetails.ai_analysis as any).opportunities && (callDetails.ai_analysis as any).opportunities.length > 0 && (
                           <div>
                             <h3 className="font-medium mb-2 text-green-600">Opportunities</h3>
                             <ul className="space-y-1">
-                              {callDetails.ai_analysis.opportunities.map((opportunity, index) => (
+                              {(callDetails.ai_analysis as any).opportunities.map((opportunity: string, index: number) => (
                                 <li key={index} className="text-sm text-gray-600 flex items-start">
                                   <span className="mr-2 text-green-500">✓</span>
                                   <span>{opportunity}</span>
@@ -823,22 +823,22 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       </div>
 
                       {/* Call Metrics */}
-                      {callDetails.ai_analysis.talk_ratio && (
+                      {(callDetails.ai_analysis as any).talk_ratio && (
                         <div>
                           <h3 className="font-medium mb-2">Call Metrics</h3>
                           <div className="grid grid-cols-3 gap-4">
                             <div className="p-3 bg-gray-50 rounded">
                               <p className="text-xs text-gray-500">Agent Talk Time</p>
-                              <p className="text-lg font-medium">{callDetails.ai_analysis.talk_ratio.agent}%</p>
+                              <p className="text-lg font-medium">{(callDetails.ai_analysis as any).talk_ratio.agent}%</p>
                             </div>
                             <div className="p-3 bg-gray-50 rounded">
                               <p className="text-xs text-gray-500">Contact Talk Time</p>
-                              <p className="text-lg font-medium">{callDetails.ai_analysis.talk_ratio.contact}%</p>
+                              <p className="text-lg font-medium">{(callDetails.ai_analysis as any).talk_ratio.contact}%</p>
                             </div>
                             <div className="p-3 bg-gray-50 rounded">
                               <p className="text-xs text-gray-500">Quality Score</p>
                               <p className="text-lg font-medium">
-                                {callDetails.ai_analysis.call_quality_score || '-'}/10
+                                {(callDetails.ai_analysis as any).call_quality_score || '-'}/10
                               </p>
                             </div>
                           </div>
@@ -846,15 +846,15 @@ export function CallDetailsSlideout({ callId, isOpen, onClose }: CallDetailsSlid
                       )}
 
                       {/* Follow-up Required */}
-                      {callDetails.ai_analysis.follow_up_required && (
+                      {(callDetails.ai_analysis as any).follow_up_required && (
                         <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                           <p className="text-sm text-yellow-800 font-medium">
                             <Flag className="h-4 w-4 inline mr-2" />
                             Follow-up Required
                           </p>
-                          {callDetails.ai_analysis.action_items && callDetails.ai_analysis.action_items.length > 0 && (
+                          {(callDetails.ai_analysis as any).action_items && (callDetails.ai_analysis as any).action_items.length > 0 && (
                             <p className="text-xs text-yellow-700 mt-1">
-                              {callDetails.ai_analysis.action_items.length} action items pending
+                              {(callDetails.ai_analysis as any).action_items.length} action items pending
                             </p>
                           )}
                         </div>

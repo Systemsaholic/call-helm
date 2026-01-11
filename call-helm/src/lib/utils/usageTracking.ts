@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 
 export interface UsageTrackingParams {
   organizationId: string
-  resourceType: 'llm_tokens' | 'analytics_tokens' | 'call_minutes' | 'sms_messages'
+  resourceType: 'llm_tokens' | 'analytics_tokens' | 'call_minutes' | 'sms_messages' | 'transcription_minutes' | 'ai_analysis_requests'
   amount: number
   unitCost?: number
   campaignId?: string
@@ -13,12 +13,14 @@ export interface UsageTrackingParams {
   metadata?: Record<string, any>
 }
 
-// Default unit costs
+// Default unit costs with proper markup (3x cost for healthy margins)
 const defaultUnitCosts = {
-  llm_tokens: 0.000001,      // $0.000001 per token
-  analytics_tokens: 0.0000005, // $0.0000005 per token
-  call_minutes: 0.025,       // $0.025 per minute
-  sms_messages: 0.03         // $0.03 per message
+  llm_tokens: 0.00015,           // $0.15 per 1K tokens (3x markup from ~$0.045/1K OpenAI cost)
+  analytics_tokens: 0.00015,     // $0.15 per 1K tokens (same as LLM for consistency)
+  call_minutes: 0.025,           // $0.025 per minute (existing pricing)
+  sms_messages: 0.02,            // $0.02 per message (reduced from $0.03, proper markup from ~$0.0075 cost)
+  transcription_minutes: 0.003,  // $0.003 per minute (3x markup from ~$0.001 AssemblyAI cost)
+  ai_analysis_requests: 0.05     // $0.05 per analysis request (3x markup from ~$0.015 cost)
 }
 
 export async function trackUsage(params: UsageTrackingParams): Promise<void> {
@@ -70,11 +72,12 @@ export async function checkUsageQuota(
       .single()
     
     // Define tier limits for all plans
-    // Note: 'starter' is our free tier with basic allowances
+    // Note: 'starter' is our free tier with basic allowances, 'free' is same as starter
     const tierLimits: Record<string, Record<string, number>> = {
-      starter: { llm_tokens: 5000, analytics_tokens: 0, call_minutes: 0, sms_messages: 0 },
-      professional: { llm_tokens: 100000, analytics_tokens: 50000, call_minutes: 500, sms_messages: 1000 },
-      enterprise: { llm_tokens: 1000000, analytics_tokens: 500000, call_minutes: 2000, sms_messages: 5000 }
+      free: { llm_tokens: 5000, analytics_tokens: 0, call_minutes: 0, sms_messages: 0, transcription_minutes: 0, ai_analysis_requests: 0 },
+      starter: { llm_tokens: 10000, analytics_tokens: 10000, call_minutes: 500, sms_messages: 500, transcription_minutes: 50, ai_analysis_requests: 25 },
+      professional: { llm_tokens: 100000, analytics_tokens: 100000, call_minutes: 5000, sms_messages: 5000, transcription_minutes: 500, ai_analysis_requests: 250 },
+      enterprise: { llm_tokens: 1000000, analytics_tokens: 1000000, call_minutes: 999999, sms_messages: 999999, transcription_minutes: 999999, ai_analysis_requests: 999999 }
     }
     
     if (!usage) {
@@ -211,6 +214,64 @@ export async function trackSMSUsage(params: {
     metadata: {
       phone_number: params.phoneNumber,
       direction: params.direction
+    }
+  })
+}
+
+// Track AssemblyAI transcription usage
+export async function trackAssemblyAIUsage(params: {
+  organizationId: string
+  audioMinutes: number
+  recordingSid?: string
+  features?: string[]
+  campaignId?: string
+  agentId?: string
+  contactId?: string
+  callAttemptId?: string
+}) {
+  await trackUsage({
+    organizationId: params.organizationId,
+    resourceType: 'transcription_minutes',
+    amount: params.audioMinutes,
+    description: `AssemblyAI transcription - ${params.audioMinutes.toFixed(2)} minutes${params.features ? ` (${params.features.join(', ')})` : ''}`,
+    campaignId: params.campaignId,
+    agentId: params.agentId,
+    contactId: params.contactId,
+    callAttemptId: params.callAttemptId,
+    metadata: {
+      recording_sid: params.recordingSid,
+      features_used: params.features || [],
+      service: 'assemblyai'
+    }
+  })
+}
+
+// Track AI analysis requests
+export async function trackAIAnalysisUsage(params: {
+  organizationId: string
+  analysisCount: number
+  analysisType: 'call_analysis' | 'enhanced_analysis' | 'sms_analysis' | 'sentiment_analysis'
+  model?: string
+  campaignId?: string
+  agentId?: string
+  contactId?: string
+  callAttemptId?: string
+  metadata?: Record<string, any>
+}) {
+  await trackUsage({
+    organizationId: params.organizationId,
+    resourceType: 'ai_analysis_requests',
+    amount: params.analysisCount,
+    description: `AI ${params.analysisType} analysis${params.model ? ` (${params.model})` : ''}`,
+    campaignId: params.campaignId,
+    agentId: params.agentId,
+    contactId: params.contactId,
+    callAttemptId: params.callAttemptId,
+    metadata: {
+      analysis_type: params.analysisType,
+      model: params.model,
+      service: 'openai',
+      ...params.metadata
     }
   })
 }

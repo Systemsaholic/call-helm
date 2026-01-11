@@ -124,12 +124,31 @@ export async function POST(request: NextRequest) {
     // Limit results to 100 to show more options (SignalWire can return up to 200)
     const limitedNumbers = numbers.slice(0, 100)
 
+    // Enhance results with additional metadata for self-service
+    const enhancedNumbers = limitedNumbers.map((number: any) => ({
+      ...number,
+      estimatedMonthlyCost: 1.50, // Standard SignalWire pricing
+      estimatedSetupCost: 0.00,
+      available: true,
+      capabilities: {
+        voice: true,
+        sms: true,
+        mms: false // Most numbers support MMS but we'll be conservative
+      }
+    }))
+
     return NextResponse.json({ 
       success: true,
-      numbers: limitedNumbers,
+      numbers: enhancedNumbers,
       total: numbers.length,
       searchMethod,
-      searchedCity: city || null
+      searchedCity: city || null,
+      pricing: {
+        monthlyRate: 1.50,
+        setupFee: 0.00,
+        currency: 'USD',
+        note: 'Prices may vary by number type and region'
+      }
     })
   } catch (error) {
     console.error('Error searching phone numbers:', error)

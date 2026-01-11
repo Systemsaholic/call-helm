@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
-import { useUnreadMessages } from '@/hooks/useUnreadMessages'
-import { 
-  useConversations, 
-  useArchiveConversation, 
-  useDeleteConversation, 
+import {
+  useConversations,
+  useArchiveConversation,
+  useDeleteConversation,
   useClaimConversation,
-  type ConversationFilters 
+  type ConversationFilters
 } from '@/lib/hooks/useSMSQueries'
 import { useSMSStore, type Conversation } from '@/lib/stores/smsStore'
 import { Button } from '@/components/ui/button'
@@ -61,7 +60,6 @@ type TabType = 'all' | 'assigned' | 'unassigned' | 'archived'
 
 export function SMSInbox() {
   const { user } = useAuth()
-  const { conversationUnreads, refreshUnreadCounts } = useUnreadMessages()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<TabType>('all')
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
@@ -167,15 +165,19 @@ export function SMSInbox() {
     if (window.innerWidth < 768) {
       setMobileView('conversation')
     }
-    // Mark conversation as read after a short delay
-    setTimeout(() => {
-      refreshUnreadCounts()
-    }, 500)
   }
 
-  const handleBackToList = () => {
+  const handleBackToList = useCallback(() => {
     setMobileView('list')
-  }
+  }, [])
+
+  // Memoized callback for SMSConversation onBack to prevent unnecessary re-renders
+  const handleConversationBack = useCallback(() => {
+    setSelectedConversation(null)
+    setSelectedContact(null)
+    setSelectedPhone(null)
+    setActiveConversation(null)
+  }, [setActiveConversation])
 
   // Search filtering is now handled in the query hook
 
@@ -454,15 +456,11 @@ export function SMSInbox() {
             </Button>
           </div>
           <SMSConversation
+            key={selectedConversation}
             conversationId={selectedConversation}
             contactId={selectedContact || undefined}
             phoneNumber={selectedPhone}
-            onBack={() => {
-              setSelectedConversation(null)
-              setSelectedContact(null)
-              setSelectedPhone(null)
-              setActiveConversation(null)
-            }}
+            onBack={handleConversationBack}
             className="h-full"
           />
         </>

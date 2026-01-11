@@ -36,16 +36,28 @@ export interface PlanLimits {
   max_sms_messages: number
   max_campaigns: number
   max_storage_gb: number
+  max_phone_numbers?: number
+  max_ai_tokens_per_month?: number
+  max_transcription_minutes_per_month?: number
+  max_ai_analysis_per_month?: number
   features: Record<string, boolean>
   badge_text: string | null
   current_agents: number
   current_contacts: number
   current_campaigns: number
+  current_phone_numbers?: number
   used_call_minutes: number
   used_sms_messages: number
+  used_ai_tokens?: number
+  used_transcription_minutes?: number
+  used_ai_analysis?: number
   call_minutes_percentage: number
   contacts_percentage: number
   agents_percentage: number
+  phone_numbers_percentage?: number
+  ai_tokens_percentage?: number
+  transcription_percentage?: number
+  ai_analysis_percentage?: number
 }
 
 export class BillingService {
@@ -131,7 +143,7 @@ export class BillingService {
    */
   async checkUsageLimit(
     organizationId: string,
-    resourceType: 'agents' | 'contacts' | 'call_minutes' | 'sms_messages' | 'campaigns',
+    resourceType: 'agents' | 'contacts' | 'call_minutes' | 'sms_messages' | 'campaigns' | 'phone_numbers' | 'ai_tokens' | 'transcription_minutes' | 'ai_analysis_requests',
     amount: number = 1
   ): Promise<UsageLimitCheck> {
     try {
@@ -289,6 +301,183 @@ export class BillingService {
     return {
       canCall: true,
       minutesAvailable: usageCheck.available
+    }
+  }
+
+  /**
+   * Check if organization can purchase a phone number
+   */
+  async canPurchasePhoneNumber(organizationId: string): Promise<{
+    canPurchase: boolean
+    reason?: string
+    numbersAvailable?: number
+    currentCount?: number
+    limit?: number
+  }> {
+    try {
+      const limits = await this.getOrganizationLimits(organizationId)
+      if (!limits) {
+        return {
+          canPurchase: false,
+          reason: 'Unable to determine plan limits'
+        }
+      }
+
+      // Check if phone number management is available in plan
+      const hasPhoneManagement = limits.features?.phone_number_management || false
+      if (!hasPhoneManagement) {
+        return {
+          canPurchase: false,
+          reason: 'Phone number management not available in your plan'
+        }
+      }
+
+      // Get current phone number count
+      const { data: phoneNumbers, error } = await this.supabase
+        .from('phone_numbers')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .eq('status', 'active')
+
+      if (error) {
+        console.error('Error checking phone number count:', error)
+        return {
+          canPurchase: false,
+          reason: 'Unable to check current phone number usage'
+        }
+      }
+
+      const currentCount = phoneNumbers?.length || 0
+      const limit = limits.max_phone_numbers || 0
+
+      // Enterprise plans (999+ limit) have fair use policy  
+      if (limit >= 999) {
+        return {
+          canPurchase: true,
+          currentCount,
+          limit,
+          numbersAvailable: limit - currentCount
+        }
+      }
+
+      // Check if under limit
+      if (currentCount >= limit) {
+        return {
+          canPurchase: false,
+          reason: `Phone number limit reached (${currentCount}/${limit}). Upgrade your plan or purchase additional numbers.`,
+          currentCount,
+          limit,
+          numbersAvailable: 0
+        }
+      }
+
+      return {
+        canPurchase: true,
+        currentCount,
+        limit,
+        numbersAvailable: limit - currentCount
+      }
+    } catch (error) {
+      console.error('Error checking phone number purchase eligibility:', error)
+      return {
+        canPurchase: false,
+        reason: 'Error checking phone number eligibility'
+      }
+    }
+  }
+
+  /**
+   * Check if organization can use AI services (tokens, transcription, analysis)
+   */
+  async canUseAIService(
+    organizationId: string, 
+    serviceType: 'ai_tokens' | 'transcription_minutes' | 'ai_analysis_requests',
+    requestedAmount: number = 1
+  ): Promise<{
+    canUse: boolean
+    reason?: string
+    available?: number
+    used?: number
+    limit?: number
+  }> {
+    try {
+      const limits = await this.getOrganizationLimits(organizationId)
+      if (!limits) {
+        return {
+          canUse: false,
+          reason: 'Unable to determine plan limits'
+        }
+      }
+
+      // Check AI feature access
+      const hasAIAccess = limits.features?.ai_analysis || limits.features?.call_transcription || false
+      if (!hasAIAccess && serviceType !== 'ai_tokens') {
+        return {
+          canUse: false,
+          reason: 'AI services not available in your plan'
+        }
+      }
+
+      // Get current usage for this billing period
+      const now = new Date()
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
+      
+      const { data: usage } = await this.supabase
+        .from('usage_events')
+        .select('amount')
+        .eq('organization_id', organizationId)
+        .eq('resource_type', serviceType)
+        .gte('created_at', periodStart.toISOString())
+
+      const currentUsage = usage?.reduce((sum, event) => sum + (event.amount || 0), 0) || 0
+
+      // Get limits based on service type and plan
+      let limit = 0
+      switch (serviceType) {
+        case 'ai_tokens':
+          limit = limits.max_ai_tokens_per_month || 0
+          break
+        case 'transcription_minutes':
+          limit = limits.max_transcription_minutes_per_month || 0
+          break
+        case 'ai_analysis_requests':
+          limit = limits.max_ai_analysis_per_month || 0
+          break
+      }
+
+      // Enterprise plans have fair use (high limits)
+      if (limit >= 999999) {
+        return {
+          canUse: true,
+          available: limit - currentUsage,
+          used: currentUsage,
+          limit
+        }
+      }
+
+      // Check if request would exceed limit
+      if (currentUsage + requestedAmount > limit) {
+        return {
+          canUse: false,
+          reason: `${serviceType.replace('_', ' ')} limit would be exceeded. Current: ${currentUsage}/${limit}`,
+          available: Math.max(0, limit - currentUsage),
+          used: currentUsage,
+          limit
+        }
+      }
+
+      return {
+        canUse: true,
+        available: limit - currentUsage,
+        used: currentUsage,
+        limit
+      }
+    } catch (error) {
+      console.error('Error checking AI service usage:', error)
+      return {
+        canUse: false,
+        reason: 'Error checking AI service limits'
+      }
     }
   }
 }

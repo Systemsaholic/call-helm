@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { billingService } from '@/lib/services/billing'
+import { trackAssemblyAIUsage, trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
 
 // AssemblyAI transcription service with native speaker diarization
 async function transcribeWithAssemblyAI(
@@ -197,7 +199,7 @@ async function transcribeWithAssemblyAI(
             agentSpeaker = introSpeaker || speakerArray[1] // Second speaker often agent in outbound
           } else {
             // For inbound: Agent typically answers first
-            agentSpeaker = speakerArray[0]
+            agentSpeaker = speakerArray[0] as string
           }
         }
         
@@ -208,26 +210,26 @@ async function transcribeWithAssemblyAI(
             speakerMapping[agentSpeaker] = agentName
           }
           if (customerSpeaker) {
-            speakerMapping[customerSpeaker] = customerName
+            speakerMapping[customerSpeaker as string] = customerName
           }
         } else if (speakerArray.length === 1) {
           // Single speaker - likely agent for short calls
-          speakerMapping[speakerArray[0]] = agentName
+          speakerMapping[speakerArray[0] as string] = agentName
         }
         
         // Fallback if mapping incomplete
         for (const speaker of speakerArray) {
-          if (!speakerMapping[speaker]) {
-            speakerMapping[speaker] = speaker === speakerArray[0] ? agentName : customerName
+          if (!speakerMapping[speaker as string]) {
+            speakerMapping[speaker as string] = speaker === speakerArray[0] ? agentName : customerName
           }
         }
       } else {
         // Fallback to generic labels
         if (speakerArray.length >= 1) {
-          speakerMapping[speakerArray[0]] = 'Agent'
+          speakerMapping[speakerArray[0] as string] = 'Agent'
         }
         if (speakerArray.length >= 2) {
-          speakerMapping[speakerArray[1]] = 'Customer'
+          speakerMapping[speakerArray[1] as string] = 'Customer'
         }
       }
       
@@ -304,6 +306,61 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
+
+    // Get call details to find organization for quota checking
+    const { data: callData } = await supabase
+      .from('calls')
+      .select(`
+        organization_id,
+        direction,
+        member_id,
+        contact_id,
+        organization_members!calls_member_id_fkey (
+          full_name
+        ),
+        contacts (
+          full_name
+        )
+      `)
+      .eq('id', callId)
+      .single()
+
+    if (!callData?.organization_id) {
+      return NextResponse.json({ 
+        error: 'Call organization not found' 
+      }, { status: 404 })
+    }
+
+    // Estimate transcription minutes (rough calculation from audio URL or assume 5 minutes)
+    const estimatedMinutes = 5 // Will be updated with actual duration after transcription
+    
+    // Check quota before processing
+    const quotaCheck = await billingService.canUseAIService(
+      callData.organization_id,
+      'transcription_minutes', 
+      estimatedMinutes
+    )
+
+    if (!quotaCheck.canUse) {
+      console.log('Transcription quota exceeded:', quotaCheck.reason)
+      
+      // Update status to failed with quota reason
+      await supabase
+        .from('calls')
+        .update({
+          transcription_status: 'failed',
+          transcription: `Transcription quota exceeded: ${quotaCheck.reason}`,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', callId)
+      
+      return NextResponse.json({
+        error: 'Transcription quota exceeded',
+        details: quotaCheck.reason,
+        available: quotaCheck.available,
+        limit: quotaCheck.limit
+      }, { status: 402 })
+    }
     
     // Update status to processing
     await supabase
@@ -315,34 +372,34 @@ export async function POST(request: NextRequest) {
       .eq('id', callId)
     
     try {
-      // Get call details for speaker mapping
-      const { data: callData } = await supabase
-        .from('calls')
-        .select(`
-          direction,
-          member_id,
-          contact_id,
-          organization_members!calls_member_id_fkey (
-            full_name
-          ),
-          contacts (
-            full_name
-          )
-        `)
-        .eq('id', callId)
-        .single()
-      
-      // Prepare speaker names
+      // Prepare speaker names from already fetched callData
       const speakerData = callData ? {
         direction: callData.direction as 'inbound' | 'outbound',
-        memberName: callData.organization_members?.full_name,
-        contactName: callData.contacts?.full_name
+        memberName: callData.organization_members?.[0]?.full_name,
+        contactName: callData.contacts?.[0]?.full_name
       } : undefined
       
       // Transcribe the audio
       console.log('Starting transcription with AssemblyAI...')
       const transcription = await transcribeWithAssemblyAI(recordingUrl, recordingSid, speakerData)
       console.log('Transcription completed:', transcription.substring(0, 100) + '...')
+      
+      // Calculate actual minutes from transcription length (rough estimate)
+      // AssemblyAI typically processes at ~3x real time, so we can estimate
+      const wordCount = transcription.split(' ').length
+      const estimatedActualMinutes = Math.max(1, Math.ceil(wordCount / 150)) // ~150 words per minute average
+      
+      // Track AssemblyAI usage
+      await trackAssemblyAIUsage({
+        organizationId: callData.organization_id,
+        audioMinutes: estimatedActualMinutes,
+        recordingSid,
+        features: ['speaker_labels', 'punctuate', 'format_text', 'sentiment_analysis', 'summarization'],
+        campaignId: undefined, // Could be linked if call is part of campaign
+        agentId: callData.member_id,
+        contactId: callData.contact_id,
+        callAttemptId: callId
+      })
       
       // Update call record with transcription
       const { error: updateError } = await supabase
@@ -360,6 +417,7 @@ export async function POST(request: NextRequest) {
       }
       
       console.log('Transcription saved successfully for call:', callId)
+      console.log(`Tracked ${estimatedActualMinutes} minutes of AssemblyAI usage`)
       
       // Extract transcript ID from the transcription if present
       let assemblyTranscriptId: string | undefined

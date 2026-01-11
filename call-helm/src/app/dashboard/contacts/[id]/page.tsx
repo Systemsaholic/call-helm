@@ -137,7 +137,7 @@ export default function ContactViewPage() {
         </Button>
 
         {/* Contact Header */}
-        <ContactHeader contact={contact} />
+        {contact && <ContactHeader contact={contact} />}
 
         {/* Statistics Cards */}
         <div className="grid gap-4 md:grid-cols-5">
@@ -209,7 +209,7 @@ export default function ContactViewPage() {
                   <CardDescription>All details about this contact</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ContactDetails contact={contact} />
+                  {contact && <ContactDetails contact={contact} />}
                 </CardContent>
               </Card>
 
@@ -219,7 +219,7 @@ export default function ContactViewPage() {
                   <CardDescription>Latest notes for this contact</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ContactNotes contactId={contact.id} limit={3} compact />
+                  {contact && <ContactNotes contactId={contact.id} limit={3} compact />}
                 </CardContent>
               </Card>
             </div>
@@ -230,7 +230,7 @@ export default function ContactViewPage() {
                 <CardDescription>Latest interactions with this contact</CardDescription>
               </CardHeader>
               <CardContent>
-                <ContactActivities contactId={contact.id} limit={5} />
+                {contact && <ContactActivities contactId={contact.id} limit={5} />}
               </CardContent>
             </Card>
           </TabsContent>
@@ -244,15 +244,17 @@ export default function ContactViewPage() {
                     <CardTitle>Call History</CardTitle>
                     <CardDescription>All calls with this contact</CardDescription>
                   </div>
-                  <SimpleCallButton 
-                    phoneNumber={contact.phone_number}
-                    contactId={contact.id}
-                    contactName={contact.full_name}
-                  />
+                  {contact && (
+                    <SimpleCallButton 
+                      phoneNumber={contact.phone_number}
+                      contactId={contact.id}
+                      contactName={contact.full_name}
+                    />
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
-                <CallHistory contactId={contact.id} />
+                {contact && <CallHistory contactId={contact.id} />}
               </CardContent>
             </Card>
           </TabsContent>
@@ -265,7 +267,7 @@ export default function ContactViewPage() {
                 <CardDescription>All notes for this contact</CardDescription>
               </CardHeader>
               <CardContent>
-                <ContactNotes contactId={contact.id} />
+                {contact && <ContactNotes contactId={contact.id} />}
               </CardContent>
             </Card>
           </TabsContent>
@@ -278,7 +280,7 @@ export default function ContactViewPage() {
                 <CardDescription>Complete history of all interactions</CardDescription>
               </CardHeader>
               <CardContent>
-                <ContactActivities contactId={contact.id} />
+                {contact && <ContactActivities contactId={contact.id} />}
               </CardContent>
             </Card>
           </TabsContent>

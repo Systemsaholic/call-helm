@@ -10,6 +10,8 @@ import { DepartmentManagement } from '@/components/settings/DepartmentManagement
 import { UsageDashboard } from '@/components/dashboard/UsageDashboard'
 import { VoiceServicesSetup } from '@/components/settings/VoiceServicesSetup'
 import { BillingDashboard } from '@/components/billing/BillingDashboard'
+import { PhoneNumberManagement } from '@/components/settings/PhoneNumberManagement'
+import { ThreeCXIntegration } from '@/components/settings/ThreeCXIntegration'
 import { Button } from '@/components/ui/button'
 import { 
   User,
@@ -43,7 +45,7 @@ interface TabConfig {
 const tabs: TabConfig[] = [
   { id: 'profile', label: 'Profile', icon: User, description: 'Manage your personal information' },
   { id: 'organization', label: 'Organization', icon: Building, description: 'Configure organization settings' },
-  { id: 'phone_numbers', label: 'Phone Numbers', icon: Phone, description: 'Manage phone numbers and voice settings' },
+  { id: 'phone_numbers', label: 'Phone Numbers', icon: Phone, description: 'Search, purchase, port numbers, and manage SMS compliance' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Set your notification preferences' },
   { id: 'billing', label: 'Billing', icon: CreditCard, description: 'Manage subscription and payments' },
   { id: 'api', label: 'API Keys', icon: Key, description: 'Manage API keys and webhooks' },
@@ -64,6 +66,7 @@ function SettingsContent() {
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedIntegration, setSelectedIntegration] = useState<string | null>(null)
 
   // Update active tab when URL parameter changes
   useEffect(() => {
@@ -369,16 +372,18 @@ function SettingsContent() {
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Phone Number Management Locked</h3>
               <p className="text-gray-600 mb-6">
-                Phone number setup and management requires a Starter plan or higher.
+                Phone number management and SMS services require a Starter plan or higher.
               </p>
               <div className="space-y-4">
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h4 className="font-medium text-gray-900 mb-2">Upgrade to unlock:</h4>
                   <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• Purchase and configure phone numbers</li>
-                    <li>• Set up voice services and routing</li>
-                    <li>• Configure call forwarding rules</li>
-                    <li>• Manage multiple phone numbers</li>
+                    <li>• Search and purchase phone numbers</li>
+                    <li>• Port your existing business numbers</li>
+                    <li>• Configure voice and SMS services automatically</li>
+                    <li>• Create SMS brands and campaigns for compliance</li>
+                    <li>• Manage multiple phone numbers with webhooks</li>
+                    <li>• Real-time status tracking and monitoring</li>
                   </ul>
                 </div>
                 <Button 
@@ -396,9 +401,7 @@ function SettingsContent() {
           )
         }
         
-        return (
-          <VoiceServicesSetup />
-        )
+        return <PhoneNumberManagement />
 
       case 'organization':
         return (
@@ -779,6 +782,24 @@ function SettingsContent() {
         )
 
       case 'integrations':
+        // If a specific integration is selected, show its detail view
+        if (selectedIntegration === '3cx') {
+          return (
+            <div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedIntegration(null)}
+                className="mb-4"
+              >
+                <ChevronRight className="h-4 w-4 mr-1 rotate-180" />
+                Back to Integrations
+              </Button>
+              <ThreeCXIntegration />
+            </div>
+          )
+        }
+
         return (
           <div className="space-y-6">
             <div>
@@ -831,8 +852,12 @@ function SettingsContent() {
                       </div>
                     </div>
                   </div>
-                  <Button size="sm" className="w-full">
-                    Connect
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setSelectedIntegration('3cx')}
+                  >
+                    Configure
                   </Button>
                 </div>
 
