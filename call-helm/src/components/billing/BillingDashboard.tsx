@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useBilling } from '@/lib/hooks/useBilling'
+import { useStripe } from '@/lib/hooks/useStripe'
 import { useConfirmation } from '@/lib/hooks/useConfirmation'
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { EnterpriseContactDialog } from './EnterpriseContactDialog'
@@ -10,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { toast } from 'sonner'
 import {
   Check,
   X,
@@ -28,6 +31,8 @@ import {
   Smartphone,
   Brain,
   Mic,
+  ExternalLink,
+  Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -39,13 +44,27 @@ export function BillingDashboard() {
     isLoading,
     formatUsage,
     getUsageClass,
-    showUpgradePrompt
+    showUpgradePrompt,
+    refetchLimits
   } = useBilling()
+
+  const { createCheckout, openBillingPortal, isCheckoutLoading, isPortalLoading } = useStripe()
+  const searchParams = useSearchParams()
 
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
   const [enterpriseDialogOpen, setEnterpriseDialogOpen] = useState(false)
   const confirmation = useConfirmation()
   const [selectedPlan, setSelectedPlan] = useState<any>(null)
+
+  // Handle success/cancel URL params from Stripe redirect
+  useEffect(() => {
+    if (searchParams.get('success') === 'true') {
+      toast.success('Subscription updated successfully!')
+      refetchLimits()
+    } else if (searchParams.get('canceled') === 'true') {
+      toast.info('Checkout was canceled')
+    }
+  }, [searchParams, refetchLimits])
 
   if (isLoading) {
     return (
@@ -63,39 +82,44 @@ export function BillingDashboard() {
     return Math.round(((yearlyEquivalent - yearly) / yearlyEquivalent) * 100)
   }
 
-  // Handle plan change
+  // Handle plan change - now uses real Stripe checkout
   const handlePlanChange = (plan: any, isDowngrade: boolean) => {
     const price = billingPeriod === 'monthly' ? plan.price_monthly : plan.price_annual
     const period = billingPeriod === 'monthly' ? 'month' : 'year'
-    
+
     setSelectedPlan(plan)
-    
+
+    // For free plan (downgrade to free), show confirmation then handle via portal
+    if (plan.price_monthly === 0) {
+      confirmation.showConfirmation({
+        title: 'Downgrade to Free Plan',
+        description: 'You will lose access to premium features. To cancel your subscription, you\'ll be redirected to the billing portal.',
+        confirmText: 'Open Billing Portal',
+        cancelText: 'Cancel',
+        variant: 'warning',
+        onConfirm: async () => {
+          openBillingPortal({})
+        }
+      })
+      return
+    }
+
     confirmation.showConfirmation({
       title: `${isDowngrade ? 'Downgrade' : 'Upgrade'} to ${plan.name}`,
-      description: price > 0 
-        ? `You are about to ${isDowngrade ? 'downgrade' : 'upgrade'} your subscription to ${plan.name} for $${price} per ${period}. ${
-            isDowngrade 
-              ? 'Some features may become unavailable.' 
-              : 'You will gain access to additional features.'
-          }` 
-        : `You are about to switch to the ${plan.name} plan. Some features may become unavailable.`,
-      confirmText: `Confirm ${isDowngrade ? 'Downgrade' : 'Upgrade'}`,
+      description: `You are about to ${isDowngrade ? 'downgrade' : 'upgrade'} your subscription to ${plan.name} for $${price} per ${period}. ${
+          isDowngrade
+            ? 'Some features may become unavailable.'
+            : 'You will gain access to additional features.'
+        } You will be redirected to our secure checkout.`,
+      confirmText: `${isDowngrade ? 'Downgrade' : 'Upgrade'} Now`,
       cancelText: 'Cancel',
       variant: isDowngrade ? 'warning' : 'default',
       onConfirm: async () => {
-        // Show success message
-        setTimeout(() => {
-          confirmation.showConfirmation({
-            title: 'Success!',
-            description: `Your ${isDowngrade ? 'downgrade' : 'upgrade'} to ${plan.name} has been initiated. Redirecting to payment page...`,
-            confirmText: 'OK',
-            variant: 'success',
-            onConfirm: () => {
-              // In a real app, this would redirect to Stripe checkout
-              console.log('Redirecting to payment page...')
-            }
-          })
-        }, 500)
+        // Redirect to Stripe checkout
+        createCheckout({
+          planSlug: plan.slug,
+          billingPeriod: billingPeriod === 'yearly' ? 'annual' : 'monthly',
+        })
       }
     })
   }
@@ -327,7 +351,7 @@ export function BillingDashboard() {
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-gray-500" />
                 <span className="text-sm text-gray-600">
-                  {limits?.subscription_status === 'trialing' 
+                  {limits?.subscription_status === 'trialing'
                     ? `Trial: ${trialDaysRemaining} days remaining`
                     : `Status: ${limits?.subscription_status || 'Active'}`
                   }
@@ -337,28 +361,46 @@ export function BillingDashboard() {
                 <div className="flex items-center gap-2">
                   <CreditCard className="h-4 w-4 text-gray-500" />
                   <span className="text-sm text-gray-600">
-                    ${billingPeriod === 'monthly' 
-                      ? `${currentPlan.price_monthly}/mo` 
+                    ${billingPeriod === 'monthly'
+                      ? `${currentPlan.price_monthly}/mo`
                       : `${currentPlan.price_annual}/yr`
                     }
                   </span>
                 </div>
               )}
             </div>
-            {limits?.plan_slug !== 'enterprise' && (
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  // Scroll to Available Plans section
-                  const plansSection = document.querySelector('[data-section="available-plans"]')
-                  plansSection?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-              >
-                Upgrade Plan
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {/* Manage Subscription button for paid subscribers */}
+              {limits?.subscription_status === 'active' && (currentPlan?.price_monthly ?? 0) > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openBillingPortal({})}
+                  disabled={isPortalLoading}
+                >
+                  {isPortalLoading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                  )}
+                  Manage Subscription
+                </Button>
+              )}
+              {limits?.plan_slug !== 'enterprise' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    // Scroll to Available Plans section
+                    const plansSection = document.querySelector('[data-section="available-plans"]')
+                    plansSection?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                >
+                  Upgrade Plan
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -441,39 +483,39 @@ export function BillingDashboard() {
                       <li className="flex items-center gap-2 text-sm">
                         <Smartphone className="h-4 w-4 text-blue-500 flex-shrink-0" />
                         <span className="font-medium">
-                          {(plan.features?.max_phone_numbers || 0) >= 999 
-                            ? '100+ Numbers (fair use)' 
-                            : (plan.features?.max_phone_numbers || 0) === 1 
-                            ? '1 Number included' 
-                            : `${plan.features?.max_phone_numbers || 0} Numbers included`
+                          {(plan.max_phone_numbers || 0) >= 999
+                            ? '100+ Numbers (fair use)'
+                            : (plan.max_phone_numbers || 0) === 1
+                            ? '1 Number included'
+                            : `${plan.max_phone_numbers || 0} Numbers included`
                           }
                         </span>
                       </li>
-                      {(plan.features?.max_phone_numbers || 0) < 999 && (
+                      {(plan.max_phone_numbers || 0) < 999 && (
                         <li className="flex items-center gap-2 text-xs text-gray-500 pl-6 mt-1">
                           <span>+$2.50/mo per additional</span>
                         </li>
                       )}
                     </div>
-                    
+
                     {/* Agents */}
                     <li className="flex items-center gap-2 text-sm">
                       <Users className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{plan.features?.max_agents >= 999999 ? 'Unlimited agents' : `${plan.features?.max_agents || 0} agents`}</span>
+                      <span>{(plan.max_agents || 0) >= 999999 ? 'Unlimited agents' : `${plan.max_agents || 0} agents`}</span>
                     </li>
-                    
+
                     {/* Call Minutes */}
                     <li className="flex items-center gap-2 text-sm">
                       <Phone className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{plan.features?.max_call_minutes >= 999999 ? 'Unlimited minutes' : `${(plan.features?.max_call_minutes || 0).toLocaleString()} min/mo`}</span>
+                      <span>{(plan.max_call_minutes || 0) >= 999999 ? 'Unlimited minutes' : `${(plan.max_call_minutes || 0).toLocaleString()} min/mo`}</span>
                     </li>
-                    
+
                     {/* SMS Messages */}
                     <li className="flex items-center gap-2 text-sm">
-                      {(plan.features?.max_sms_messages || 0) > 0 ? (
+                      {(plan.max_sms_messages || 0) > 0 ? (
                         <>
                           <MessageSquare className="h-4 w-4 text-green-500 flex-shrink-0" />
-                          <span>{plan.features?.max_sms_messages >= 999999 ? 'Unlimited SMS' : `${(plan.features?.max_sms_messages || 0).toLocaleString()} SMS/mo`}</span>
+                          <span>{(plan.max_sms_messages || 0) >= 999999 ? 'Unlimited SMS' : `${(plan.max_sms_messages || 0).toLocaleString()} SMS/mo`}</span>
                         </>
                       ) : (
                         <>
@@ -482,22 +524,22 @@ export function BillingDashboard() {
                         </>
                       )}
                     </li>
-                    
+
                     {/* AI Services - Fixed height block */}
                     <div className="min-h-[4.5rem]">
-                      {(plan.features?.max_ai_tokens_per_month || 0) > 0 ? (
+                      {(plan.max_ai_tokens_per_month || 0) > 0 ? (
                         <>
                           <li className="flex items-center gap-2 text-sm">
                             <Brain className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                            <span>{plan.features?.max_ai_tokens_per_month >= 999999 ? 'Unlimited AI' : `${(plan.features?.max_ai_tokens_per_month || 0).toLocaleString()} AI tokens`}</span>
+                            <span>{(plan.max_ai_tokens_per_month || 0) >= 999999 ? 'Unlimited AI' : `${(plan.max_ai_tokens_per_month || 0).toLocaleString()} AI tokens`}</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm">
                             <Mic className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                            <span>{plan.features?.max_transcription_minutes_per_month >= 999999 ? 'Unlimited transcription' : `${(plan.features?.max_transcription_minutes_per_month || 0)} min transcription`}</span>
+                            <span>{(plan.max_transcription_minutes_per_month || 0) >= 999999 ? 'Unlimited transcription' : `${(plan.max_transcription_minutes_per_month || 0)} min transcription`}</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm">
                             <Zap className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                            <span>{plan.features?.max_ai_analysis_per_month >= 999999 ? 'Unlimited analysis' : `${(plan.features?.max_ai_analysis_per_month || 0)} analyses`}</span>
+                            <span>{(plan.max_ai_analysis_per_month || 0) >= 999999 ? 'Unlimited analysis' : `${(plan.max_ai_analysis_per_month || 0)} analyses`}</span>
                           </li>
                         </>
                       ) : (
@@ -507,11 +549,11 @@ export function BillingDashboard() {
                         </li>
                       )}
                     </div>
-                    
+
                     {/* Contacts */}
                     <li className="flex items-center gap-2 text-sm">
                       <Users className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{plan.features?.max_contacts >= 999999 ? 'Unlimited contacts' : `${(plan.features?.max_contacts || 0).toLocaleString()} contacts`}</span>
+                      <span>{(plan.max_contacts || 0) >= 999999 ? 'Unlimited contacts' : `${(plan.max_contacts || 0).toLocaleString()} contacts`}</span>
                     </li>
                     
                     {/* Advanced Features */}
@@ -532,21 +574,32 @@ export function BillingDashboard() {
                   
                   {/* Button section */}
                   {plan.slug === 'enterprise' ? (
-                    <Button 
-                      className="w-full mt-auto" 
+                    <Button
+                      className="w-full mt-auto"
                       variant="default"
                       onClick={() => setEnterpriseDialogOpen(true)}
                     >
                       Contact Sales
                     </Button>
                   ) : (
-                    <Button 
-                      className="w-full mt-auto" 
+                    <Button
+                      className="w-full mt-auto"
                       variant={isCurrentPlan ? "outline" : isDowngrade ? "destructive" : "default"}
-                      disabled={isCurrentPlan}
+                      disabled={isCurrentPlan || (isCheckoutLoading && selectedPlan?.slug === plan.slug)}
                       onClick={() => !isCurrentPlan && handlePlanChange(plan, isDowngrade)}
                     >
-                      {isCurrentPlan ? 'Current Plan' : isDowngrade ? 'Downgrade' : 'Upgrade'}
+                      {isCheckoutLoading && selectedPlan?.slug === plan.slug ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Redirecting...
+                        </>
+                      ) : isCurrentPlan ? (
+                        'Current Plan'
+                      ) : isDowngrade ? (
+                        'Downgrade'
+                      ) : (
+                        'Upgrade'
+                      )}
                     </Button>
                   )}
                 </CardContent>
@@ -699,10 +752,10 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Phone Numbers Included</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_phone_numbers >= 999 
-                        ? '100+' 
-                        : plan.features?.max_phone_numbers || 0}
-                      {plan.features?.max_phone_numbers < 999 && plan.features?.max_phone_numbers > 0 && (
+                      {(plan.max_phone_numbers || 0) >= 999
+                        ? '100+'
+                        : plan.max_phone_numbers || 0}
+                      {(plan.max_phone_numbers || 0) < 999 && (plan.max_phone_numbers || 0) > 0 && (
                         <span className="block text-xs text-gray-500 font-normal">
                           +$2.50/mo each extra
                         </span>
@@ -714,9 +767,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Agents/Users</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_agents >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_agents || 0).toLocaleString()}
+                      {(plan.max_agents || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_agents || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -724,9 +777,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Call Minutes/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_call_minutes >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_call_minutes || 0).toLocaleString()}
+                      {(plan.max_call_minutes || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_call_minutes || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -734,9 +787,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">SMS Messages/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_sms_messages >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_sms_messages || 0).toLocaleString()}
+                      {(plan.max_sms_messages || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_sms_messages || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -744,9 +797,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Contacts</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_contacts >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_contacts || 0).toLocaleString()}
+                      {(plan.max_contacts || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_contacts || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -754,11 +807,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">AI Tokens/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.features?.max_ai_tokens_per_month || 0) === 0 
-                        ? '—' 
-                        : plan.features?.max_ai_tokens_per_month >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_ai_tokens_per_month || 0).toLocaleString()}
+                      {(plan.max_ai_tokens_per_month || 0) === 0
+                        ? '—'
+                        : (plan.max_ai_tokens_per_month || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_ai_tokens_per_month || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -766,11 +819,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Transcription Minutes/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.features?.max_transcription_minutes_per_month || 0) === 0 
-                        ? '—' 
-                        : plan.features?.max_transcription_minutes_per_month >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_transcription_minutes_per_month || 0).toLocaleString()}
+                      {(plan.max_transcription_minutes_per_month || 0) === 0
+                        ? '—'
+                        : (plan.max_transcription_minutes_per_month || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_transcription_minutes_per_month || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -778,11 +831,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">AI Analyses/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.features?.max_ai_analysis_per_month || 0) === 0 
-                        ? '—' 
-                        : plan.features?.max_ai_analysis_per_month >= 999999 
-                        ? 'Unlimited' 
-                        : (plan.features?.max_ai_analysis_per_month || 0).toLocaleString()}
+                      {(plan.max_ai_analysis_per_month || 0) === 0
+                        ? '—'
+                        : (plan.max_ai_analysis_per_month || 0) >= 999999
+                        ? 'Unlimited'
+                        : (plan.max_ai_analysis_per_month || 0).toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -790,9 +843,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Storage</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {plan.features?.max_storage_gb >= 999 
-                        ? 'Unlimited' 
-                        : `${plan.features?.max_storage_gb || 10} GB`}
+                      {(plan.max_storage_gb || 0) >= 999
+                        ? 'Unlimited'
+                        : `${plan.max_storage_gb || 10} GB`}
                     </td>
                   ))}
                 </tr>

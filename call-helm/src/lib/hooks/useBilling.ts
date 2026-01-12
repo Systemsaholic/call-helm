@@ -5,12 +5,26 @@ import { useProfile } from './useProfile'
 import { toast } from 'sonner'
 
 export function useBilling() {
-  const { user } = useAuth()
+  const { user, supabase } = useAuth()
   const { profile } = useProfile()
   const queryClient = useQueryClient()
 
-  // Get user's organization ID from profile
-  const organizationId = profile?.organization_id || user?.user_metadata?.organization_id || ''
+  // Get organization_id from organization_members (more reliable than user_profiles)
+  const { data: orgMember } = useQuery({
+    queryKey: ['billing-org-member', user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user?.id)
+        .single()
+      return data
+    },
+    enabled: !!user?.id,
+  })
+
+  // Get user's organization ID from organization_members first, then fallback to profile
+  const organizationId = orgMember?.organization_id || profile?.organization_id || user?.user_metadata?.organization_id || ''
 
   // Get all plans
   const { data: plans, isLoading: plansLoading } = useQuery({
