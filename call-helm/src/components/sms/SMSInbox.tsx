@@ -10,14 +10,17 @@ import {
   useDeleteConversation,
   useClaimConversation,
   useMessageSearch,
+  usePrefetchMessages,
   type ConversationFilters,
   type MessageSearchResult
 } from '@/lib/hooks/useSMSQueries'
+import { useBulkAction } from '@/lib/hooks/useSMSFeatures'
 import { useSMSStore, type Conversation } from '@/lib/stores/smsStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Checkbox } from '@/components/ui/checkbox'
 import { SMSConversation } from './SMSConversation'
 import { NewConversationDialog } from './NewConversationDialog'
 import { cn } from '@/lib/utils'
@@ -43,7 +46,12 @@ import {
   ChevronLeft,
   FileText,
   X,
-  Loader2
+  Loader2,
+  CheckSquare,
+  Square,
+  Tag,
+  UserPlus,
+  ArchiveRestore
 } from 'lucide-react'
 import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -78,6 +86,8 @@ export function SMSInbox() {
   const [mobileView, setMobileView] = useState<'list' | 'conversation'>('list')
   const [isMessageSearchMode, setIsMessageSearchMode] = useState(false)
   const [messageSearchQuery, setMessageSearchQuery] = useState('')
+  const [isSelectMode, setIsSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Message search hook - only enabled when in message search mode
   const {
@@ -109,6 +119,46 @@ export function SMSInbox() {
   const archiveConversation = useArchiveConversation()
   const deleteConversation = useDeleteConversation()
   const claimConversation = useClaimConversation()
+  const bulkAction = useBulkAction()
+  const prefetchMessages = usePrefetchMessages()
+
+  // Multi-select handlers
+  const toggleSelectMode = () => {
+    setIsSelectMode(!isSelectMode)
+    setSelectedIds(new Set())
+  }
+
+  const toggleSelection = (id: string) => {
+    const newSelection = new Set(selectedIds)
+    if (newSelection.has(id)) {
+      newSelection.delete(id)
+    } else {
+      newSelection.add(id)
+    }
+    setSelectedIds(newSelection)
+  }
+
+  const selectAll = () => {
+    if (selectedIds.size === conversations.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(conversations.map(c => c.id)))
+    }
+  }
+
+  const handleBulkAction = async (action: 'archive' | 'unarchive' | 'assign' | 'unassign' | 'update_status' | 'update_priority' | 'add_tags' | 'remove_tags', payload?: Record<string, unknown>) => {
+    if (selectedIds.size === 0) return
+
+    await bulkAction.mutateAsync({
+      conversationIds: Array.from(selectedIds),
+      action,
+      payload
+    })
+
+    // Clear selection after action
+    setSelectedIds(new Set())
+    setIsSelectMode(false)
+  }
 
   useEffect(() => {
     // Check if mobile on mount and resize
@@ -269,15 +319,108 @@ export function SMSInbox() {
     <div className="h-full bg-white flex flex-col">
       {/* Header */}
       <div className="p-4 border-b">
+        {/* Bulk Actions Toolbar */}
+        {isSelectMode && selectedIds.size > 0 && (
+          <div className="flex items-center justify-between mb-3 p-2 bg-blue-50 rounded-lg">
+            <span className="text-sm font-medium text-blue-700">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => handleBulkAction('archive')}
+                disabled={bulkAction.isPending}
+              >
+                <Archive className="h-3 w-3 mr-1" />
+                Archive
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => handleBulkAction('unarchive')}
+                disabled={bulkAction.isPending}
+              >
+                <ArchiveRestore className="h-3 w-3 mr-1" />
+                Restore
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs">
+                    <Tag className="h-3 w-3 mr-1" />
+                    Status
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_status', { workflow_status: 'open' })}>
+                    Open
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_status', { workflow_status: 'pending' })}>
+                    Pending
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_status', { workflow_status: 'resolved' })}>
+                    Resolved
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs">
+                    <Star className="h-3 w-3 mr-1" />
+                    Priority
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_priority', { priority: 'low' })}>
+                    Low
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_priority', { priority: 'normal' })}>
+                    Normal
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_priority', { priority: 'high' })}>
+                    High
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkAction('update_priority', { priority: 'urgent' })}>
+                    Urgent
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-gray-500"
+                onClick={() => {
+                  setSelectedIds(new Set())
+                  setIsSelectMode(false)
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">Messages</h2>
-          <Button
-            size="sm"
-            className="bg-primary hover:bg-primary/90"
-            onClick={() => setShowNewConversation(true)}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={isSelectMode ? "default" : "outline"}
+              onClick={toggleSelectMode}
+              className="h-8"
+            >
+              <CheckSquare className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              className="bg-primary hover:bg-primary/90"
+              onClick={() => setShowNewConversation(true)}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Search */}
@@ -411,6 +554,17 @@ export function SMSInbox() {
       ) : (
       /* Tabs */
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} className="flex-1 flex flex-col">
+        {isSelectMode && conversations.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 border-b bg-gray-50">
+            <Checkbox
+              checked={selectedIds.size === conversations.length && conversations.length > 0}
+              onCheckedChange={selectAll}
+            />
+            <span className="text-sm text-gray-600">
+              Select all ({conversations.length})
+            </span>
+          </div>
+        )}
         <TabsList className="grid w-full grid-cols-4 px-4">
           <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
           <TabsTrigger value="assigned" className="text-xs">Mine</TabsTrigger>
@@ -448,13 +602,36 @@ export function SMSInbox() {
                 {conversations.map((conversation) => (
                   <div
                     key={conversation.id}
-                    onClick={() => handleSelectConversation(conversation)}
+                    onClick={() => {
+                      if (isSelectMode) {
+                        toggleSelection(conversation.id)
+                      } else {
+                        handleSelectConversation(conversation)
+                      }
+                    }}
+                    onMouseEnter={() => {
+                      // Prefetch messages on hover for faster loading
+                      if (!isSelectMode) {
+                        prefetchMessages(conversation.id)
+                      }
+                    }}
                     className={cn(
                       "px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors relative",
-                      selectedConversation === conversation.id && "bg-blue-50 hover:bg-blue-50"
+                      selectedConversation === conversation.id && !isSelectMode && "bg-blue-50 hover:bg-blue-50",
+                      isSelectMode && selectedIds.has(conversation.id) && "bg-blue-50"
                     )}
                   >
                     <div className="flex items-start gap-3">
+                      {/* Checkbox for Select Mode */}
+                      {isSelectMode && (
+                        <div className="flex items-center pt-1">
+                          <Checkbox
+                            checked={selectedIds.has(conversation.id)}
+                            onCheckedChange={() => toggleSelection(conversation.id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      )}
                       {/* Avatar */}
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                         {conversation.contact ? (

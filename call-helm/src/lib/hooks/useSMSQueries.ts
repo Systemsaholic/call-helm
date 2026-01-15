@@ -14,6 +14,7 @@ export const smsKeys = {
   messagesList: (conversationId: string) => [...smsKeys.messages(), 'list', conversationId] as const,
   unreadCounts: () => [...smsKeys.all, 'unread'] as const,
   reactions: (messageId: string) => [...smsKeys.all, 'reactions', messageId] as const,
+  conversationReactions: (conversationId: string) => [...smsKeys.all, 'conversationReactions', conversationId] as const,
   search: (query: string) => [...smsKeys.all, 'search', query] as const,
 }
 
@@ -71,17 +72,24 @@ export function useConversations(filters?: ConversationFilters) {
       // Fetch last message and sentiment for each conversation
       const conversationsWithData = await Promise.all(
         (convData || []).map(async (conv) => {
-          // Fetch last message
+          // Fetch last message with its sentiment analysis
           const msgResult = await supabase
             .from('sms_messages')
-            .select('message_body, direction, created_at')
+            .select(`
+              id,
+              message_body,
+              direction,
+              created_at,
+              sms_message_analysis(sentiment, sentiment_score)
+            `)
             .eq('conversation_id', conv.id)
             .order('created_at', { ascending: false })
             .limit(1)
             .single()
 
-          // Sentiment analysis is optional - skip if table doesn't exist
-          // TODO: Re-enable when sms_analysis table is created
+          // Extract sentiment from the join if available
+          const analysisData = msgResult.data?.sms_message_analysis
+          const analysis = Array.isArray(analysisData) ? analysisData[0] : analysisData
 
           return {
             ...conv,
@@ -90,7 +98,10 @@ export function useConversations(filters?: ConversationFilters) {
               direction: msgResult.data.direction,
               created_at: msgResult.data.created_at
             } : null,
-            sentiment: null // Disabled until sms_analysis table is created
+            sentiment: analysis?.sentiment ? {
+              label: analysis.sentiment,
+              score: analysis.sentiment_score
+            } : null
           } as Conversation
         })
       )
@@ -196,12 +207,13 @@ export function useMessages(conversationId: string) {
     },
     enabled: !!user && !!conversationId,
     staleTime: 1000 * 30, // 30 seconds
+    gcTime: 1000 * 60 * 10, // Keep in cache for 10 minutes
   })
 
   // Merge optimistic messages with real messages
   const optimisticMessages = getOptimisticMessagesForConversation(conversationId)
   const realMessages = query.data || []
-  
+
   // Combine and sort by created_at
   const allMessages = [...realMessages, ...optimisticMessages]
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -209,6 +221,34 @@ export function useMessages(conversationId: string) {
   return {
     ...query,
     data: allMessages,
+  }
+}
+
+// Prefetch messages for a conversation (for hover prefetching)
+export function usePrefetchMessages() {
+  const { supabase } = useAuth()
+  const queryClient = useQueryClient()
+
+  return (conversationId: string) => {
+    // Check if already cached
+    const cached = queryClient.getQueryData(smsKeys.messagesList(conversationId))
+    if (cached) return
+
+    // Prefetch if not cached
+    queryClient.prefetchQuery({
+      queryKey: smsKeys.messagesList(conversationId),
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from('sms_messages')
+          .select('*')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true })
+
+        if (error) throw error
+        return data as Message[]
+      },
+      staleTime: 1000 * 30,
+    })
   }
 }
 
@@ -511,6 +551,116 @@ export function useClaimConversation() {
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to claim conversation')
+    },
+  })
+}
+
+// Fetch reactions for a conversation
+export interface ReactionData {
+  messageId: string
+  reactions: Record<string, number>
+  userReactions: string[]
+  reactionDetails: {
+    id: string
+    userId: string
+    reaction: string
+    userName: string
+    createdAt: string
+  }[]
+}
+
+export function useConversationReactions(conversationId: string) {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: smsKeys.conversationReactions(conversationId),
+    queryFn: async (): Promise<Record<string, ReactionData>> => {
+      const response = await fetch(`/api/sms/reactions?conversationId=${conversationId}`)
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to fetch reactions')
+      }
+
+      const data = await response.json()
+
+      // Transform array into a map keyed by messageId
+      const reactionsMap: Record<string, ReactionData> = {}
+      if (data.reactions) {
+        for (const r of data.reactions) {
+          reactionsMap[r.messageId] = r
+        }
+      }
+      return reactionsMap
+    },
+    enabled: !!user && !!conversationId,
+    staleTime: 1000 * 60, // Cache for 1 minute
+    refetchOnWindowFocus: false,
+  })
+}
+
+// Add reaction mutation
+export function useAddReaction() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ messageId, reaction, conversationId }: {
+      messageId: string
+      reaction: string
+      conversationId: string
+    }) => {
+      const response = await fetch('/api/sms/reactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, reaction })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to add reaction')
+      }
+
+      return response.json()
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: smsKeys.conversationReactions(variables.conversationId)
+      })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to add reaction')
+    },
+  })
+}
+
+// Remove reaction mutation
+export function useRemoveReaction() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ messageId, reaction, conversationId }: {
+      messageId: string
+      reaction: string
+      conversationId: string
+    }) => {
+      const response = await fetch(
+        `/api/sms/reactions?messageId=${messageId}&reaction=${encodeURIComponent(reaction)}`,
+        { method: 'DELETE' }
+      )
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to remove reaction')
+      }
+
+      return response.json()
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: smsKeys.conversationReactions(variables.conversationId)
+      })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to remove reaction')
     },
   })
 }

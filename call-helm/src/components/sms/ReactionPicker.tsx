@@ -65,8 +65,9 @@ export function ReactionPicker({
 
 // Component to display existing reactions on a message
 interface MessageReactionsProps {
-  reactions: Record<string, string[]> // reaction -> array of user IDs
+  reactions: Record<string, string[] | number> // reaction -> array of user IDs or count
   currentUserId: string
+  userReactions?: string[] // reactions the current user has added
   onToggleReaction: (reaction: string) => void
   messageId: string
   className?: string
@@ -75,6 +76,7 @@ interface MessageReactionsProps {
 export function MessageReactions({
   reactions,
   currentUserId,
+  userReactions = [],
   onToggleReaction,
   messageId,
   className
@@ -85,10 +87,13 @@ export function MessageReactions({
 
   return (
     <div className={cn('flex flex-wrap gap-1 mt-1', className)}>
-      {Object.entries(reactions).map(([reaction, userIds]) => {
-        const hasUserReacted = userIds.includes(currentUserId)
-        const count = userIds.length
-        
+      {Object.entries(reactions).map(([reaction, value]) => {
+        // Support both user ID arrays and counts
+        const count = typeof value === 'number' ? value : value.length
+        const hasUserReacted = typeof value === 'number'
+          ? userReactions.includes(reaction)
+          : value.includes(currentUserId)
+
         return (
           <motion.button
             key={reaction}
@@ -99,8 +104,8 @@ export function MessageReactions({
             className={cn(
               'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
               'transition-all duration-200',
-              hasUserReacted 
-                ? 'bg-blue-100 text-blue-700 border border-blue-300' 
+              hasUserReacted
+                ? 'bg-blue-100 text-blue-700 border border-blue-300'
                 : 'bg-gray-100 text-gray-700 border border-gray-200',
               'hover:shadow-sm'
             )}

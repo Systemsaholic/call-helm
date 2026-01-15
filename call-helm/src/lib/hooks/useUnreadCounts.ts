@@ -13,9 +13,32 @@
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useNewMessageSubscription, useReadStatusSubscription } from './useRealtimeSubscription'
+
+// Debounce helper for batch updates
+function useDebouncedCallback<T extends (...args: Parameters<T>) => void>(
+  callback: T,
+  delay: number
+): T {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const callbackRef = useRef(callback)
+
+  // Keep callback ref updated
+  useEffect(() => {
+    callbackRef.current = callback
+  }, [callback])
+
+  return useCallback((...args: Parameters<T>) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+    timeoutRef.current = setTimeout(() => {
+      callbackRef.current(...args)
+    }, delay)
+  }, [delay]) as T
+}
 
 interface UnreadCounts {
   totalUnread: number
@@ -110,27 +133,31 @@ export function useUnreadCounts() {
     fetchConversationUnreads()
   }, [user, fetchUnreadCount, fetchConversationUnreads])
 
+  // Debounced refresh function (300ms delay) to batch multiple updates
+  const debouncedRefresh = useDebouncedCallback(() => {
+    fetchUnreadCount()
+    fetchConversationUnreads()
+  }, 300)
+
   // Subscribe to new messages - refresh counts when new message arrives
   useNewMessageSubscription(
     organizationId,
     useCallback((payload) => {
-      console.log('📨 New message detected, refreshing unread counts')
+      console.log('📨 New message detected, scheduling debounced unread count refresh')
       // Only refresh if it's an inbound message
       if (payload.new && payload.new.direction === 'inbound') {
-        fetchUnreadCount()
-        fetchConversationUnreads()
+        debouncedRefresh()
       }
-    }, [fetchUnreadCount, fetchConversationUnreads]),
+    }, [debouncedRefresh]),
     !!user && !!organizationId
   )
 
   // Subscribe to read status changes - refresh counts when status changes
   useReadStatusSubscription(
     useCallback((payload) => {
-      console.log('📖 Read status changed, refreshing unread counts')
-      fetchUnreadCount()
-      fetchConversationUnreads()
-    }, [fetchUnreadCount, fetchConversationUnreads]),
+      console.log('📖 Read status changed, scheduling debounced unread count refresh')
+      debouncedRefresh()
+    }, [debouncedRefresh]),
     !!user
   )
 

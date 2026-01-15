@@ -43,7 +43,10 @@ import {
   useConversation,
   useMessages,
   useSendMessage,
-  useMarkAsRead
+  useMarkAsRead,
+  useConversationReactions,
+  useAddReaction,
+  useRemoveReaction
 } from '@/lib/hooks/useSMSQueries'
 import { useScrollManager } from '@/lib/hooks/useScrollManager'
 
@@ -81,7 +84,6 @@ export function SMSConversation({
   const [uploading, setUploading] = useState(false)
   const [userId, setUserId] = useState<string>('')
   const [signalWireConnected, setSignalWireConnected] = useState(false)
-  const [messageReactions, setMessageReactions] = useState<Record<string, any>>({})
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null)
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -97,12 +99,17 @@ export function SMSConversation({
   const sendMessage = useSendMessage()
   const markAsRead = useMarkAsRead()
 
+  // Reaction hooks
+  const { data: messageReactions = {} } = useConversationReactions(initialConversationId || '')
+  const addReaction = useAddReaction()
+  const removeReaction = useRemoveReaction()
+
   // Scroll manager - centralized scroll control
   const {
     scrollContainerRef,
     isAtBottom,
     scrollToBottom,
-    newMessageCount,
+    newItemCount: newMessageCount,
     showScrollButton,
     resetNewItemCount
   } = useScrollManager(messages.length, {
@@ -131,87 +138,32 @@ export function SMSConversation({
 
   // Scroll manager handles initial scroll automatically
 
-  // TEMPORARILY DISABLED - Reactions loading was causing flashing
-  // TODO: Re-implement with proper dependency management
-  // const messageIds = useMemo(() => messages.map(m => m.id).join(','), [messages])
-
-  // Load reactions for messages - DISABLED FOR NOW
-  // useEffect(() => {
-  //   if (!messageIds) return
-
-  //   const loadReactions = async () => {
-  //     const ids = messageIds.split(',')
-  //     const { data, error } = await supabase
-  //       .from('message_reactions')
-  //       .select('*')
-  //       .in('message_id', ids)
-
-  //     if (!error && data) {
-  //       const reactionsByMessage: Record<string, any> = {}
-  //       data.forEach(reaction => {
-  //         if (!reactionsByMessage[reaction.message_id]) {
-  //           reactionsByMessage[reaction.message_id] = {}
-  //         }
-  //         if (!reactionsByMessage[reaction.message_id][reaction.reaction]) {
-  //           reactionsByMessage[reaction.message_id][reaction.reaction] = []
-  //         }
-  //         reactionsByMessage[reaction.message_id][reaction.reaction].push(reaction.user_id)
-  //       })
-  //       setMessageReactions(reactionsByMessage)
-  //     }
-  //   }
-
-  //   loadReactions()
-  // }, [messageIds])
-
-  // Handle adding/removing reactions
+  // Handle adding/removing reactions using hooks
   const handleReaction = async (messageId: string, reaction: string) => {
-    if (!userId) return
+    if (!userId || !initialConversationId) return
 
     try {
       // Check if user already has this reaction
-      const currentReactions = messageReactions[messageId]?.[reaction] || []
-      const hasReacted = currentReactions.includes(userId)
+      const messageReactionData = messageReactions[messageId]
+      const hasReacted = messageReactionData?.userReactions?.includes(reaction)
 
       if (hasReacted) {
         // Remove reaction
-        await fetch('/api/sms/reactions', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messageId, reaction })
-        })
-
-        // Update local state
-        setMessageReactions(prev => {
-          const updated = { ...prev }
-          if (updated[messageId]?.[reaction]) {
-            updated[messageId][reaction] = updated[messageId][reaction].filter((id: string) => id !== userId)
-            if (updated[messageId][reaction].length === 0) {
-              delete updated[messageId][reaction]
-            }
-          }
-          return updated
+        await removeReaction.mutateAsync({
+          messageId,
+          reaction,
+          conversationId: initialConversationId
         })
       } else {
         // Add reaction
-        await fetch('/api/sms/reactions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messageId, reaction })
-        })
-
-        // Update local state
-        setMessageReactions(prev => {
-          const updated = { ...prev }
-          if (!updated[messageId]) updated[messageId] = {}
-          if (!updated[messageId][reaction]) updated[messageId][reaction] = []
-          updated[messageId][reaction].push(userId)
-          return updated
+        await addReaction.mutateAsync({
+          messageId,
+          reaction,
+          conversationId: initialConversationId
         })
       }
     } catch (error) {
       console.error('Error handling reaction:', error)
-      toast.error('Failed to update reaction')
     }
 
     setShowReactionPicker(null)
@@ -689,9 +641,8 @@ export function SMSConversation({
                     )}
                     </div>
 
-                    {/* REACTIONS TEMPORARILY DISABLED - CAUSING FLASHING */}
                     {/* Reaction Picker on Hover/Long Press */}
-                    {/* {(hoveredMessage === message.id || showReactionPicker === message.id) && (
+                    {(hoveredMessage === message.id || showReactionPicker === message.id) && (
                       <div className="absolute top-0 z-50" style={{ [isInbound ? 'left' : 'right']: '100%' }}>
                         <ReactionPicker
                           messageId={message.id}
@@ -703,17 +654,18 @@ export function SMSConversation({
                           }}
                         />
                       </div>
-                    )} */}
+                    )}
 
                     {/* Message Reactions Display */}
-                    {/* {messageReactions[message.id] && Object.keys(messageReactions[message.id]).length > 0 && (
+                    {messageReactions[message.id] && Object.keys(messageReactions[message.id]?.reactions || {}).length > 0 && (
                       <MessageReactions
-                        reactions={messageReactions[message.id]}
+                        reactions={messageReactions[message.id].reactions}
                         currentUserId={userId}
+                        userReactions={messageReactions[message.id].userReactions}
                         onToggleReaction={(reaction) => handleReaction(message.id, reaction)}
                         messageId={message.id}
                       />
-                    )} */}
+                    )}
                   </div>
                 </div>
               </div>
@@ -735,8 +687,6 @@ export function SMSConversation({
               </div>
             </div>
           )}
-          
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
