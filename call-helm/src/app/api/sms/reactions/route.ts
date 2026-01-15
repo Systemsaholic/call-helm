@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       .from('organization_members')
       .select('organization_id')
       .eq('user_id', user.id)
-      .eq('is_active', true)
+      .eq('status', 'active')
       .single()
 
     if (!member) {
@@ -182,7 +182,7 @@ export async function GET(request: NextRequest) {
       .from('organization_members')
       .select('organization_id, full_name')
       .eq('user_id', user.id)
-      .eq('is_active', true)
+      .eq('status', 'active')
       .single()
 
     if (!member) {
@@ -199,10 +199,7 @@ export async function GET(request: NextRequest) {
           id,
           user_id,
           reaction,
-          created_at,
-          organization_members!inner (
-            full_name
-          )
+          created_at
         )
       `)
       .eq('conversation_id', conversationId)
@@ -216,18 +213,41 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Get user names for reactions if there are any reactions
+    const userIds = new Set<string>()
+    messages?.forEach(message => {
+      message.message_reactions?.forEach((r: { user_id: string }) => {
+        userIds.add(r.user_id)
+      })
+    })
+
+    let userNameMap: Record<string, string> = {}
+    if (userIds.size > 0) {
+      const { data: members } = await supabase
+        .from('organization_members')
+        .select('user_id, full_name')
+        .eq('organization_id', member.organization_id)
+        .in('user_id', Array.from(userIds))
+
+      if (members) {
+        userNameMap = Object.fromEntries(
+          members.map(m => [m.user_id, m.full_name || 'Unknown'])
+        )
+      }
+    }
+
     // Format the response
     const formattedMessages = messages?.map(message => ({
       messageId: message.id,
       reactions: message.reaction_counts || {},
       userReactions: message.message_reactions
-        ?.filter((r: any) => r.user_id === user.id)
-        ?.map((r: any) => r.reaction) || [],
-      reactionDetails: message.message_reactions?.map((r: any) => ({
+        ?.filter((r: { user_id: string }) => r.user_id === user.id)
+        ?.map((r: { reaction: string }) => r.reaction) || [],
+      reactionDetails: message.message_reactions?.map((r: { id: string; user_id: string; reaction: string; created_at: string }) => ({
         id: r.id,
         userId: r.user_id,
         reaction: r.reaction,
-        userName: r.organization_members?.full_name || 'Unknown',
+        userName: userNameMap[r.user_id] || 'Unknown',
         createdAt: r.created_at
       })) || []
     }))

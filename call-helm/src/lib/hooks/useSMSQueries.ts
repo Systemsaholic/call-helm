@@ -72,24 +72,19 @@ export function useConversations(filters?: ConversationFilters) {
       // Fetch last message and sentiment for each conversation
       const conversationsWithData = await Promise.all(
         (convData || []).map(async (conv) => {
-          // Fetch last message with its sentiment analysis
+          // Fetch last message (maybeSingle handles empty conversations)
           const msgResult = await supabase
             .from('sms_messages')
             .select(`
               id,
               message_body,
               direction,
-              created_at,
-              sms_message_analysis(sentiment, sentiment_score)
+              created_at
             `)
             .eq('conversation_id', conv.id)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single()
-
-          // Extract sentiment from the join if available
-          const analysisData = msgResult.data?.sms_message_analysis
-          const analysis = Array.isArray(analysisData) ? analysisData[0] : analysisData
+            .maybeSingle()
 
           return {
             ...conv,
@@ -98,10 +93,8 @@ export function useConversations(filters?: ConversationFilters) {
               direction: msgResult.data.direction,
               created_at: msgResult.data.created_at
             } : null,
-            sentiment: analysis?.sentiment ? {
-              label: analysis.sentiment,
-              score: analysis.sentiment_score
-            } : null
+            // Sentiment analysis disabled until sms_message_analysis table is created
+            sentiment: null
           } as Conversation
         })
       )

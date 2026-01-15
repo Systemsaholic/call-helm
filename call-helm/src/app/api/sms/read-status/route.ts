@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       .from('organization_members')
       .select('organization_id')
       .eq('user_id', user.id)
-      .eq('is_active', true)
+      .eq('status', 'active')
       .single()
 
     if (!member) {
