@@ -14,12 +14,15 @@ export const smsKeys = {
   messagesList: (conversationId: string) => [...smsKeys.messages(), 'list', conversationId] as const,
   unreadCounts: () => [...smsKeys.all, 'unread'] as const,
   reactions: (messageId: string) => [...smsKeys.all, 'reactions', messageId] as const,
+  search: (query: string) => [...smsKeys.all, 'search', query] as const,
 }
 
 export interface ConversationFilters {
   tab?: 'all' | 'assigned' | 'unassigned' | 'archived'
   searchQuery?: string
   userId?: string
+  // For agents: filter to only show conversations with contacts they're assigned to
+  agentContactIds?: string[]
 }
 
 // Generate temporary ID for optimistic updates
@@ -56,6 +59,11 @@ export function useConversations(filters?: ConversationFilters) {
         query = query.neq('status', 'archived')
       }
 
+      // Filter by agent's assigned contacts (for agent role)
+      if (filters?.agentContactIds && filters.agentContactIds.length > 0) {
+        query = query.in('contact_id', filters.agentContactIds)
+      }
+
       const { data: convData, error: convError } = await query
 
       if (convError) throw convError
@@ -74,7 +82,6 @@ export function useConversations(filters?: ConversationFilters) {
 
           // Sentiment analysis is optional - skip if table doesn't exist
           // TODO: Re-enable when sms_analysis table is created
-          let analysisResult = { data: null, error: null }
 
           return {
             ...conv,
@@ -83,10 +90,7 @@ export function useConversations(filters?: ConversationFilters) {
               direction: msgResult.data.direction,
               created_at: msgResult.data.created_at
             } : null,
-            sentiment: analysisResult?.data ? {
-              score: analysisResult.data.sentiment_score,
-              label: analysisResult.data.sentiment_label
-            } : null
+            sentiment: null // Disabled until sms_analysis table is created
           } as Conversation
         })
       )
@@ -378,6 +382,54 @@ export function useUnreadCounts() {
     enabled: !!user,
     staleTime: Infinity, // Never auto-refetch - rely on realtime subscriptions
     // NO refetchInterval - realtime subscriptions handle all updates
+  })
+}
+
+// Search result type
+export interface MessageSearchResult {
+  messageId: string
+  conversationId: string
+  messageBody: string
+  direction: string
+  fromNumber: string
+  toNumber: string
+  createdAt: string
+  contactName: string | null
+  contactPhone: string
+  rank: number
+}
+
+// Full-text search across SMS messages
+export function useMessageSearch(query: string, options?: { enabled?: boolean }) {
+  const { user } = useAuth()
+
+  return useQuery({
+    queryKey: smsKeys.search(query),
+    queryFn: async (): Promise<{
+      results: MessageSearchResult[]
+      total: number
+      hasMore: boolean
+    }> => {
+      if (!query || query.length < 2) {
+        return { results: [], total: 0, hasMore: false }
+      }
+
+      const response = await fetch(`/api/sms/search?q=${encodeURIComponent(query)}`)
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Search failed')
+      }
+
+      const data = await response.json()
+      return {
+        results: data.results,
+        total: data.total,
+        hasMore: data.hasMore
+      }
+    },
+    enabled: !!user && (options?.enabled !== false) && query.length >= 2,
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    placeholderData: (previousData) => previousData, // Keep showing previous results while fetching
   })
 }
 

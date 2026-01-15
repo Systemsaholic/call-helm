@@ -2,12 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useUserRole } from '@/lib/hooks/useUserRole'
+import { useAgentContactIds } from '@/lib/hooks/useAgentAssignments'
 import {
   useConversations,
   useArchiveConversation,
   useDeleteConversation,
   useClaimConversation,
-  type ConversationFilters
+  useMessageSearch,
+  type ConversationFilters,
+  type MessageSearchResult
 } from '@/lib/hooks/useSMSQueries'
 import { useSMSStore, type Conversation } from '@/lib/stores/smsStore'
 import { Button } from '@/components/ui/button'
@@ -36,7 +40,10 @@ import {
   MoreVertical,
   Trash2,
   Ban,
-  ChevronLeft
+  ChevronLeft,
+  FileText,
+  X,
+  Loader2
 } from 'lucide-react'
 import { formatDistanceToNow, format, isToday, isYesterday } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -60,6 +67,8 @@ type TabType = 'all' | 'assigned' | 'unassigned' | 'archived'
 
 export function SMSInbox() {
   const { user } = useAuth()
+  const { isAgent } = useUserRole()
+  const { data: agentContactIds } = useAgentContactIds()
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<TabType>('all')
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
@@ -67,15 +76,28 @@ export function SMSInbox() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null)
   const [showNewConversation, setShowNewConversation] = useState(false)
   const [mobileView, setMobileView] = useState<'list' | 'conversation'>('list')
-  
+  const [isMessageSearchMode, setIsMessageSearchMode] = useState(false)
+  const [messageSearchQuery, setMessageSearchQuery] = useState('')
+
+  // Message search hook - only enabled when in message search mode
+  const {
+    data: messageSearchResults,
+    isLoading: isSearching,
+    isFetching: isSearchFetching
+  } = useMessageSearch(messageSearchQuery, {
+    enabled: isMessageSearchMode && messageSearchQuery.length >= 2
+  })
+
   // Zustand store
   const { setActiveConversation } = useSMSStore()
-  
-  // Query hooks
+
+  // Query hooks - for agents, filter to only their assigned contacts
   const conversationFilters: ConversationFilters = {
     tab: activeTab,
     searchQuery: searchQuery || undefined,
-    userId: user?.id
+    userId: user?.id,
+    // Only filter by agent contacts if user is an agent
+    agentContactIds: isAgent ? (agentContactIds || []) : undefined,
   }
   
   const { 
@@ -259,19 +281,135 @@ export function SMSInbox() {
         </div>
 
         {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            type="text"
-            placeholder="Search conversations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-9"
-          />
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              type="text"
+              placeholder={isMessageSearchMode ? "Search message content..." : "Search conversations..."}
+              value={isMessageSearchMode ? messageSearchQuery : searchQuery}
+              onChange={(e) => {
+                if (isMessageSearchMode) {
+                  setMessageSearchQuery(e.target.value)
+                } else {
+                  setSearchQuery(e.target.value)
+                }
+              }}
+              className="pl-10 pr-10 h-9"
+            />
+            {(isMessageSearchMode ? messageSearchQuery : searchQuery) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                onClick={() => {
+                  if (isMessageSearchMode) {
+                    setMessageSearchQuery('')
+                  } else {
+                    setSearchQuery('')
+                  }
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={isMessageSearchMode ? "default" : "outline"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => {
+                setIsMessageSearchMode(!isMessageSearchMode)
+                if (!isMessageSearchMode) {
+                  setMessageSearchQuery(searchQuery)
+                  setSearchQuery('')
+                } else {
+                  setSearchQuery(messageSearchQuery)
+                  setMessageSearchQuery('')
+                }
+              }}
+            >
+              <FileText className="h-3 w-3 mr-1" />
+              {isMessageSearchMode ? "Exit Message Search" : "Search Messages"}
+            </Button>
+            {isMessageSearchMode && isSearchFetching && (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs or Message Search Results */}
+      {isMessageSearchMode ? (
+        /* Message Search Results */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="px-4 py-2 border-b bg-blue-50">
+            <p className="text-sm text-blue-700">
+              {messageSearchQuery.length < 2 ? (
+                "Type at least 2 characters to search..."
+              ) : isSearching ? (
+                "Searching messages..."
+              ) : messageSearchResults?.results?.length ? (
+                `Found ${messageSearchResults.total} message${messageSearchResults.total === 1 ? '' : 's'} matching "${messageSearchQuery}"`
+              ) : (
+                `No messages found matching "${messageSearchQuery}"`
+              )}
+            </p>
+          </div>
+          <ScrollArea className="flex-1">
+            {messageSearchResults?.results?.map((result) => (
+              <div
+                key={result.messageId}
+                onClick={() => {
+                  setSelectedConversation(result.conversationId)
+                  setSelectedPhone(result.direction === 'inbound' ? result.fromNumber : result.toNumber)
+                  setActiveConversation(result.conversationId)
+                  setIsMessageSearchMode(false)
+                  setMessageSearchQuery('')
+                  if (window.innerWidth < 768) {
+                    setMobileView('conversation')
+                  }
+                }}
+                className="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <FileText className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-medium text-sm text-gray-900">
+                        {result.contactName || result.contactPhone}
+                      </p>
+                      <span className="text-xs text-gray-500">
+                        {formatMessageDate(result.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {result.direction === 'outbound' && (
+                        <span className="text-gray-500">You: </span>
+                      )}
+                      {result.messageBody}
+                    </p>
+                    <Badge variant="outline" className="mt-1 text-xs">
+                      {result.direction === 'inbound' ? 'Received' : 'Sent'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {messageSearchQuery.length >= 2 && !isSearching && messageSearchResults?.results?.length === 0 && (
+              <div className="flex flex-col items-center justify-center p-8 text-gray-500">
+                <Search className="h-10 w-10 mb-3 text-gray-300" />
+                <p className="text-sm font-medium">No messages found</p>
+                <p className="text-xs mt-1">Try a different search term</p>
+              </div>
+            )}
+          </ScrollArea>
+        </div>
+      ) : (
+      /* Tabs */
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabType)} className="flex-1 flex flex-col">
         <TabsList className="grid w-full grid-cols-4 px-4">
           <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
@@ -437,6 +575,7 @@ export function SMSInbox() {
           </ScrollArea>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   )
 
