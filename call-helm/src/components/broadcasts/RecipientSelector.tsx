@@ -55,7 +55,15 @@ interface Contact {
 
 interface CallListContact {
   id: string
-  contact: Contact
+  contact: Contact | null
+}
+
+// Transform raw Supabase response (contact is returned as array) to CallListContact
+function transformCallListContact(raw: { id: string; contact: Contact[] }): CallListContact {
+  return {
+    id: raw.id,
+    contact: raw.contact?.[0] || null
+  }
 }
 
 interface CallList {
@@ -170,7 +178,10 @@ export function RecipientSelector({
         .limit(1000)
 
       if (error) throw error
-      return (data || []).filter(d => d.contact?.phone_number) as CallListContact[]
+      // Transform Supabase response (contact returned as array) and filter to contacts with phone numbers
+      return (data || [])
+        .map(d => transformCallListContact(d as { id: string; contact: Contact[] }))
+        .filter(d => d.contact?.phone_number)
     },
     enabled: !!selectedCallListId,
   })

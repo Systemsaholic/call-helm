@@ -38,6 +38,7 @@ interface NavItem {
   icon: React.ElementType
   badge?: number
   roles?: string[]
+  permission?: 'canBroadcast' // For permission-based access (not role-based)
 }
 
 const navigation: NavItem[] = [
@@ -47,7 +48,7 @@ const navigation: NavItem[] = [
   { name: 'Contacts', href: '/dashboard/contacts', icon: Users, roles: ['org_admin', 'team_lead', 'billing_admin'] },
   { name: 'Agents', href: '/dashboard/agents', icon: UserCheck, roles: ['org_admin', 'team_lead'] },
   { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
-  { name: 'Broadcasts', href: '/dashboard/broadcasts', icon: Radio, roles: ['org_admin', 'team_lead'] },
+  { name: 'Broadcasts', href: '/dashboard/broadcasts', icon: Radio, permission: 'canBroadcast' },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: ['org_admin', 'team_lead', 'billing_admin'] },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
@@ -107,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const { user, signOut } = useAuth()
   const { profile } = useProfile()
-  const { role, isAgent } = useUserRole()
+  const { role, isAgent, canBroadcast } = useUserRole()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
 
@@ -124,6 +125,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   const filteredNavigation = navigation.filter(item => {
+    // Check permission-based access first
+    if (item.permission === 'canBroadcast') {
+      return canBroadcast
+    }
+    // Fall back to role-based access
     if (!item.roles) return true
     return item.roles.includes(userRole)
   })

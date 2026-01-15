@@ -53,12 +53,12 @@ interface PhoneNumber {
   friendly_name?: string
   status: string
   phone_number_campaigns?: Array<{
-    campaign_registry_campaigns: {
+    campaign_registry_campaigns: Array<{
       id: string
       campaign_name: string
       status: string
       use_case: string
-    }
+    }>
   }>
 }
 
@@ -144,7 +144,7 @@ export function BroadcastWizard({ open, onClose }: BroadcastWizardProps) {
   }, [currentStep, formData])
 
   const selectedPhone = phoneNumbers?.find(p => p.id === formData.fromPhoneNumberId)
-  const selectedCampaign = selectedPhone?.phone_number_campaigns?.[0]?.campaign_registry_campaigns
+  const selectedCampaign = selectedPhone?.phone_number_campaigns?.[0]?.campaign_registry_campaigns?.[0]
   const has10DLCApproval = selectedCampaign?.status === 'approved'
 
   const handleNext = () => {
@@ -309,7 +309,7 @@ export function BroadcastWizard({ open, onClose }: BroadcastWizardProps) {
                 ) : (
                   <div className="grid gap-3">
                     {phoneNumbers?.map((phone) => {
-                      const campaign = phone.phone_number_campaigns?.[0]?.campaign_registry_campaigns
+                      const campaign = phone.phone_number_campaigns?.[0]?.campaign_registry_campaigns?.[0]
                       const isApproved = campaign?.status === 'approved'
 
                       return (

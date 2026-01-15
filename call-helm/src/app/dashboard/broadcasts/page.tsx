@@ -12,6 +12,7 @@ import {
   Broadcast,
 } from '@/lib/hooks/useBroadcasts'
 import { useBilling } from '@/lib/hooks/useBilling'
+import { useUserRole } from '@/lib/hooks/useUserRole'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -227,7 +228,11 @@ export default function BroadcastsPage() {
   const [confirmDialog, setConfirmDialog] = useState<{ action: string; id: string } | null>(null)
 
   const { limits } = useBilling()
-  const hasBroadcastAccess = limits?.features?.sms_broadcasts ?? false
+  const { canBroadcast, isLoading: isRoleLoading } = useUserRole()
+
+  // User needs both plan access AND user permission to broadcast
+  const hasPlanAccess = limits?.features?.sms_broadcasts ?? false
+  const hasBroadcastAccess = hasPlanAccess && canBroadcast
 
   const statusFilter = activeTab === 'all' ? undefined : activeTab
   const { data, isLoading, error } = useBroadcasts({ status: statusFilter })
@@ -262,10 +267,10 @@ export default function BroadcastsPage() {
     setConfirmDialog(null)
   }
 
-  // Feature gating
-  if (!hasBroadcastAccess) {
+  // Feature gating - check plan access first, then user permission
+  if (!hasPlanAccess) {
     return (
-      <div className="container mx-auto py-8">
+      <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto">
         <Card className="max-w-2xl mx-auto">
           <CardHeader className="text-center">
             <AlertCircle className="h-12 w-12 mx-auto text-amber-500 mb-4" />
@@ -288,8 +293,31 @@ export default function BroadcastsPage() {
     )
   }
 
+  // User permission gating - plan has access but user doesn't have permission
+  if (!isRoleLoading && !canBroadcast) {
+    return (
+      <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto">
+        <Card className="max-w-2xl mx-auto">
+          <CardHeader className="text-center">
+            <AlertCircle className="h-12 w-12 mx-auto text-amber-500 mb-4" />
+            <CardTitle>Broadcast Permission Required</CardTitle>
+            <CardDescription>
+              You don&apos;t have permission to access SMS broadcasts.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-muted-foreground">
+              SMS broadcasting is restricted to administrators and users with explicit broadcast permissions.
+              Contact your organization admin to request access.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
-    <div className="container mx-auto py-8 space-y-6">
+    <div className="px-6 lg:px-8 py-6 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">SMS Broadcasts</h1>
