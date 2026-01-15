@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/hooks/useAuth'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useBilling } from '@/lib/hooks/useBilling'
 import { useUnreadCounts } from '@/lib/hooks/useUnreadCounts'
+import { useUserRole } from '@/lib/hooks/useUserRole'
 import { Button } from '@/components/ui/button'
 import { NotificationCenter } from '@/components/dashboard/NotificationCenter'
 import { RecordingToggle } from '@/components/dashboard/RecordingToggle'
@@ -27,7 +28,8 @@ import {
   ChevronDown,
   Building,
   Bell,
-  HelpCircle
+  HelpCircle,
+  Radio
 } from 'lucide-react'
 
 interface NavItem {
@@ -41,11 +43,12 @@ interface NavItem {
 const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Call Board', href: '/dashboard/call-board', icon: PhoneCall },
-  { name: 'Call Lists', href: '/dashboard/call-lists', icon: FileText },
-  { name: 'Contacts', href: '/dashboard/contacts', icon: Users },
+  { name: 'Call Lists', href: '/dashboard/call-lists', icon: FileText, roles: ['org_admin', 'team_lead', 'billing_admin'] },
+  { name: 'Contacts', href: '/dashboard/contacts', icon: Users, roles: ['org_admin', 'team_lead', 'billing_admin'] },
   { name: 'Agents', href: '/dashboard/agents', icon: UserCheck, roles: ['org_admin', 'team_lead'] },
   { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+  { name: 'Broadcasts', href: '/dashboard/broadcasts', icon: Radio, roles: ['org_admin', 'team_lead'] },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: ['org_admin', 'team_lead', 'billing_admin'] },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
 
@@ -104,6 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const { user, signOut } = useAuth()
   const { profile } = useProfile()
+  const { role, isAgent } = useUserRole()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
 
@@ -111,8 +115,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Note: useUnreadCounts handles realtime subscriptions internally
   const { unreadCounts } = useUnreadCounts()
 
-  // Mock user role - in production, this would come from the user's organization member data
-  const userRole = 'org_admin' // This should be fetched from the actual user data
+  // Get user role from database (falls back to org_admin for backwards compatibility)
+  const userRole = role || 'org_admin'
 
   const handleSignOut = async () => {
     await signOut()
@@ -265,20 +269,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   className="flex items-center gap-3 text-sm font-medium text-gray-700 hover:text-gray-900"
                 >
                   <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-                    {profile?.avatar_url ? (
-                      <img 
-                        src={profile.avatar_url} 
-                        alt="Profile" 
+                    {(profile?.avatar_url || user?.user_metadata?.picture || user?.user_metadata?.avatar_url) ? (
+                      <img
+                        src={profile?.avatar_url || user?.user_metadata?.picture || user?.user_metadata?.avatar_url}
+                        alt="Profile"
                         className="h-full w-full object-cover"
+                        referrerPolicy="no-referrer"
                       />
                     ) : (
                       <span className="text-primary font-bold">
-                        {profile?.full_name?.charAt(0).toUpperCase() || 
-                         user?.email?.charAt(0).toUpperCase() || 'U'}
+                        {(() => {
+                          const fullName = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || ''
+                          const [firstName, lastName] = fullName.split(' ')
+                          return firstName?.charAt(0).toUpperCase() ||
+                                 lastName?.charAt(0).toUpperCase() ||
+                                 user?.email?.charAt(0).toUpperCase() || 'U'
+                        })()}
                       </span>
                     )}
                   </div>
-                  <span className="hidden md:block">{user?.email}</span>
+                  <span className="hidden md:block">
+                    {(() => {
+                      const fullName = profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || ''
+                      const [firstName, lastName] = fullName.split(' ')
+                      return firstName || lastName || user?.email
+                    })()}
+                  </span>
                   <ChevronDown className="h-4 w-4" />
                 </button>
 
@@ -291,7 +307,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border z-20">
                       <div className="px-4 py-3 border-b">
                         <p className="text-sm font-medium text-gray-900">
-                          {profile?.full_name || user?.user_metadata?.full_name || 'User'}
+                          {profile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || 'User'}
                         </p>
                         <p className="text-xs text-gray-500 truncate">
                           {user?.email}

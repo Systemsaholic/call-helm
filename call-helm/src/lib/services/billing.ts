@@ -480,6 +480,125 @@ export class BillingService {
       }
     }
   }
+
+  /**
+   * Check if organization can send SMS broadcasts
+   * Validates plan access and 10DLC compliance
+   */
+  async canSendBroadcast(
+    organizationId: string,
+    recipientCount: number
+  ): Promise<{
+    canSend: boolean
+    reason?: string
+    requiresUpgrade?: boolean
+    requires10DLC?: boolean
+    smsRemaining?: number
+    overageRate?: number
+  }> {
+    try {
+      // 1. Check feature access (Professional+ only)
+      const featureCheck = await this.checkFeatureAccess(organizationId, 'sms_broadcasts')
+      if (!featureCheck.hasAccess) {
+        return {
+          canSend: false,
+          reason: 'SMS broadcasts require a Professional plan or higher',
+          requiresUpgrade: true
+        }
+      }
+
+      // 2. Check SMS usage limits
+      const usageCheck = await this.checkUsageLimit(organizationId, 'sms_messages', recipientCount)
+
+      // Calculate remaining SMS and overage
+      const smsRemaining = usageCheck.available
+      const willExceedLimit = recipientCount > smsRemaining
+
+      // 3. Get overage rate (for display purposes)
+      const overageRate = 0.02 // $0.02 per message overage
+
+      return {
+        canSend: true,
+        smsRemaining,
+        overageRate: willExceedLimit ? overageRate : undefined,
+        reason: willExceedLimit
+          ? `This will use ${smsRemaining} messages from your plan and ${recipientCount - smsRemaining} overage messages at $${overageRate}/message`
+          : undefined
+      }
+    } catch (error) {
+      console.error('Error checking broadcast eligibility:', error)
+      return {
+        canSend: false,
+        reason: 'Error checking broadcast eligibility'
+      }
+    }
+  }
+
+  /**
+   * Validate 10DLC compliance for a phone number
+   */
+  async validate10DLCCompliance(
+    phoneNumberId: string
+  ): Promise<{
+    valid: boolean
+    campaignId?: string
+    error?: string
+  }> {
+    try {
+      // Get phone number's campaign assignment
+      const { data: assignment, error } = await this.supabase
+        .from('phone_number_campaigns')
+        .select(`
+          campaign_id,
+          campaign_registry_campaigns (
+            id,
+            status,
+            use_case
+          )
+        `)
+        .eq('phone_number_id', phoneNumberId)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Error checking 10DLC assignment:', error)
+        return { valid: false, error: 'Error checking 10DLC compliance' }
+      }
+
+      if (!assignment) {
+        return {
+          valid: false,
+          error: 'Phone number not assigned to a 10DLC campaign. Register a campaign in Settings > 10DLC Compliance.'
+        }
+      }
+
+      const campaign = assignment.campaign_registry_campaigns as any
+      if (!campaign) {
+        return { valid: false, error: 'Campaign data not found' }
+      }
+
+      // Verify campaign is approved
+      if (campaign.status !== 'approved') {
+        return {
+          valid: false,
+          error: `10DLC campaign is ${campaign.status}. Broadcasts require an approved campaign.`
+        }
+      }
+
+      // Verify campaign use case supports bulk messaging
+      const allowedUseCases = ['marketing', 'promotional', 'mixed', 'low_volume_mixed']
+      if (!allowedUseCases.includes(campaign.use_case)) {
+        return {
+          valid: false,
+          error: `Campaign use case "${campaign.use_case}" does not support broadcast messaging. Update your campaign registration.`
+        }
+      }
+
+      return { valid: true, campaignId: assignment.campaign_id }
+    } catch (error) {
+      console.error('Error validating 10DLC compliance:', error)
+      return { valid: false, error: 'Error validating 10DLC compliance' }
+    }
+  }
 }
 
 // Create a singleton instance
