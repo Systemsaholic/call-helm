@@ -4,6 +4,46 @@ import { billingService } from '@/lib/services/billing'
 import { trackAssemblyAIUsage, trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
 import { apiLogger } from '@/lib/logger'
 
+// AssemblyAI response types
+interface AssemblyAIUtterance {
+  speaker: string
+  text: string
+  start: number
+  end: number
+  confidence: number
+  words?: Array<{ text: string; start: number; end: number; confidence: number }>
+}
+
+interface AssemblyAIContentSafetyLabel {
+  text: string
+  confidence: number
+  label: string
+}
+
+interface AssemblyAITranscriptResponse {
+  id: string
+  status: 'queued' | 'processing' | 'completed' | 'error'
+  text?: string
+  utterances?: AssemblyAIUtterance[]
+  summary?: string
+  sentiment_analysis_results?: Array<{
+    text: string
+    sentiment: string
+    confidence: number
+    speaker?: string
+  }>
+  entities?: Array<{
+    entity_type: string
+    text: string
+    start: number
+    end: number
+  }>
+  content_safety_labels?: {
+    results: AssemblyAIContentSafetyLabel[]
+  }
+  error?: string
+}
+
 // AssemblyAI transcription service with native speaker diarization
 async function transcribeWithAssemblyAI(
   audioUrl: string, 
@@ -113,7 +153,7 @@ async function transcribeWithAssemblyAI(
     apiLogger.debug('AssemblyAI transcript created', { data: { transcriptId } })
     
     // Poll for the transcription result
-    let transcriptionData: any = null
+    let transcriptionData: AssemblyAITranscriptResponse | null = null
     let pollCount = 0
     const maxPolls = 120 // Max 10 minutes (5 seconds * 120)
     
@@ -131,7 +171,11 @@ async function transcribeWithAssemblyAI(
       }
       
       transcriptionData = await statusResponse.json()
-      
+
+      if (!transcriptionData) {
+        throw new Error('Empty response from AssemblyAI')
+      }
+
       apiLogger.debug('Transcription status', { data: { attempt: pollCount + 1, status: transcriptionData.status } })
       
       if (transcriptionData.status === 'completed') {
@@ -158,7 +202,7 @@ async function transcribeWithAssemblyAI(
       const speakerMapping: { [key: string]: string } = {}
       
       // Get unique speakers from utterances
-      const speakers = new Set(utterances.map((u: any) => u.speaker))
+      const speakers = new Set(utterances.map((u: AssemblyAIUtterance) => u.speaker))
       const speakerArray = Array.from(speakers)
       
       if (callData) {
@@ -191,8 +235,8 @@ async function transcribeWithAssemblyAI(
           if (callData.direction === 'outbound') {
             // For outbound: Agent usually initiates after customer picks up
             // Look for the speaker who introduces themselves or states purpose
-            const introSpeaker = firstUtterances.find((u: any) => 
-              u.text.toLowerCase().includes('from') || 
+            const introSpeaker = firstUtterances.find((u: AssemblyAIUtterance) =>
+              u.text.toLowerCase().includes('from') ||
               u.text.toLowerCase().includes('calling')
             )?.speaker
             agentSpeaker = introSpeaker || speakerArray[1] // Second speaker often agent in outbound
@@ -233,7 +277,7 @@ async function transcribeWithAssemblyAI(
       }
       
       // Format the transcript
-      utterances.forEach((utterance: any, index: number) => {
+      utterances.forEach((utterance: AssemblyAIUtterance, index: number) => {
         const speaker = speakerMapping[utterance.speaker] || utterance.speaker
         if (index > 0) {
           formattedTranscript += '\n\n'
@@ -261,8 +305,8 @@ async function transcribeWithAssemblyAI(
         }
         if (transcriptionData.content_safety_labels) {
           const sensitiveTopics = transcriptionData.content_safety_labels.results
-            .filter((label: any) => label.confidence > 0.5)
-            .map((label: any) => label.text)
+            .filter((label: AssemblyAIContentSafetyLabel) => label.confidence > 0.5)
+            .map((label: AssemblyAIContentSafetyLabel) => label.text)
           if (sensitiveTopics.length > 0) {
             formattedTranscript += `\nSensitive Topics Detected: ${sensitiveTopics.join(', ')}`
           }

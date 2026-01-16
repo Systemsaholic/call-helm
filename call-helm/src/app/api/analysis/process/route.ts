@@ -35,10 +35,26 @@ interface CallAnalysis {
   }
 }
 
-async function analyzeTranscription(transcription: string, callMetadata?: any): Promise<CallAnalysis> {
+interface CallMetadata {
+  duration?: number
+  direction?: string
+  status?: string
+  caller_number?: string
+  called_number?: string
+  organization_id?: string
+  member_id?: string
+  contact_id?: string
+}
+
+interface AssemblyInsights {
+  summary?: string
+  sensitiveTopics?: string[]
+}
+
+async function analyzeTranscription(transcription: string, callMetadata?: CallMetadata): Promise<CallAnalysis> {
   // Check if we have AssemblyAI insights in the transcription
   let mainTranscript = transcription
-  let assemblyInsights: any = null
+  let assemblyInsights: AssemblyInsights | null = null
   
   const insightsIndex = transcription.indexOf('[AssemblyAI Insights]')
   if (insightsIndex > -1) {

@@ -2,6 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
 import { voiceLogger } from '@/lib/logger'
+import { SupabaseClient } from '@supabase/supabase-js'
+
+// Webhook event data types
+interface VoiceWebhookData {
+  call_sid?: string
+  from?: string
+  to?: string
+  direction?: 'inbound' | 'outbound'
+  start_time?: string
+  answered_time?: string
+  end_time?: string
+  duration?: string
+  call_status?: string
+  recording_url?: string
+  recording_sid?: string
+  event_type?: string
+  EventType?: string
+}
 
 // Verify webhook signature
 function verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
@@ -89,7 +107,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleCallInitiated(supabase: any, organizationId: string, data: any) {
+async function handleCallInitiated(supabase: SupabaseClient, organizationId: string, data: VoiceWebhookData) {
   try {
     const { call_sid, from, to, direction, start_time } = data
     
@@ -132,7 +150,7 @@ async function handleCallInitiated(supabase: any, organizationId: string, data: 
   }
 }
 
-async function handleCallAnswered(supabase: any, organizationId: string, data: any) {
+async function handleCallAnswered(supabase: SupabaseClient, organizationId: string, data: VoiceWebhookData) {
   try {
     const { call_sid, answered_time } = data
     
@@ -154,7 +172,7 @@ async function handleCallAnswered(supabase: any, organizationId: string, data: a
   }
 }
 
-async function handleCallEnded(supabase: any, organizationId: string, data: any) {
+async function handleCallEnded(supabase: SupabaseClient, organizationId: string, data: VoiceWebhookData) {
   try {
     const { 
       call_sid, 
@@ -175,7 +193,7 @@ async function handleCallEnded(supabase: any, organizationId: string, data: any)
       'canceled': 'failed'
     }
     
-    const disposition = dispositionMap[call_status] || call_status
+    const disposition = (call_status ? dispositionMap[call_status] : undefined) || call_status || 'unknown'
     
     // Update call attempt
     const { data: callAttempt, error } = await supabase
@@ -200,16 +218,25 @@ async function handleCallEnded(supabase: any, organizationId: string, data: any)
     
     // Update call_list_contact if linked
     if (callAttempt?.call_list_contact_id) {
-      await supabase
+      // Fetch current values first
+      const { data: currentContact } = await supabase
         .from('call_list_contacts')
-        .update({
-          last_attempt_at: new Date().toISOString(),
-          total_attempts: supabase.sql`total_attempts + 1`,
-          ...(disposition === 'answered' && {
-            successful_attempts: supabase.sql`successful_attempts + 1`
-          })
-        })
+        .select('total_attempts, successful_attempts')
         .eq('id', callAttempt.call_list_contact_id)
+        .single()
+
+      if (currentContact) {
+        await supabase
+          .from('call_list_contacts')
+          .update({
+            last_attempt_at: new Date().toISOString(),
+            total_attempts: (currentContact.total_attempts || 0) + 1,
+            ...(disposition === 'answered' && {
+              successful_attempts: (currentContact.successful_attempts || 0) + 1
+            })
+          })
+          .eq('id', callAttempt.call_list_contact_id)
+      }
     }
     
     // Track usage for billing
@@ -269,7 +296,7 @@ async function handleCallEnded(supabase: any, organizationId: string, data: any)
   }
 }
 
-async function handleRecordingFinished(supabase: any, organizationId: string, data: any) {
+async function handleRecordingFinished(supabase: SupabaseClient, organizationId: string, data: VoiceWebhookData) {
   try {
     const { call_sid, recording_url, recording_sid, duration } = data
     

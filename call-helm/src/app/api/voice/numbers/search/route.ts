@@ -3,6 +3,19 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService } from '@/lib/services/telnyx'
 import { voiceLogger } from '@/lib/logger'
 
+interface TelnyxNumber {
+  phoneNumber: string
+  monthlyPrice?: number
+  upfrontPrice?: number
+  features?: string[]
+  locality?: string
+  region?: string
+}
+
+interface AreaCodeRecord {
+  area_code: string
+}
+
 // Canadian area codes for auto-detection
 const CANADIAN_AREA_CODES = new Set([
   '204', '226', '236', '249', '250', '263', '289', '306', '343', '354', '365', '367',
@@ -51,7 +64,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let numbers: any[] = []
+    let numbers: TelnyxNumber[] = []
     let searchMethod = 'region' // Track how we searched
 
     // If city is provided, look up area codes first
@@ -93,7 +106,7 @@ export async function POST(request: NextRequest) {
         
         // Search for numbers in each area code (limit results per area code)
         const numbersPerAreaCode = Math.ceil((locality || 100) / areaCodes.length)
-        const searchPromises = areaCodes.map((ac: any) =>
+        const searchPromises = areaCodes.map((ac: AreaCodeRecord) =>
           telnyxService.searchAvailableNumbers({
             areaCode: ac.area_code,
             countryCode: country,
@@ -146,7 +159,7 @@ export async function POST(request: NextRequest) {
     const limitedNumbers = numbers.slice(0, 100)
 
     // Enhance results with additional metadata for self-service
-    const enhancedNumbers = limitedNumbers.map((number: any) => ({
+    const enhancedNumbers = limitedNumbers.map((number: TelnyxNumber) => ({
       ...number,
       estimatedMonthlyCost: number.monthlyPrice || 1.50,
       estimatedSetupCost: number.upfrontPrice || 0.00,

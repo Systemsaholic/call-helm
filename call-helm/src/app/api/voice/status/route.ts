@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Prepare update data
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           status: dbStatus,
           metadata: updatedMetadata,
           updated_at: new Date().toISOString(),

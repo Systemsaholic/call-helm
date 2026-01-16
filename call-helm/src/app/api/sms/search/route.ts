@@ -81,7 +81,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SearchResp
     const trimmedResults = hasMore ? results.slice(0, limit) : (results || [])
 
     // Format results
-    const formattedResults: SearchResult[] = trimmedResults.map((r: any) => ({
+    const formattedResults: SearchResult[] = trimmedResults.map((r: Record<string, unknown>) => ({
       messageId: r.message_id,
       conversationId: r.conversation_id,
       messageBody: r.message_body,

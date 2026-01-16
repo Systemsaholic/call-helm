@@ -50,7 +50,15 @@ interface SMSAnalysis {
   complaint?: boolean
 }
 
-async function analyzeMessage(message: string, conversationContext?: any): Promise<SMSAnalysis> {
+interface ConversationContext {
+  totalMessages: number
+  customerMessages: number
+  agentMessages: number
+  lastInteraction: string
+  recentMessages?: string[]
+}
+
+async function analyzeMessage(message: string, conversationContext?: ConversationContext | null): Promise<SMSAnalysis> {
   const openaiApiKey = process.env.OPENAI_API_KEY
   if (!openaiApiKey) {
     throw new Error('OpenAI API key not configured')

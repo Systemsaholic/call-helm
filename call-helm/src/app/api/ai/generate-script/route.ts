@@ -95,10 +95,10 @@ export async function POST(request: NextRequest) {
       }
     })
 
-  } catch (error: any) {
+  } catch (error) {
     apiLogger.error('AI script generation error', { error })
-    
-    if (error.message.includes('Usage limit exceeded')) {
+
+    if (error instanceof Error && error.message.includes('Usage limit exceeded')) {
       return NextResponse.json({ 
         error: 'AI usage limit exceeded for your subscription plan',
         details: error.message
@@ -111,10 +111,18 @@ export async function POST(request: NextRequest) {
   }
 }
 
+interface ContactInfo {
+  name?: string
+  phone?: string
+  email?: string
+  company?: string
+  [key: string]: unknown
+}
+
 // AI function using OpenAI API
 async function generateScriptWithAI(params: {
   prompt: string
-  contactInfo?: any
+  contactInfo?: ContactInfo
   campaignType?: string
   tone: string
   maxLength: number

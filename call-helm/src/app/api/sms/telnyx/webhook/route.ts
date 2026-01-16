@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { smsLogger } from '@/lib/logger'
 
 // ============================================================================
@@ -158,7 +158,7 @@ function isOptInKeyword(message: string): boolean {
 
 async function handleInboundMessage(
   request: NextRequest,
-  supabase: any,
+  supabase: SupabaseClient,
   payload: TelnyxInboundPayload
 ) {
   const fromNumber = payload.from.phone_number
@@ -355,7 +355,7 @@ function mapTelnyxStatus(telnyxStatus: TelnyxDeliveryStatus): string {
   return statusMap[telnyxStatus] || 'unknown'
 }
 
-async function handleStatusUpdate(supabase: any, payload: TelnyxOutboundPayload) {
+async function handleStatusUpdate(supabase: SupabaseClient, payload: TelnyxOutboundPayload) {
   const recipientStatus = payload.to[0]?.status
   const recipientPhone = payload.to[0]?.phone_number
 
@@ -421,7 +421,7 @@ async function handleStatusUpdate(supabase: any, payload: TelnyxOutboundPayload)
 // ============================================================================
 
 async function handleBroadcastReply(
-  supabase: any,
+  supabase: SupabaseClient,
   organizationId: string,
   fromPhone: string,
   messageText: string,
@@ -453,7 +453,7 @@ async function handleBroadcastReply(
 }
 
 async function updateBroadcastRecipient(
-  supabase: any,
+  supabase: SupabaseClient,
   payload: TelnyxOutboundPayload,
   status: string
 ) {
@@ -462,7 +462,7 @@ async function updateBroadcastRecipient(
   // Find broadcast recipient by phone number and message_id reference
   const { data: recipient } = await supabase
     .from('sms_broadcast_recipients')
-    .select('id, broadcast_id, message_id')
+    .select('id, broadcast_id, message_id, status')
     .eq('phone_number', recipientPhone)
     .eq('status', 'sent')
     .order('sent_at', { ascending: false })

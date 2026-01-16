@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
 
     if (voiceIntegration) {
       const updatedNumbers = [...(voiceIntegration.phone_numbers || []), number]
-      const updates: any = { phone_numbers: updatedNumbers }
+      const updates: Record<string, unknown> = { phone_numbers: updatedNumbers }
 
       // If this is primary or the first number, set as default caller ID
       if (is_primary || !voiceIntegration.default_caller_id) {
@@ -305,7 +305,7 @@ export async function DELETE(request: NextRequest) {
 
     if (voiceIntegration) {
       const updatedNumbers = (voiceIntegration.phone_numbers || []).filter((n: string) => n !== phoneNumber.number)
-      const updates: any = { phone_numbers: updatedNumbers }
+      const updates: Record<string, unknown> = { phone_numbers: updatedNumbers }
       
       // If this was the default caller ID, set another one
       if (voiceIntegration.default_caller_id === phoneNumber.number) {

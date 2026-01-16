@@ -2,6 +2,55 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { apiLogger } from '@/lib/logger'
 
+// Database result types
+interface CallListContact {
+  id: string
+  status: string
+}
+
+// Supabase returns joined relations as arrays or single objects depending on FK constraints
+interface CallRecord {
+  id: string
+  status: string
+  created_at: string
+  called_number?: string
+  duration?: number
+  organization_members?: { full_name: string } | null
+  contacts?: { first_name?: string; last_name?: string } | null
+}
+
+interface SMSMessage {
+  id: string
+  direction: string
+  created_at: string
+  message_body?: string
+  organization_members?: { full_name: string } | null
+  sms_conversations?: {
+    phone_number?: string
+    contacts?: { first_name?: string; last_name?: string } | null
+  } | null
+}
+
+// Type for raw Supabase data (before type narrowing)
+interface RawCallData {
+  id: unknown
+  status: unknown
+  created_at: unknown
+  called_number?: unknown
+  duration?: unknown
+  organization_members?: unknown
+  contacts?: unknown
+}
+
+interface RawSMSData {
+  id: unknown
+  direction: unknown
+  created_at: unknown
+  message_body?: unknown
+  organization_members?: unknown
+  sms_conversations?: unknown
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -156,7 +205,7 @@ export async function GET(request: NextRequest) {
     const campaignProgress = campaigns.map(campaign => {
       const contacts = campaign.call_list_contacts || []
       const totalContacts = contacts.length
-      const completedContacts = contacts.filter((c: any) => c.status === 'completed').length
+      const completedContacts = contacts.filter((c: CallListContact) => c.status === 'completed').length
       const progress = totalContacts > 0 ? Math.round((completedContacts / totalContacts) * 100) : 0
       
       return {
@@ -175,38 +224,50 @@ export async function GET(request: NextRequest) {
 
     // Process recent activity - combine calls and messages
     const [callsData, messagesData] = recentActivity
-    const callActivities = (callsData?.data || []).map((call: any) => ({
-      id: call.id,
-      type: 'call' as const,
-      agent: call.organization_members?.full_name || 'Unknown',
-      action: call.status === 'answered' ? 'Completed call' :
-              call.status === 'failed' ? 'Failed call' :
-              call.status === 'abandoned' ? 'Abandoned call' : 
-              'Call attempt',
-      contact: call.contacts 
-        ? `${call.contacts.first_name || ''} ${call.contacts.last_name || ''}`.trim()
-        : call.called_number,
-      time: call.created_at,
-      status: call.status === 'answered' ? 'success' :
-              call.status === 'failed' ? 'error' :
-              call.status === 'abandoned' ? 'warning' : 'info',
-      duration: call.duration
-    }))
+    const callActivities = (callsData?.data || []).map((call: RawCallData) => {
+      const orgMember = call.organization_members as { full_name?: string } | null
+      const contact = call.contacts as { first_name?: string; last_name?: string } | null
+      return {
+        id: call.id as string,
+        type: 'call' as const,
+        agent: orgMember?.full_name || 'Unknown',
+        action: call.status === 'answered' ? 'Completed call' :
+                call.status === 'failed' ? 'Failed call' :
+                call.status === 'abandoned' ? 'Abandoned call' :
+                'Call attempt',
+        contact: contact
+          ? `${contact.first_name || ''} ${contact.last_name || ''}`.trim()
+          : call.called_number as string | undefined,
+        time: call.created_at as string,
+        status: call.status === 'answered' ? 'success' :
+                call.status === 'failed' ? 'error' :
+                call.status === 'abandoned' ? 'warning' : 'info',
+        duration: call.duration as number | undefined
+      }
+    })
 
-    const smsActivities = (messagesData?.data || []).map((msg: any) => ({
-      id: msg.id,
-      type: 'sms' as const,
-      agent: msg.direction === 'outbound' 
-        ? (msg.organization_members?.full_name || 'System')
-        : 'Customer',
-      action: msg.direction === 'outbound' ? 'Sent message' : 'Received message',
-      contact: msg.sms_conversations?.contacts
-        ? `${msg.sms_conversations.contacts.first_name || ''} ${msg.sms_conversations.contacts.last_name || ''}`.trim()
-        : msg.sms_conversations?.phone_number || 'Unknown',
-      time: msg.created_at,
-      status: msg.direction === 'outbound' ? 'info' : 'success',
-      messagePreview: msg.message_body ? msg.message_body.substring(0, 50) + (msg.message_body.length > 50 ? '...' : '') : ''
-    }))
+    const smsActivities = (messagesData?.data || []).map((msg: RawSMSData) => {
+      const orgMember = msg.organization_members as { full_name?: string } | null
+      const conversation = msg.sms_conversations as {
+        phone_number?: string
+        contacts?: { first_name?: string; last_name?: string } | null
+      } | null
+      const messageBody = msg.message_body as string | undefined
+      return {
+        id: msg.id as string,
+        type: 'sms' as const,
+        agent: msg.direction === 'outbound'
+          ? (orgMember?.full_name || 'System')
+          : 'Customer',
+        action: msg.direction === 'outbound' ? 'Sent message' : 'Received message',
+        contact: conversation?.contacts
+          ? `${conversation.contacts.first_name || ''} ${conversation.contacts.last_name || ''}`.trim()
+          : conversation?.phone_number || 'Unknown',
+        time: msg.created_at as string,
+        status: msg.direction === 'outbound' ? 'info' : 'success',
+        messagePreview: messageBody ? messageBody.substring(0, 50) + (messageBody.length > 50 ? '...' : '') : ''
+      }
+    })
 
     // Combine and sort by time
     const activities = [...callActivities, ...smsActivities]

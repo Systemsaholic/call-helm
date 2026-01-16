@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { smsLogger } from '@/lib/logger'
 
 interface TelnyxInboundMessagePayload {
@@ -321,7 +321,7 @@ export async function POST(request: NextRequest) {
  * Check if this message is a reply to a broadcast and update stats
  */
 async function handleBroadcastReply(
-  supabase: any,
+  supabase: SupabaseClient,
   organizationId: string,
   fromPhone: string,
   messageText: string,

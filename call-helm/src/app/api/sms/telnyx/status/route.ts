@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { smsLogger } from '@/lib/logger'
 
 // Telnyx delivery statuses
@@ -182,7 +182,7 @@ function mapTelnyxStatus(telnyxStatus: TelnyxDeliveryStatus): string {
  * Update broadcast recipient status if this message was part of a broadcast
  */
 async function updateBroadcastRecipient(
-  supabase: any,
+  supabase: SupabaseClient,
   payload: TelnyxStatusPayload,
   status: string
 ) {
@@ -192,7 +192,7 @@ async function updateBroadcastRecipient(
   // The broadcast processor stores message_id in sms_broadcast_recipients
   const { data: recipient } = await supabase
     .from('sms_broadcast_recipients')
-    .select('id, broadcast_id, message_id')
+    .select('id, broadcast_id, message_id, status')
     .eq('phone_number', recipientPhone)
     .eq('status', 'sent')
     .order('sent_at', { ascending: false })
@@ -230,23 +230,18 @@ async function updateBroadcastRecipient(
     .update(recipientUpdate)
     .eq('id', recipient.id)
 
-  // Update broadcast counters
+  // Update broadcast counters using RPC
   if (status === 'delivered') {
-    await supabase
-      .from('sms_broadcasts')
-      .update({
-        delivered_count: supabase.rpc ? undefined : 0, // Will use RPC if available
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', recipient.broadcast_id)
-
-    // Increment delivered count
     try {
       await supabase.rpc('increment_broadcast_delivered', {
         broadcast_id: recipient.broadcast_id
       })
     } catch {
-      // RPC might not exist, that's ok
+      // RPC might not exist, that's ok - fall back to updating timestamp
+      await supabase
+        .from('sms_broadcasts')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', recipient.broadcast_id)
     }
   } else if (status === 'failed' || status === 'undelivered') {
     try {
