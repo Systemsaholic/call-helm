@@ -154,14 +154,34 @@ export function useUpdateAgent() {
 
   return useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: UpdateAgentInput }) => {
+      // If changing role away from org_admin, check if this is the last one
+      if (updates.role && updates.role !== 'org_admin') {
+        // Get current agent to check their role
+        const { data: currentAgent } = await supabase
+          .from('organization_members')
+          .select('role, status')
+          .eq('id', id)
+          .single()
+
+        if (currentAgent?.role === 'org_admin' && currentAgent?.status === 'active') {
+          const check = await checkLastOrgAdmin(supabase, [id], 'demote')
+          if (!check.safe) {
+            throw new Error(check.error)
+          }
+        }
+      }
+
+      // Note: Status changes are not part of UpdateAgentInput, but the database trigger
+      // will catch any attempts to deactivate the last org_admin via direct DB access.
+
       // Clean up department_id - convert empty string to null
       const cleanedUpdates = {
         ...updates,
-        department_id: updates.department_id && updates.department_id !== '' 
-          ? updates.department_id 
+        department_id: updates.department_id && updates.department_id !== ''
+          ? updates.department_id
           : null
       }
-      
+
       const { data, error } = await supabase
         .from('organization_members')
         .update(cleanedUpdates)
@@ -169,7 +189,13 @@ export function useUpdateAgent() {
         .select()
         .single()
 
-      if (error) throw error
+      if (error) {
+        // Handle database trigger error gracefully
+        if (error.message?.includes('last org_admin')) {
+          throw new Error('Cannot modify the last org_admin. Every organization must have at least one org_admin.')
+        }
+        throw error
+      }
       return data as Agent
     },
     onSuccess: (data) => {
@@ -177,11 +203,66 @@ export function useUpdateAgent() {
       queryClient.invalidateQueries({ queryKey: agentKeys.detail(data.id) })
       toast.success('Agent updated successfully')
     },
-    onError: (error) => {
-      toast.error('Failed to update agent')
+    onError: (error: any) => {
+      const message = error.message || 'Failed to update agent'
+      toast.error(message)
       console.error('Update agent error:', error)
     },
   })
+}
+
+// Helper to check if operation would remove the last org_admin
+async function checkLastOrgAdmin(
+  supabase: any,
+  agentIds: string[],
+  operation: 'delete' | 'demote'
+): Promise<{ safe: boolean; error?: string }> {
+  // Get the agents being modified
+  const { data: targetAgents, error: fetchError } = await supabase
+    .from('organization_members')
+    .select('id, role, status, organization_id')
+    .in('id', agentIds)
+
+  if (fetchError) {
+    return { safe: false, error: 'Failed to check org_admin status' }
+  }
+
+  // Filter to only active org_admins being affected
+  const affectedOrgAdmins = targetAgents?.filter(
+    (a: any) => a.role === 'org_admin' && a.status === 'active'
+  ) || []
+
+  if (affectedOrgAdmins.length === 0) {
+    // Not affecting any org_admins, safe to proceed
+    return { safe: true }
+  }
+
+  // Get organization ID from the first affected admin
+  const orgId = affectedOrgAdmins[0].organization_id
+
+  // Count total active org_admins in the organization
+  const { count, error: countError } = await supabase
+    .from('organization_members')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
+    .eq('role', 'org_admin')
+    .eq('status', 'active')
+
+  if (countError) {
+    return { safe: false, error: 'Failed to count org_admins' }
+  }
+
+  // Check if this would remove all org_admins
+  const remainingAdmins = (count || 0) - affectedOrgAdmins.length
+  if (remainingAdmins < 1) {
+    const action = operation === 'delete' ? 'delete' : 'change the role of'
+    return {
+      safe: false,
+      error: `Cannot ${action} the last org_admin. Every organization must have at least one org_admin.`
+    }
+  }
+
+  return { safe: true }
 }
 
 // Delete agents
@@ -191,19 +272,32 @@ export function useDeleteAgents() {
 
   return useMutation({
     mutationFn: async (agentIds: string[]) => {
+      // Check if this would delete the last org_admin
+      const check = await checkLastOrgAdmin(supabase, agentIds, 'delete')
+      if (!check.safe) {
+        throw new Error(check.error)
+      }
+
       const { error } = await supabase
         .from('organization_members')
         .delete()
         .in('id', agentIds)
 
-      if (error) throw error
+      if (error) {
+        // Handle database trigger error gracefully
+        if (error.message?.includes('last org_admin')) {
+          throw new Error('Cannot delete the last org_admin. Every organization must have at least one org_admin.')
+        }
+        throw error
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.lists() })
       toast.success('Agent(s) deleted successfully')
     },
-    onError: (error) => {
-      toast.error('Failed to delete agent(s)')
+    onError: (error: any) => {
+      const message = error.message || 'Failed to delete agent(s)'
+      toast.error(message)
       console.error('Delete agents error:', error)
     },
   })
