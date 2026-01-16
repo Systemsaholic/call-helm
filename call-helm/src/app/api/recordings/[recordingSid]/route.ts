@@ -44,26 +44,23 @@ export async function GET(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    // Fetch the recording from SignalWire with authentication
+    // Fetch the recording with authentication
     const recordingUrl = call.recording_url
-    
+
     if (!recordingUrl) {
       return NextResponse.json({ error: 'Recording URL not available' }, { status: 404 })
     }
 
-    // Add SignalWire authentication if needed
+    // Add Telnyx authentication if needed
     const headers: HeadersInit = {}
-    
-    // If SignalWire requires basic auth, add it here
-    const swProjectId = process.env.SIGNALWIRE_PROJECT_ID
-    const swApiToken = process.env.SIGNALWIRE_API_TOKEN
-    
-    if (swProjectId && swApiToken) {
-      const auth = Buffer.from(`${swProjectId}:${swApiToken}`).toString('base64')
-      headers['Authorization'] = `Basic ${auth}`
+
+    const telnyxApiKey = process.env.TELNYX_API_KEY
+
+    if (telnyxApiKey && recordingUrl.includes('telnyx')) {
+      headers['Authorization'] = `Bearer ${telnyxApiKey}`
     }
-    
-    voiceLogger.debug('Fetching recording', { data: { recordingUrl, authConfigured: !!(swProjectId && swApiToken) } })
+
+    voiceLogger.debug('Fetching recording', { data: { recordingUrl, authConfigured: !!telnyxApiKey } })
 
     // Fetch the recording
     const recordingResponse = await fetch(recordingUrl, { headers })
@@ -76,7 +73,7 @@ export async function GET(
           status: recordingResponse.status,
           statusText: recordingResponse.statusText,
           url: recordingUrl,
-          authConfigured: !!(swProjectId && swApiToken),
+          authConfigured: !!telnyxApiKey,
           errorBody: errorText
         }
       })
