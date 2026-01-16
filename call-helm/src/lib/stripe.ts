@@ -7,26 +7,6 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   typescript: true,
 })
 
-// DEPRECATED: Legacy env var-based price ID mapping
-// The database subscription_plans table is now the single source of truth.
-// Use subscription_plans.stripe_price_id_monthly and stripe_price_id_yearly columns instead.
-// This mapping is kept only for backwards compatibility during migration.
-// @deprecated Use database columns instead
-export const PLAN_PRICE_IDS: Record<string, { monthly: string; annual: string }> = {
-  starter: {
-    monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || '',
-    annual: process.env.STRIPE_STARTER_ANNUAL_PRICE_ID || '',
-  },
-  professional: {
-    monthly: process.env.STRIPE_PROFESSIONAL_MONTHLY_PRICE_ID || '',
-    annual: process.env.STRIPE_PROFESSIONAL_ANNUAL_PRICE_ID || '',
-  },
-  enterprise: {
-    monthly: process.env.STRIPE_ENTERPRISE_MONTHLY_PRICE_ID || '',
-    annual: process.env.STRIPE_ENTERPRISE_ANNUAL_PRICE_ID || '',
-  },
-}
-
 // Metered price IDs for overage billing
 // These are usage-based prices that get added to subscriptions for overage charges
 // Create these in Stripe Dashboard as metered prices with usage_type: 'metered'
@@ -88,16 +68,6 @@ export function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): strin
     unpaid: 'unpaid',
   }
   return statusMap[stripeStatus] || 'unknown'
-}
-
-/**
- * Get price ID for a plan and billing period
- * @deprecated Use database subscription_plans.stripe_price_id_monthly/yearly columns instead
- */
-export function getPriceId(planSlug: string, billingPeriod: 'monthly' | 'annual'): string | null {
-  const planPrices = PLAN_PRICE_IDS[planSlug]
-  if (!planPrices) return null
-  return planPrices[billingPeriod] || null
 }
 
 // Get metered price ID for a resource type
