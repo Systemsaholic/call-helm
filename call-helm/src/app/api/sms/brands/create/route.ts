@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { encryptEIN, isEncryptionConfigured } from '@/lib/security/encryption'
 
 // Create a new SMS brand for 10DLC compliance
 export async function POST(request: NextRequest) {
@@ -77,6 +78,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Encrypt the EIN before storing
+    let storedEIN: string = einTaxId
+    let einIsEncrypted = false
+
+    if (isEncryptionConfigured()) {
+      const encryptedEIN = encryptEIN(einTaxId)
+      if (encryptedEIN) {
+        storedEIN = encryptedEIN
+        einIsEncrypted = true
+      }
+    } else {
+      console.warn('DATA_ENCRYPTION_KEY not configured - EIN will be stored unencrypted')
+    }
+
     // Store brand in our database first
     const { data: dbBrand, error: dbError } = await supabase
       .from('campaign_registry_brands')
@@ -84,7 +99,8 @@ export async function POST(request: NextRequest) {
         organization_id: member.organization_id,
         brand_name: brandName,
         legal_company_name: legalCompanyName,
-        ein_tax_id: einTaxId, // This should be encrypted/hashed in production
+        ein_tax_id: storedEIN,
+        ein_encrypted: einIsEncrypted,
         business_type: businessType,
         industry,
         website_url: websiteUrl,

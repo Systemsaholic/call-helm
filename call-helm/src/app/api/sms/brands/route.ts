@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { maskEIN } from '@/lib/security/encryption'
 
 // Get organization's SMS brands
 export async function GET(request: NextRequest) {
@@ -13,16 +14,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get user's organization
+    // Get user's organization and role
     const { data: member } = await supabase
       .from('organization_members')
-      .select('organization_id')
+      .select('organization_id, role')
       .eq('user_id', user.id)
       .single()
 
     if (!member) {
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
     }
+
+    const isAdmin = ['org_admin', 'super_admin'].includes(member.role)
 
     // Get organization's brands with campaign count
     const { data: brands, error } = await supabase
@@ -84,21 +87,30 @@ export async function GET(request: NextRequest) {
     }
 
     // Format response
-    const formattedBrands = brands?.map((brand: any) => ({
-      id: brand.id,
-      brandName: brand.brand_name,
-      legalCompanyName: brand.legal_company_name,
-      businessType: brand.business_type,
-      industry: brand.industry,
-      status: brand.status,
-      signalwireBrandId: brand.signalwire_brand_id,
-      approvalDate: brand.approval_date,
-      campaignCount: brand.campaign_count,
-      createdAt: brand.created_at,
-      canCreateCampaigns: brand.status === 'approved',
-      statusDisplay: getStatusDisplay(brand.status),
-      nextSteps: getNextSteps(brand.status)
-    })) || []
+    const formattedBrands = brands?.map((brand: any) => {
+      const formattedBrand: any = {
+        id: brand.id,
+        brandName: brand.brand_name,
+        legalCompanyName: brand.legal_company_name,
+        businessType: brand.business_type,
+        industry: brand.industry,
+        status: brand.status,
+        signalwireBrandId: brand.signalwire_brand_id,
+        approvalDate: brand.approval_date,
+        campaignCount: brand.campaign_count,
+        createdAt: brand.created_at,
+        canCreateCampaigns: brand.status === 'approved',
+        statusDisplay: getStatusDisplay(brand.status),
+        nextSteps: getNextSteps(brand.status)
+      }
+
+      // Include masked EIN for admin users only
+      if (isAdmin && brand.ein_tax_id) {
+        formattedBrand.maskedEin = maskEIN(brand.ein_tax_id, brand.ein_encrypted || false)
+      }
+
+      return formattedBrand
+    }) || []
 
     const summary = {
       total: formattedBrands.length,

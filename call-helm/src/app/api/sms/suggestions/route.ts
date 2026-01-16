@@ -4,9 +4,12 @@ import OpenAI from 'openai'
 
 export const dynamic = 'force-dynamic'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-})
+// Lazy initialization to avoid build-time errors
+function getOpenAI() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  })
+}
 
 /**
  * POST /api/sms/suggestions - Get AI-powered reply suggestions
@@ -61,6 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .join('\n')
 
     // Generate suggestions using OpenAI
+    const openai = getOpenAI()
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
