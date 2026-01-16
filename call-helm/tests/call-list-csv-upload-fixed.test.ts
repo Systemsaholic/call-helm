@@ -1,25 +1,31 @@
 import { test, expect } from '@playwright/test'
-import path from 'path'
 
 test.describe('Call List CSV Upload - Fixed Tests', () => {
-  // Skip authentication for now - tests will run against an already logged-in session
-  // or we'll need to set up proper test users in Supabase
-  
-  test.skip('should create call list with CSV upload', async ({ page }) => {
-    // This test is skipped until we have proper test authentication set up
-    // The functionality has been manually verified to work correctly
-  })
+  // Tests are pre-authenticated via Playwright storageState
 
   test('verify CSV upload functionality components exist', async ({ page }) => {
-    // Just verify the UI components exist without requiring auth
-    await page.goto('/')
-    
-    // Check if login page loads
-    await expect(page).toHaveURL(/auth/)
-    
-    // Verify login form exists
-    await expect(page.locator('input[name="email"]')).toBeVisible()
-    await expect(page.locator('input[name="password"]')).toBeVisible()
-    await expect(page.locator('button:has-text("Sign in")')).toBeVisible()
+    // Navigate to call lists page (already authenticated via setup)
+    await page.goto('/dashboard/call-lists')
+    await page.waitForLoadState('networkidle')
+
+    // Verify we're on the call lists page
+    await expect(page).toHaveURL(/\/dashboard\/call-lists/)
+
+    // Verify Create Call List button exists
+    const createButton = page.getByRole('button', { name: /create call list/i })
+    await expect(createButton).toBeVisible()
+
+    // Click to open wizard
+    await createButton.click()
+
+    // Verify wizard modal opens
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    // Verify CSV upload option exists
+    await expect(page.getByText(/upload csv/i)).toBeVisible()
+
+    // Close modal
+    await page.keyboard.press('Escape')
   })
 })
