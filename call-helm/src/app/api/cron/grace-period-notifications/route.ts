@@ -15,7 +15,7 @@ const supabaseAdmin = createClient(
   }
 )
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
 // Verify cron secret for security
 function verifyCronSecret(request: NextRequest): boolean {
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
 
           apiLogger.debug('Sending notification email', { data: { type: notification.notification_type, email: admin.email } })
 
-          if (process.env.RESEND_API_KEY) {
+          if (resend) {
             await resend.emails.send({
               from: 'Call Helm <notifications@callhelm.com>',
               to: admin.email,
