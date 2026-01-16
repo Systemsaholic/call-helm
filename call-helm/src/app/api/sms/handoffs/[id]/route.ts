@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,7 +104,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, handoff: data })
   } catch (error) {
-    console.error('Error processing handoff:', error)
+    smsLogger.error('Error processing handoff', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

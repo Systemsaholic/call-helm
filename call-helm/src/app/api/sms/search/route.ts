@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SearchResp
       })
 
     if (error) {
-      console.error('Search error:', error)
+      smsLogger.error('Search error', { error })
       return NextResponse.json({ error: 'Search failed' }, { status: 500 })
     }
 
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<SearchResp
       hasMore
     })
   } catch (error) {
-    console.error('Error searching SMS messages:', error)
+    smsLogger.error('Error searching SMS messages', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

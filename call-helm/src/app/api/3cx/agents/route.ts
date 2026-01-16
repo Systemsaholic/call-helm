@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
       .order('three_cx_extension');
 
     if (error) {
-      console.error('Error fetching agent mappings:', error);
+      apiLogger.error('Error fetching agent mappings', { error });
       return NextResponse.json(
         { error: 'Failed to fetch agent mappings' },
         { status: 500 }
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ mappings });
 
   } catch (error) {
-    console.error('Error in agent mappings GET:', error);
+    apiLogger.error('Error in agent mappings GET', { error });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      console.error('Error creating agent mapping:', error);
+      apiLogger.error('Error creating agent mapping', { error });
       return NextResponse.json(
         { error: 'Failed to create agent mapping' },
         { status: 500 }
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, mapping });
 
   } catch (error) {
-    console.error('Error in agent mappings POST:', error);
+    apiLogger.error('Error in agent mappings POST', { error });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -6,21 +6,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateThreeCXApiKey, logThreeCXEvent, normalizePhoneNumber } from '@/lib/services/threeCX';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function GET(request: NextRequest) {
   try {
-    // DEBUG: Log the incoming request
-    console.log('=== 3CX Contact Lookup Request ===');
-    console.log('Full URL:', request.url);
-    console.log('Search params:', Object.fromEntries(request.nextUrl.searchParams.entries()));
+    // Log the incoming request
+    apiLogger.debug('3CX Contact Lookup Request', {
+      data: { url: request.url, params: Object.fromEntries(request.nextUrl.searchParams.entries()) }
+    });
 
     // Get API key from header
     const apiKey = request.headers.get('x-api-key');
     if (!apiKey) {
-      console.log('ERROR: Missing API key');
+      apiLogger.debug('Missing API key');
       return NextResponse.json(
         { error: 'Missing API key', contacts: [] },
         { status: 401 }
@@ -30,21 +31,20 @@ export async function GET(request: NextRequest) {
     // Validate API key and get organization
     const organizationId = await validateThreeCXApiKey(apiKey);
     if (!organizationId) {
-      console.log('ERROR: Invalid API key');
+      apiLogger.debug('Invalid API key');
       return NextResponse.json(
         { error: 'Invalid API key', contacts: [] },
         { status: 401 }
       );
     }
 
-    console.log('Organization ID:', organizationId);
+    apiLogger.debug('Organization validated', { data: { organizationId } });
 
     // Get phone number from query
     const number = request.nextUrl.searchParams.get('number');
-    console.log('Phone number received:', number);
 
     if (!number) {
-      console.log('ERROR: Missing phone number parameter');
+      apiLogger.debug('Missing phone number parameter');
       return NextResponse.json(
         { error: 'Missing phone number', contacts: [] },
         { status: 400 }
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
     // Normalize the phone number for better matching
     const normalizedNumber = normalizePhoneNumber(number);
-    console.log('Normalized number:', normalizedNumber);
+    apiLogger.debug('Phone number lookup', { data: { number, normalizedNumber } });
 
     // Search for contacts
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       .limit(10);
 
     if (error) {
-      console.error('Error searching contacts:', error);
+      apiLogger.error('Error searching contacts', { error });
       return NextResponse.json(
         { error: 'Database error', contacts: [] },
         { status: 500 }
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error in 3CX contact lookup:', error);
+    apiLogger.error('Error in 3CX contact lookup', { error });
     return NextResponse.json(
       { error: 'Internal server error', contacts: [] },
       { status: 500 }

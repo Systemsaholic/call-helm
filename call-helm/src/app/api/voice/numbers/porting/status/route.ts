@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Get porting request status for organization
 export async function GET(request: NextRequest) {
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     const { data: portingRequests, error } = await query.order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Database error fetching porting requests:', error)
+      voiceLogger.error('Database error fetching porting requests', { error })
       return NextResponse.json(
         { error: 'Failed to fetch porting requests' },
         { status: 500 }
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest) {
               }
             }
           } catch (syncError) {
-            console.error(`Error syncing porting request ${request.id}:`, syncError)
+            voiceLogger.error('Error syncing porting request', { data: { requestId: request.id }, error: syncError })
             // Continue with other requests even if one fails
           }
         }
@@ -166,7 +167,7 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error getting porting status:', error)
+    voiceLogger.error('Error getting porting status', { error })
     return NextResponse.json(
       { error: 'Failed to get porting request status' },
       { status: 500 }

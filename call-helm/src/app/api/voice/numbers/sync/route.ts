@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Sync existing phone numbers with Telnyx to get missing IDs
 export async function POST(request: NextRequest) {
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
           })
         }
       } catch (error) {
-        console.error(`Error syncing number ${dbNumber.number}:`, error)
+        voiceLogger.error('Error syncing phone number', { data: { number: dbNumber.number }, error })
         errors.push({
           id: dbNumber.id,
           number: dbNumber.number,
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       message: `Synchronized ${results.length} of ${dbNumbers.length} phone numbers`
     })
   } catch (error) {
-    console.error('Error syncing phone numbers:', error)
+    voiceLogger.error('Error syncing phone numbers', { error })
     return NextResponse.json(
       { error: 'Failed to sync phone numbers with Telnyx' },
       { status: 500 }

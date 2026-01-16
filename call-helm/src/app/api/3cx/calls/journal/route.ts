@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateThreeCXApiKey, logThreeCXEvent, getAgentByExtension, parseDuration, normalizePhoneNumber } from '@/lib/services/threeCX';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (callError) {
-      console.error('Error creating call record:', callError);
+      apiLogger.error('Error creating call record', { error: callError });
       return NextResponse.json({ error: 'Failed to create call record' }, { status: 500 });
     }
 
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error in 3CX call journaling:', error);
+    apiLogger.error('Error in 3CX call journaling', { error });
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

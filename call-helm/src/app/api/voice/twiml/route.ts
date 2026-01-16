@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== TWIML ENDPOINT CALLED ===')
-    console.log('Request URL:', request.url)
-    console.log('Request method:', request.method)
+    voiceLogger.info('TwiML endpoint called', {
+      data: { url: request.url, method: request.method }
+    })
     
     // Parse form data from SignalWire
     const formData = await request.formData()
@@ -23,12 +24,13 @@ export async function POST(request: NextRequest) {
     const organizationId = searchParams.get('OrgId') // Pass org ID for plan check
     const enableRecording = searchParams.get('EnableRecording') === 'true' // Explicit recording preference
     
-    console.log('Form data from SignalWire:', { from, to, callSid, direction })
-    console.log('Custom parameters:', { targetNumber, agentNumber, isAgentLeg, callId, organizationId, enableRecording })
+    voiceLogger.debug('TwiML request data', {
+      data: { from, to, callSid, direction, targetNumber, agentNumber, isAgentLeg, callId, organizationId, enableRecording }
+    })
     
     // If this is the agent leg of the call, connect them to the target number
     if (isAgentLeg === 'true' && targetNumber) {
-      console.log('This is the agent leg - will connect to target number:', targetNumber)
+      voiceLogger.debug('Agent leg - connecting to target', { data: { targetNumber } })
       
       // Check if recording should be enabled
       let shouldRecord = false
@@ -52,12 +54,12 @@ export async function POST(request: NextRequest) {
           const recordingCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/recording-complete`
           // Use record-from-answer to capture the entire call from when it's answered
           recordingParams = `record="record-from-answer" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackEvent="completed" recordingStatusCallbackMethod="POST"`
-          console.log('Recording ENABLED - Pro plan confirmed (will record entire call)')
+          voiceLogger.debug('Recording ENABLED - Pro plan confirmed')
         } else {
-          console.log('Recording DISABLED - Not on Pro plan')
+          voiceLogger.debug('Recording DISABLED - Not on Pro plan')
         }
       } else {
-        console.log('Recording DISABLED - Not requested or missing org ID')
+        voiceLogger.debug('Recording DISABLED - Not requested or missing org ID')
       }
       
       const actionUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/status`
@@ -84,10 +86,9 @@ export async function POST(request: NextRequest) {
   </Dial>
   <Say voice="alice">The call has ended. Goodbye.</Say>
 </Response>`
-      
-      console.log('Returning TwiML to connect agent to contact:')
-      console.log(twiml)
-      
+
+      voiceLogger.debug('Returning TwiML for agent-to-contact connection')
+
       return new NextResponse(twiml, {
         status: 200,
         headers: {
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('TwiML generation error:', error)
+    voiceLogger.error('TwiML generation error', { error })
     
     // Return a basic TwiML response even on error to prevent call from hanging up abruptly
     const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>

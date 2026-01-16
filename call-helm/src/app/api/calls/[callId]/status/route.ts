@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 export async function GET(
   request: NextRequest,
@@ -42,11 +43,14 @@ export async function GET(
       displayStatus = call.metadata.initial_status
     }
     
-    console.log(`Status API Response for ${call.id}:`, {
-      dbStatus: call.status,
-      metadataStatus: call.metadata?.call_status,
-      displayStatus,
-      endTime: call.end_time
+    voiceLogger.debug('Status API response', {
+      data: {
+        callId: call.id,
+        dbStatus: call.status,
+        metadataStatus: call.metadata?.call_status,
+        displayStatus,
+        endTime: call.end_time
+      }
     })
     
     return NextResponse.json({
@@ -59,7 +63,7 @@ export async function GET(
     })
     
   } catch (error) {
-    console.error('Error getting call status:', error)
+    voiceLogger.error('Error getting call status', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

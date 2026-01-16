@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { apiLogger } from '@/lib/logger'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -23,7 +24,7 @@ const supabaseAdmin = createClient(
 )
 
 export async function POST(request: NextRequest) {
-  console.log('Create Organization API called')
+  apiLogger.info('Create Organization API called')
 
   try {
     // Get the current user's session
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
             try {
               cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
             } catch {
-              console.error("Failed to set cookies in create organization route")
+              apiLogger.error('Failed to set cookies in create organization route')
             }
           }
         }
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      console.error('Auth error in create organization API:', authError)
+      apiLogger.error('Auth error in create organization API', { error: authError })
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
     }
 
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (existingMembership) {
-      console.log('User already has organization membership:', existingMembership)
+      apiLogger.debug('User already has organization membership', { data: { membershipId: existingMembership.id } })
       return NextResponse.json({
         error: 'User already belongs to an organization',
         organizationId: existingMembership.organization_id
@@ -112,11 +113,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (orgError) {
-      console.error('Failed to create organization:', orgError)
+      apiLogger.error('Failed to create organization', { error: orgError })
       return NextResponse.json({ error: 'Failed to create organization' }, { status: 500 })
     }
 
-    console.log('Organization created:', organization.id)
+    apiLogger.info('Organization created', { data: { organizationId: organization.id } })
 
     // Create profile in 'profiles' table (required for organization_members foreign key)
     const { error: profileError } = await supabaseAdmin
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
       })
 
     if (profileError) {
-      console.error('Failed to create profile:', profileError)
+      apiLogger.error('Failed to create profile', { error: profileError })
       // Rollback: delete the organization
       await supabaseAdmin.from('organizations').delete().eq('id', organization.id)
       return NextResponse.json({ error: 'Failed to create user profile' }, { status: 500 })
@@ -153,7 +154,7 @@ export async function POST(request: NextRequest) {
       })
 
     if (userProfileError) {
-      console.error('Failed to create/update user profile:', userProfileError)
+      apiLogger.error('Failed to create/update user profile', { error: userProfileError })
       // Don't fail the whole operation, continue
     }
 
@@ -173,13 +174,13 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (memberError) {
-      console.error('Failed to create organization member:', memberError)
+      apiLogger.error('Failed to create organization member', { error: memberError })
       // Rollback: delete the organization
       await supabaseAdmin.from('organizations').delete().eq('id', organization.id)
       return NextResponse.json({ error: 'Failed to create organization membership' }, { status: 500 })
     }
 
-    console.log('Organization member created:', member.id)
+    apiLogger.info('Organization member created', { data: { memberId: member.id } })
 
     // Update user metadata with organization info
     const { error: updateUserError } = await supabaseAdmin.auth.admin.updateUserById(
@@ -197,11 +198,11 @@ export async function POST(request: NextRequest) {
     )
 
     if (updateUserError) {
-      console.error('Failed to update user metadata:', updateUserError)
+      apiLogger.error('Failed to update user metadata', { error: updateUserError })
       // Don't fail the operation, the organization was created successfully
     }
 
-    console.log('Organization setup complete for user:', user.id)
+    apiLogger.info('Organization setup complete', { data: { userId: user.id } })
 
     return NextResponse.json({
       success: true,
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Create organization API error:', error)
+    apiLogger.error('Create organization API error', { error })
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

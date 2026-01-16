@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { telnyxService } from '@/lib/services/telnyx'
+import { apiLogger } from '@/lib/logger'
 
 // Use service role for cron job
 const supabaseAdmin = createClient(
@@ -33,8 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('=== GRACE PERIOD NUMBER RELEASE JOB ===')
-  console.log('Started at:', new Date().toISOString())
+  apiLogger.info('Grace period number release job started', { data: { timestamp: new Date().toISOString() } })
 
   const results = {
     checked: 0,
@@ -49,9 +49,9 @@ export async function POST(request: NextRequest) {
       .rpc('transition_trial_numbers_to_grace_period')
 
     if (transitionError) {
-      console.error('Error transitioning numbers to grace period:', transitionError)
+      apiLogger.error('Error transitioning numbers to grace period', { error: transitionError })
     } else {
-      console.log('Transitioned to grace period:', transitionResult, 'numbers')
+      apiLogger.info('Transitioned numbers to grace period', { data: { count: transitionResult } })
     }
 
     // 2. Check and send grace period notifications
@@ -59,9 +59,9 @@ export async function POST(request: NextRequest) {
       .rpc('check_grace_period_notifications')
 
     if (notificationError) {
-      console.error('Error checking notifications:', notificationError)
+      apiLogger.error('Error checking grace period notifications', { error: notificationError })
     } else {
-      console.log('Notifications queued:', notificationResult)
+      apiLogger.debug('Grace period notifications queued', { data: { count: notificationResult } })
     }
 
     // 3. Get numbers with expired grace period that need to be released
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       .rpc('release_expired_grace_period_numbers')
 
     if (expiredError) {
-      console.error('Error getting expired numbers:', expiredError)
+      apiLogger.error('Error getting expired grace period numbers', { error: expiredError })
       return NextResponse.json({
         error: 'Failed to get expired numbers',
         details: expiredError.message
@@ -77,19 +77,19 @@ export async function POST(request: NextRequest) {
     }
 
     results.checked = expiredNumbers?.length || 0
-    console.log('Numbers to release:', results.checked)
+    apiLogger.info('Numbers to release from grace period', { data: { count: results.checked } })
 
     // 4. Release each number via Telnyx
     for (const number of expiredNumbers || []) {
       try {
         const telnyxId = number.telnyx_phone_number_id || number.signalwire_sid
-        console.log(`Releasing number: ${number.phone_number} (ID: ${telnyxId})`)
+        apiLogger.info('Releasing phone number', { data: { phoneNumber: number.phone_number, telnyxId } })
 
         if (telnyxId) {
           await telnyxService.releaseNumber(telnyxId)
-          console.log(`Successfully released ${number.phone_number} from Telnyx`)
+          apiLogger.info('Successfully released number from Telnyx', { data: { phoneNumber: number.phone_number } })
         } else {
-          console.log(`No Telnyx ID for ${number.phone_number}, skipping API call`)
+          apiLogger.debug('No Telnyx ID for number, skipping API call', { data: { phoneNumber: number.phone_number } })
         }
 
         // Update the phone number record to mark as fully released
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        console.error(`Failed to release ${number.phone_number}:`, errorMsg)
+        apiLogger.error('Failed to release phone number', { error, data: { phoneNumber: number.phone_number } })
         results.failed++
         results.errors.push(`${number.phone_number}: ${errorMsg}`)
 
@@ -120,8 +120,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('=== JOB COMPLETE ===')
-    console.log('Results:', results)
+    apiLogger.info('Grace period number release job complete', { data: { results } })
 
     return NextResponse.json({
       success: true,
@@ -130,7 +129,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Grace period release job error:', error)
+    apiLogger.error('Grace period release job error', { error })
     return NextResponse.json({
       error: 'Job failed',
       details: error instanceof Error ? error.message : 'Unknown error',

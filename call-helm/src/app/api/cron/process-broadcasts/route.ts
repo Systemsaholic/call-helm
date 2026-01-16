@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { smsLogger } from '@/lib/logger'
 
 // Use service role for cron job
 const supabaseAdmin = createClient(
@@ -125,19 +126,19 @@ async function processBroadcast(broadcastId: string): Promise<{
     .single()
 
   if (broadcastError || !broadcast) {
-    console.error('Broadcast not found:', broadcastId)
+    smsLogger.error('Broadcast not found', { data: { broadcastId } })
     return stats
   }
 
   // Verify broadcast is still in sending status
   if (broadcast.status !== 'sending') {
-    console.log(`Broadcast ${broadcastId} is no longer sending (status: ${broadcast.status})`)
+    smsLogger.info('Broadcast no longer sending', { data: { broadcastId, status: broadcast.status } })
     return stats
   }
 
   // Verify phone number is active
   if (!broadcast.phone_numbers?.number) {
-    console.error('Phone number not found for broadcast:', broadcastId)
+    smsLogger.error('Phone number not found for broadcast', { data: { broadcastId } })
     await supabaseAdmin
       .from('sms_broadcasts')
       .update({ status: 'failed', error_message: 'Phone number not available' })
@@ -156,7 +157,7 @@ async function processBroadcast(broadcastId: string): Promise<{
     .limit(BATCH_SIZE)
 
   if (recipientsError) {
-    console.error('Error fetching recipients:', recipientsError)
+    smsLogger.error('Error fetching recipients', { error: recipientsError })
     return stats
   }
 
@@ -187,7 +188,7 @@ async function processBroadcast(broadcastId: string): Promise<{
         })
         .eq('id', broadcastId)
 
-      console.log(`Broadcast ${broadcastId} completed: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}, skipped=${skippedCount}`)
+      smsLogger.info('Broadcast completed', { data: { broadcastId, sentCount, deliveredCount, failedCount, skippedCount } })
     }
 
     stats.completed = true
@@ -293,7 +294,7 @@ async function processBroadcast(broadcastId: string): Promise<{
         .single()
 
       if (messageError) {
-        console.error('Error creating message record:', messageError)
+        smsLogger.error('Error creating message record', { error: messageError })
       }
 
       // Update recipient status
@@ -326,7 +327,7 @@ async function processBroadcast(broadcastId: string): Promise<{
         })
 
       if (usageError) {
-        console.error('Error tracking usage (non-critical):', usageError)
+        smsLogger.warn('Error tracking usage (non-critical)', { error: usageError })
       }
 
       stats.sent++
@@ -353,7 +354,7 @@ async function processBroadcast(broadcastId: string): Promise<{
       .single()
 
     if (currentStatus?.status !== 'sending') {
-      console.log(`Broadcast ${broadcastId} status changed to ${currentStatus?.status}, stopping`)
+      smsLogger.info('Broadcast status changed, stopping', { data: { broadcastId, status: currentStatus?.status } })
       break
     }
   }
@@ -394,7 +395,7 @@ async function processBroadcast(broadcastId: string): Promise<{
       .update(updateData)
       .eq('id', broadcastId)
 
-    console.log(`Broadcast ${broadcastId} updated: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}, skipped=${skippedCount}, complete=${isComplete}`)
+    smsLogger.info('Broadcast updated', { data: { broadcastId, sentCount, deliveredCount, failedCount, skippedCount, isComplete } })
   }
 
   return stats
@@ -405,8 +406,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('=== BROADCAST PROCESSING JOB ===')
-  console.log('Started at:', new Date().toISOString())
+  smsLogger.info('Broadcast processing job started', { data: { timestamp: new Date().toISOString() } })
 
   const results = {
     broadcasts_processed: 0,
@@ -459,7 +459,7 @@ export async function POST(request: NextRequest) {
         .lte('scheduled_at', now)
 
       if (sendingError || scheduledError) {
-        console.error('Error fetching broadcasts:', sendingError || scheduledError)
+        smsLogger.error('Error fetching broadcasts', { error: sendingError || scheduledError })
         return NextResponse.json({ error: 'Failed to fetch broadcasts' }, { status: 500 })
       }
 
@@ -481,10 +481,10 @@ export async function POST(request: NextRequest) {
       ]
     }
 
-    console.log(`Processing ${broadcasts.length} broadcasts`)
+    smsLogger.info('Processing broadcasts', { data: { count: broadcasts.length } })
 
     for (const broadcast of broadcasts) {
-      console.log(`Processing broadcast: ${broadcast.name} (${broadcast.id})`)
+      smsLogger.debug('Processing broadcast', { data: { name: broadcast.name, id: broadcast.id } })
       results.broadcasts_processed++
 
       try {
@@ -496,13 +496,13 @@ export async function POST(request: NextRequest) {
 
         if (stats.completed) {
           results.broadcasts_completed++
-          console.log(`Broadcast ${broadcast.id} completed`)
+          smsLogger.info('Broadcast completed', { data: { broadcastId: broadcast.id } })
         }
 
-        console.log(`Broadcast ${broadcast.id} stats:`, stats)
+        smsLogger.debug('Broadcast stats', { data: { broadcastId: broadcast.id, stats } })
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        console.error(`Error processing broadcast ${broadcast.id}:`, errorMsg)
+        smsLogger.error('Error processing broadcast', { error, data: { broadcastId: broadcast.id } })
         results.errors.push(`Broadcast ${broadcast.id}: ${errorMsg}`)
 
         // Mark broadcast as failed on critical errors
@@ -516,8 +516,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('=== JOB COMPLETE ===')
-    console.log('Results:', results)
+    smsLogger.info('Broadcast processing job complete', { data: { results } })
 
     return NextResponse.json({
       success: true,
@@ -526,7 +525,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Broadcast processing job error:', error)
+    smsLogger.error('Broadcast processing job error', { error })
     return NextResponse.json({
       error: 'Job failed',
       details: error instanceof Error ? error.message : 'Unknown error',

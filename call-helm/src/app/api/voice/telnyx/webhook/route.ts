@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { webhookLogger } from '@/lib/logger'
 
 // Use service role client to bypass RLS for webhook processing
 function getServiceClient() {
@@ -107,11 +108,8 @@ export async function POST(request: NextRequest) {
     const { data } = body
     const { event_type, payload } = data
 
-    console.log(`[Telnyx Voice Webhook] Event: ${event_type}`, {
-      callControlId: payload.call_control_id,
-      from: payload.from,
-      to: payload.to,
-      direction: payload.direction
+    webhookLogger.info('Telnyx voice webhook event', {
+      data: { eventType: event_type, callControlId: payload.call_control_id, from: payload.from, to: payload.to, direction: payload.direction }
     })
 
     // Decode client state if present
@@ -159,17 +157,17 @@ export async function POST(request: NextRequest) {
       case 'call.speak.ended':
       case 'call.playback.ended':
         // These are informational - log but no action needed
-        console.log(`[Telnyx] ${event_type} for call:`, payload.call_control_id)
+        webhookLogger.debug('Telnyx event completed', { data: { eventType: event_type, callControlId: payload.call_control_id } })
         break
 
       default:
-        console.log(`[Telnyx] Unhandled event type: ${event_type}`)
+        webhookLogger.debug('Unhandled Telnyx event type', { data: { eventType: event_type } })
     }
 
     // Always return 200 to acknowledge receipt
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('[Telnyx Voice Webhook] Error:', error)
+    webhookLogger.error('Telnyx voice webhook error', { error })
     // Still return 200 to prevent retries for processing errors
     return NextResponse.json({ received: true, error: 'Processing error' })
   }
@@ -187,7 +185,7 @@ async function handleCallInitiated(
 
   // For incoming calls, we might want to auto-answer and start recording
   if (payload.direction === 'incoming') {
-    console.log('[Telnyx] Incoming call from:', payload.from, 'to:', payload.to)
+    webhookLogger.info('Telnyx incoming call', { data: { from: payload.from, to: payload.to } })
 
     // Look up the phone number to find the organization
     const { data: phoneNumber } = await supabase
@@ -212,7 +210,7 @@ async function handleCallInitiated(
     }
   } else {
     // Outbound call initiated
-    console.log('[Telnyx] Outbound call to:', payload.to, 'from:', payload.from)
+    webhookLogger.info('Telnyx outbound call', { data: { to: payload.to, from: payload.from } })
 
     // Update existing call record if we have one from clientState
     if (clientState.callId) {
@@ -238,7 +236,7 @@ async function handleCallAnswered(
 ) {
   const supabase = getServiceClient()
 
-  console.log('[Telnyx] Call answered:', payload.call_control_id)
+  webhookLogger.info('Telnyx call answered', { data: { callControlId: payload.call_control_id } })
 
   // Find the call by external_id in metadata (JSONB query)
   const { data: call } = await supabase
@@ -248,7 +246,7 @@ async function handleCallAnswered(
     .single()
 
   if (!call) {
-    console.error('[Telnyx] Call not found for answered event:', payload.call_control_id)
+    webhookLogger.error('Telnyx call not found for answered event', { data: { callControlId: payload.call_control_id } })
     return
   }
 
@@ -269,9 +267,9 @@ async function handleCallAnswered(
     .eq('id', call.id)
 
   if (updateError) {
-    console.error('[Telnyx] Failed to update call status:', updateError)
+    webhookLogger.error('Telnyx failed to update call status', { error: updateError })
   } else {
-    console.log('[Telnyx] Call metadata updated with call_status=in-progress:', call.id)
+    webhookLogger.debug('Telnyx call metadata updated', { data: { callId: call.id, callStatus: 'in-progress' } })
   }
 
   // Auto-start recording if configured
@@ -287,9 +285,9 @@ async function handleCallAnswered(
         transcription: true,
         transcriptionEngine: 'B' // Telnyx engine - lower latency
       })
-      console.log('[Telnyx] Auto-recording started for:', payload.call_control_id)
+      webhookLogger.info('Telnyx auto-recording started', { data: { callControlId: payload.call_control_id } })
     } catch (error) {
-      console.error('[Telnyx] Failed to start recording:', error)
+      webhookLogger.error('Telnyx failed to start recording', { error })
     }
   }
 }
@@ -304,9 +302,8 @@ async function handleCallHangup(
 ) {
   const supabase = getServiceClient()
 
-  console.log('[Telnyx] Call ended:', payload.call_control_id, {
-    cause: payload.hangup_cause,
-    source: payload.hangup_source
+  webhookLogger.info('Telnyx call ended', {
+    data: { callControlId: payload.call_control_id, cause: payload.hangup_cause, source: payload.hangup_source }
   })
 
   // Find the call by external_id in metadata (JSONB query)
@@ -317,7 +314,7 @@ async function handleCallHangup(
     .single()
 
   if (!call) {
-    console.error('[Telnyx] Call not found for hangup event:', payload.call_control_id)
+    webhookLogger.error('Telnyx call not found for hangup event', { data: { callControlId: payload.call_control_id } })
     return
   }
 
@@ -360,7 +357,7 @@ async function handleCallHangup(
     .update(updateData)
     .eq('id', call.id)
 
-  console.log('[Telnyx] Call ended, status updated to:', status, 'for call:', call.id)
+  webhookLogger.info('Telnyx call status updated', { data: { callId: call.id, status } })
 
   // Broadcast call ended event for real-time UI updates
   await supabase
@@ -383,7 +380,7 @@ async function handleDTMFReceived(
   payload: TelnyxWebhookPayload,
   clientState: Record<string, unknown>
 ) {
-  console.log('[Telnyx] DTMF received:', payload.digit, 'for call:', payload.call_control_id)
+  webhookLogger.debug('Telnyx DTMF received', { data: { digit: payload.digit, callControlId: payload.call_control_id } })
 
   // Handle DTMF based on client state context
   // This could be used for IVR navigation, surveys, etc.
@@ -402,13 +399,13 @@ async function handleRecordingSaved(
 ) {
   const supabase = getServiceClient()
 
-  console.log('[Telnyx] Recording saved:', payload.recording_id)
+  webhookLogger.info('Telnyx recording saved', { data: { recordingId: payload.recording_id } })
 
   // Get recording URL (valid for 10 minutes)
   const recordingUrl = payload.recording_urls?.wav || payload.recording_urls?.mp3
 
   if (!recordingUrl) {
-    console.error('[Telnyx] No recording URL in payload')
+    webhookLogger.error('Telnyx no recording URL in payload')
     return
   }
 
@@ -420,7 +417,7 @@ async function handleRecordingSaved(
     .single()
 
   if (!call) {
-    console.error('[Telnyx] Call not found for recording:', payload.call_control_id)
+    webhookLogger.error('Telnyx call not found for recording', { data: { callControlId: payload.call_control_id } })
     return
   }
 
@@ -448,7 +445,7 @@ async function handleRecordingSaved(
 
   // Queue job to download and store recording permanently
   // This should be handled by a background job/cron
-  console.log('[Telnyx] Recording queued for download:', payload.recording_id)
+  webhookLogger.info('Telnyx recording queued for download', { data: { recordingId: payload.recording_id } })
 
   // Update call with recording reference
   await supabase
@@ -466,7 +463,7 @@ async function handleAMDResult(
 ) {
   const supabase = getServiceClient()
 
-  console.log('[Telnyx] AMD result:', payload.result, 'for call:', payload.call_control_id)
+  webhookLogger.info('Telnyx AMD result', { data: { result: payload.result, callControlId: payload.call_control_id } })
 
   // Find the call by external_id in metadata
   const { data: call } = await supabase
@@ -476,7 +473,7 @@ async function handleAMDResult(
     .single()
 
   if (!call) {
-    console.error('[Telnyx] Call not found for AMD result:', payload.call_control_id)
+    webhookLogger.error('Telnyx call not found for AMD result', { data: { callControlId: payload.call_control_id } })
     return
   }
 
@@ -495,7 +492,7 @@ async function handleAMDResult(
 
   // If machine detected, you might want to leave a voicemail or hang up
   if (payload.result === 'machine') {
-    console.log('[Telnyx] Machine detected, handling accordingly')
+    webhookLogger.info('Telnyx machine detected, handling accordingly')
   }
 }
 
@@ -506,10 +503,8 @@ async function handleGatherEnded(
   payload: TelnyxWebhookPayload,
   clientState: Record<string, unknown>
 ) {
-  console.log('[Telnyx] Gather ended:', {
-    digits: payload.digits,
-    reason: payload.termination_reason,
-    callControlId: payload.call_control_id
+  webhookLogger.debug('Telnyx gather ended', {
+    data: { digits: payload.digits, reason: payload.termination_reason, callControlId: payload.call_control_id }
   })
 
   // Process gathered digits based on context

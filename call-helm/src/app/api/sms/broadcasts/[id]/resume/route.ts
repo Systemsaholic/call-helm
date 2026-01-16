@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { billingService } from '@/lib/services/billing'
+import { smsLogger } from '@/lib/logger'
 
 // POST - Resume a paused broadcast
 export async function POST(
@@ -113,7 +114,7 @@ export async function POST(
       .eq('id', id)
 
     if (updateError) {
-      console.error('Error resuming broadcast:', updateError)
+      smsLogger.error('Error resuming broadcast', { error: updateError })
       return NextResponse.json({ error: 'Failed to resume broadcast' }, { status: 500 })
     }
 
@@ -127,7 +128,7 @@ export async function POST(
           'Authorization': `Bearer ${process.env.CRON_SECRET || ''}`
         },
         body: JSON.stringify({ broadcastId: id })
-      }).catch(err => console.error('Failed to trigger broadcast processing:', err))
+      }).catch(err => smsLogger.error('Failed to trigger broadcast processing', { error: err }))
     }
 
     return NextResponse.json({
@@ -138,7 +139,7 @@ export async function POST(
       smsWarning: broadcastCheck.reason
     })
   } catch (error) {
-    console.error('Error in broadcast resume:', error)
+    smsLogger.error('Error in broadcast resume', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +36,7 @@ export async function GET(
 
     return NextResponse.json({ success: true, template: data })
   } catch (error) {
-    console.error('Error fetching template:', error)
+    smsLogger.error('Error fetching template', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -78,7 +79,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, template: data })
   } catch (error) {
-    console.error('Error updating template:', error)
+    smsLogger.error('Error updating template', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -105,7 +106,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error deleting template:', error)
+    smsLogger.error('Error deleting template', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { stripe } from '@/lib/stripe'
 import { z } from 'zod'
+import { billingLogger } from '@/lib/logger'
 
 // Supabase admin client for server-side operations
 const supabase = createClient(
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       url: session.url,
     })
   } catch (error) {
-    console.error('Stripe portal error:', error)
+    billingLogger.error('Stripe portal error', { error })
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

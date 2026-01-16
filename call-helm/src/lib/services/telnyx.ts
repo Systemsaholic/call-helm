@@ -11,6 +11,10 @@
  * - Optimal codec selection (OPUS/G.722)
  */
 
+import { voiceLogger, smsLogger, createLogger } from '@/lib/logger'
+
+const telnyxLogger = createLogger({ component: 'Telnyx' })
+
 // Environment variables
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY || ''
 const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID || ''
@@ -136,6 +140,96 @@ export interface PortingOrder {
   createdAt: string
 }
 
+export interface BrandOptions {
+  brandName: string
+  legalCompanyName: string
+  einTaxId: string
+  businessType: string
+  industry: string
+  websiteUrl?: string
+  address: {
+    street: string
+    city: string
+    state: string
+    zip: string
+    country: string
+  }
+  phoneNumber: string
+  email: string
+}
+
+export interface BrandResult {
+  id: string
+  status: string
+  approvalDate?: string
+  rejectionReason?: string
+}
+
+export interface CampaignOptions {
+  brandId: string
+  campaignName: string
+  useCase: string
+  useCaseDescription: string
+  messageSamples: string[]
+  optInKeywords?: string[]
+  optOutKeywords?: string[]
+  helpKeywords?: string[]
+  helpMessage?: string
+  optInMessage?: string
+  optOutMessage?: string
+  monthlyMessageVolume?: number
+  subscriberOptinFlow: string
+  subscriberOptinFlowDescription: string
+  ageGating?: boolean
+  directLending?: boolean
+  embeddedLink?: boolean
+  embeddedPhone?: boolean
+  affiliateMarketing?: boolean
+}
+
+export interface CampaignResult {
+  id: string
+  status: string
+  approvalDate?: string
+  rejectionReason?: string
+}
+
+export interface PortingOrderOptions {
+  phoneNumbers: string[]
+  loaConfiguration: {
+    name: string
+    email: string
+    phoneNumber: string
+  }
+  endUser: {
+    billingAddress: {
+      street: string
+      city: string
+      state: string
+      zip: string
+      country: string
+    }
+    serviceAddress?: {
+      street: string
+      city: string
+      state: string
+      zip: string
+      country: string
+    }
+  }
+  currentProvider: string
+  accountNumber: string
+  pinCode: string
+  requestedPortDate?: string
+}
+
+export interface PortingOrderStatusResult {
+  status: string
+  statusDetails?: Record<string, unknown>
+  actualPortDate?: string
+  rejectionReason?: string
+}
+
 export interface CallQualityStats {
   inbound: {
     mos: string
@@ -179,7 +273,7 @@ export class TelnyxService {
     this.baseUrl = TELNYX_API_BASE
 
     if (!this.apiKey) {
-      console.warn('TelnyxService: No API key configured')
+      telnyxLogger.warn('No API key configured')
     }
   }
 
@@ -214,7 +308,7 @@ export class TelnyxService {
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`Telnyx API Error [${response.status}]:`, errorText)
+      telnyxLogger.error(`API Error [${response.status}]`, { data: errorText })
 
       let errorMessage = `Telnyx API Error: ${response.status}`
       try {
@@ -277,7 +371,7 @@ export class TelnyxService {
       }))
     }
 
-    console.log('[Telnyx] Initiating call:', { to: options.to, from: options.from })
+    voiceLogger.info('Initiating call', { data: { to: options.to, from: options.from } })
 
     const result = await this.request<{
       call_control_id: string
@@ -307,7 +401,7 @@ export class TelnyxService {
       body
     })
 
-    console.log('[Telnyx] Call answered:', callControlId)
+    voiceLogger.info('Call answered', { data: { callControlId } })
   }
 
   /**
@@ -319,7 +413,7 @@ export class TelnyxService {
       body: {}
     })
 
-    console.log('[Telnyx] Call hung up:', callControlId)
+    voiceLogger.info('Call hung up', { data: { callControlId } })
   }
 
   /**
@@ -346,7 +440,7 @@ export class TelnyxService {
       body
     })
 
-    console.log('[Telnyx] Recording started:', callControlId, { channels: body.channels, format: body.format })
+    voiceLogger.info('Recording started', { data: { callControlId, channels: body.channels, format: body.format } })
   }
 
   /**
@@ -358,7 +452,7 @@ export class TelnyxService {
       body: {}
     })
 
-    console.log('[Telnyx] Recording stopped:', callControlId)
+    voiceLogger.info('Recording stopped', { data: { callControlId } })
   }
 
   /**
@@ -484,7 +578,7 @@ export class TelnyxService {
       body
     })
 
-    console.log('[Telnyx] Call transferred:', callControlId, '-> ', to)
+    voiceLogger.info('Call transferred', { data: { callControlId, to } })
   }
 
   /**
@@ -498,7 +592,7 @@ export class TelnyxService {
       }
     })
 
-    console.log('[Telnyx] Calls bridged:', callControlId, '<->', targetCallControlId)
+    voiceLogger.info('Calls bridged', { data: { callControlId, targetCallControlId } })
   }
 
   /**
@@ -555,7 +649,7 @@ export class TelnyxService {
       body.media_urls = options.mediaUrls
     }
 
-    console.log('[Telnyx] Sending message:', { to: options.to, from: options.from })
+    smsLogger.info('Sending message', { data: { to: options.to, from: options.from } })
 
     const result = await this.request<{
       id: string
@@ -637,7 +731,7 @@ export class TelnyxService {
       })
     }
 
-    console.log('[Telnyx] Searching available numbers:', params)
+    telnyxLogger.debug('Searching available numbers', { data: params })
 
     const result = await this.request<{
       phone_number: string
@@ -685,7 +779,7 @@ export class TelnyxService {
       body.messaging_profile_id = options.messagingProfileId
     }
 
-    console.log('[Telnyx] Purchasing number:', phoneNumber)
+    telnyxLogger.info('Purchasing number', { data: { phoneNumber } })
 
     const result = await this.request<{
       id: string
@@ -773,7 +867,7 @@ export class TelnyxService {
       body
     })
 
-    console.log('[Telnyx] Number updated:', numberId)
+    telnyxLogger.info('Number updated', { data: { numberId } })
   }
 
   /**
@@ -784,7 +878,7 @@ export class TelnyxService {
       method: 'DELETE'
     })
 
-    console.log('[Telnyx] Number released:', numberId)
+    telnyxLogger.info('Number released', { data: { numberId } })
   }
 
   // ============================================
@@ -844,7 +938,7 @@ export class TelnyxService {
       }
     })
 
-    console.log('[Telnyx] Hosted number order created:', result.id)
+    telnyxLogger.info('Hosted number order created', { data: { orderId: result.id } })
 
     return {
       id: result.id,
@@ -887,7 +981,7 @@ export class TelnyxService {
       throw new Error(`Failed to upload documents: ${error}`)
     }
 
-    console.log('[Telnyx] Hosted number documents uploaded:', orderId)
+    telnyxLogger.info('Hosted number documents uploaded', { data: { orderId } })
   }
 
   /**
@@ -955,34 +1049,58 @@ export class TelnyxService {
   /**
    * Create a porting order
    */
-  async createPortingOrder(phoneNumbers: string[]): Promise<PortingOrder> {
+  async createPortingOrder(options: PortingOrderOptions): Promise<PortingOrder> {
+    const body: Record<string, unknown> = {
+      phone_numbers: options.phoneNumbers.map(pn => ({ phone_number: pn })),
+      end_user: {
+        admin: {
+          first_name: options.loaConfiguration.name.split(' ')[0] || options.loaConfiguration.name,
+          last_name: options.loaConfiguration.name.split(' ').slice(1).join(' ') || '',
+          email: options.loaConfiguration.email,
+          phone_number: options.loaConfiguration.phoneNumber
+        },
+        location: {
+          street_address: options.endUser.billingAddress.street,
+          city: options.endUser.billingAddress.city,
+          state: options.endUser.billingAddress.state,
+          postal_code: options.endUser.billingAddress.zip,
+          country_code: options.endUser.billingAddress.country || 'US'
+        }
+      },
+      losing_carrier: {
+        name: options.currentProvider,
+        account_number: options.accountNumber,
+        pin: options.pinCode
+      }
+    }
+
+    if (options.requestedPortDate) {
+      body.customer_reference = options.requestedPortDate
+    }
+
     const result = await this.request<{
-      data: {
-        id: string
+      id: string
+      status: string
+      phone_numbers: {
+        phone_number: string
         status: string
-        phone_numbers: {
-          phone_number: string
-          status: string
-        }[]
-        created_at: string
       }[]
+      created_at: string
     }>('/porting_orders', {
       method: 'POST',
-      body: { phone_numbers: phoneNumbers }
+      body
     })
 
-    const order = result.data[0]
-
-    console.log('[Telnyx] Porting order created:', order.id)
+    telnyxLogger.info('Porting order created', { data: { orderId: result.id } })
 
     return {
-      id: order.id,
-      status: order.status,
-      phoneNumbers: order.phone_numbers.map(pn => ({
+      id: result.id,
+      status: result.status,
+      phoneNumbers: (result.phone_numbers || []).map(pn => ({
         phoneNumber: pn.phone_number,
         status: pn.status
       })),
-      createdAt: order.created_at
+      createdAt: result.created_at
     }
   }
 
@@ -1015,7 +1133,7 @@ export class TelnyxService {
       name: string
     }>('/messaging_profiles', { method: 'POST', body })
 
-    console.log('[Telnyx] Messaging profile created:', result.id)
+    telnyxLogger.info('Messaging profile created', { data: { profileId: result.id } })
 
     return {
       id: result.id,
@@ -1046,6 +1164,153 @@ export class TelnyxService {
       method: 'PATCH',
       body
     })
+  }
+
+  // ============================================
+  // 10DLC CAMPAIGN REGISTRY
+  // ============================================
+
+  /**
+   * Create a brand for 10DLC compliance
+   */
+  async createBrand(options: BrandOptions): Promise<BrandResult> {
+    const body: Record<string, unknown> = {
+      entity_type: options.businessType === 'SOLE_PROPRIETOR' ? 'SOLE_PROPRIETOR' : 'PRIVATE_PROFIT',
+      display_name: options.brandName,
+      company_name: options.legalCompanyName,
+      ein: options.einTaxId,
+      vertical: options.industry,
+      website: options.websiteUrl || '',
+      phone: options.phoneNumber,
+      email: options.email,
+      street: options.address.street,
+      city: options.address.city,
+      state: options.address.state,
+      postal_code: options.address.zip,
+      country: options.address.country || 'US'
+    }
+
+    smsLogger.info('Creating 10DLC brand', { data: { brandName: options.brandName } })
+
+    const result = await this.request<{
+      id: string
+      status: string
+      approval_date?: string
+      rejection_reason?: string
+    }>('/10dlc/brands', { method: 'POST', body })
+
+    return {
+      id: result.id,
+      status: result.status,
+      approvalDate: result.approval_date,
+      rejectionReason: result.rejection_reason
+    }
+  }
+
+  /**
+   * Get brand status from 10DLC registry
+   */
+  async getBrandStatus(brandId: string): Promise<BrandResult> {
+    const result = await this.request<{
+      id: string
+      status: string
+      approval_date?: string
+      rejection_reason?: string
+    }>(`/10dlc/brands/${brandId}`)
+
+    return {
+      id: result.id,
+      status: result.status,
+      approvalDate: result.approval_date,
+      rejectionReason: result.rejection_reason
+    }
+  }
+
+  /**
+   * Create a campaign for 10DLC compliance
+   */
+  async createCampaign(options: CampaignOptions): Promise<CampaignResult> {
+    const body: Record<string, unknown> = {
+      brand_id: options.brandId,
+      use_case: options.useCase,
+      description: options.useCaseDescription,
+      sample_messages: options.messageSamples,
+      subscriber_optin: true,
+      subscriber_optout: true,
+      subscriber_help: true,
+      message_flow: options.subscriberOptinFlowDescription,
+      help_message: options.helpMessage || 'Reply STOP to unsubscribe, HELP for help',
+      optout_message: options.optOutMessage || 'You have been unsubscribed. No more messages will be sent.',
+      embedded_link: options.embeddedLink || false,
+      embedded_phone: options.embeddedPhone || false,
+      affiliate_marketing: options.affiliateMarketing || false,
+      age_gated: options.ageGating || false,
+      direct_lending: options.directLending || false
+    }
+
+    if (options.optInKeywords?.length) {
+      body.optin_keywords = options.optInKeywords.join(',')
+    }
+    if (options.optOutKeywords?.length) {
+      body.optout_keywords = options.optOutKeywords.join(',')
+    }
+    if (options.helpKeywords?.length) {
+      body.help_keywords = options.helpKeywords.join(',')
+    }
+
+    smsLogger.info('Creating 10DLC campaign', { data: { campaignName: options.campaignName } })
+
+    const result = await this.request<{
+      id: string
+      status: string
+      approval_date?: string
+      rejection_reason?: string
+    }>('/10dlc/campaigns', { method: 'POST', body })
+
+    return {
+      id: result.id,
+      status: result.status,
+      approvalDate: result.approval_date,
+      rejectionReason: result.rejection_reason
+    }
+  }
+
+  /**
+   * Get campaign status from 10DLC registry
+   */
+  async getCampaignStatus(campaignId: string): Promise<CampaignResult> {
+    const result = await this.request<{
+      id: string
+      status: string
+      approval_date?: string
+      rejection_reason?: string
+    }>(`/10dlc/campaigns/${campaignId}`)
+
+    return {
+      id: result.id,
+      status: result.status,
+      approvalDate: result.approval_date,
+      rejectionReason: result.rejection_reason
+    }
+  }
+
+  /**
+   * Get porting order status
+   */
+  async getPortingOrderStatus(portingOrderId: string): Promise<PortingOrderStatusResult> {
+    const result = await this.request<{
+      status: string
+      status_details?: Record<string, unknown>
+      porting_date?: string
+      rejection_reason?: string
+    }>(`/porting_orders/${portingOrderId}`)
+
+    return {
+      status: result.status,
+      statusDetails: result.status_details,
+      actualPortDate: result.porting_date,
+      rejectionReason: result.rejection_reason
+    }
   }
 
   // ============================================

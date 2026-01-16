@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { trackLLMUsage, withUsageCheck } from '@/lib/utils/usageTracking'
 import OpenAI from 'openai'
+import { apiLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('AI script generation error:', error)
+    apiLogger.error('AI script generation error', { error })
     
     if (error.message.includes('Usage limit exceeded')) {
       return NextResponse.json({ 
@@ -226,7 +227,7 @@ The script should naturally incorporate all key points while maintaining a ${par
       outputTokens: completion.usage?.completion_tokens || 0,
     }
   } catch (error) {
-    console.error('OpenAI API error:', error)
+    apiLogger.error('OpenAI API error', { error })
     throw error
   }
 }

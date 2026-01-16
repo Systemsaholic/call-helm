@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 // DEPRECATED: SignalWire config endpoint - no longer used
 // Voice services now use Telnyx instead
 export async function GET(request: NextRequest) {
-  console.warn('DEPRECATED: /api/signalwire/config is deprecated. Voice services now use Telnyx.')
+  voiceLogger.warn('DEPRECATED: /api/signalwire/config is deprecated. Voice services now use Telnyx.')
   try {
     const supabase = await createClient()
     
@@ -46,8 +47,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(config)
     
   } catch (error) {
-    console.error('SignalWire config error:', error)
-    return NextResponse.json({ 
+    voiceLogger.error('SignalWire config error', { error })
+    return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })

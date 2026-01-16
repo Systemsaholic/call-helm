@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, handoffs: data || [] })
   } catch (error) {
-    console.error('Error fetching handoffs:', error)
+    smsLogger.error('Error fetching handoffs', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, handoff: data })
   } catch (error) {
-    console.error('Error creating handoff:', error)
+    smsLogger.error('Error creating handoff', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

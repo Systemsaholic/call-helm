@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { smsLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,13 +41,13 @@ export async function GET(request: NextRequest) {
     const { data: conversations, error } = await query
 
     if (error) {
-      console.error('Database error:', error)
+      smsLogger.error('Database error', { error })
       return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 })
     }
 
     return NextResponse.json({ conversations })
   } catch (error) {
-    console.error('Error fetching conversations:', error)
+    smsLogger.error('Error fetching conversations', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -88,13 +89,13 @@ export async function PATCH(request: NextRequest) {
       .eq('id', conversationId)
 
     if (error) {
-      console.error('Database error:', error)
+      smsLogger.error('Database error updating conversation', { error })
       return NextResponse.json({ error: 'Failed to update conversation' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error updating conversation:', error)
+    smsLogger.error('Error updating conversation', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

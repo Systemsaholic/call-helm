@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import twilio from 'twilio'
+import { webhookLogger } from '@/lib/logger'
 
 // Twilio webhook handler for call events
 export async function POST(req: NextRequest) {
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Twilio webhook error:', error)
+    webhookLogger.error('Twilio webhook error', { error })
     return NextResponse.json(
       { error: 'Failed to process webhook' },
       { status: 500 }

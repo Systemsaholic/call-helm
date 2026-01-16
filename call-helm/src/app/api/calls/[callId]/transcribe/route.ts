@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(
   request: NextRequest,
@@ -54,7 +55,7 @@ export async function POST(
       })
     }
 
-    console.log(`Manual transcription trigger for call ${callId}`)
+    voiceLogger.info('Manual transcription trigger', { data: { callId } })
     
     // Trigger transcription processing
     try {
@@ -72,7 +73,7 @@ export async function POST(
       
       if (!transcriptionResponse.ok) {
         const errorText = await transcriptionResponse.text()
-        console.error('Failed to trigger transcription:', errorText)
+        voiceLogger.error('Failed to trigger transcription', { error: new Error(errorText) })
         return NextResponse.json({
           error: 'Failed to start transcription',
           details: errorText
@@ -80,7 +81,7 @@ export async function POST(
       }
       
       const result = await transcriptionResponse.json()
-      console.log('Transcription triggered successfully:', result)
+      voiceLogger.info('Transcription triggered successfully', { data: { result } })
       
       return NextResponse.json({
         message: 'Transcription started successfully',
@@ -89,7 +90,7 @@ export async function POST(
       })
       
     } catch (transcriptionError) {
-      console.error('Error triggering transcription:', transcriptionError)
+      voiceLogger.error('Error triggering transcription', { error: transcriptionError })
       return NextResponse.json({
         error: 'Failed to start transcription',
         details: transcriptionError instanceof Error ? transcriptionError.message : 'Unknown error'
@@ -97,7 +98,7 @@ export async function POST(
     }
     
   } catch (error) {
-    console.error('Manual transcription trigger error:', error)
+    voiceLogger.error('Manual transcription trigger error', { error })
     return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

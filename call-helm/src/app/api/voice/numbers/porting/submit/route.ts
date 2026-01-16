@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Submit a number porting request
 export async function POST(request: NextRequest) {
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (dbError) {
-      console.error('Database error creating porting request:', dbError)
+      voiceLogger.error('Database error creating porting request', { error: dbError })
       return NextResponse.json(
         { error: 'Failed to create porting request' },
         { status: 500 }
@@ -149,7 +150,7 @@ export async function POST(request: NextRequest) {
 
     // Submit to Telnyx (this is where the real porting happens)
     try {
-      console.log(`Submitting porting request to Telnyx for ${phoneNumber}`)
+      voiceLogger.info('Submitting porting request to Telnyx', { data: { phoneNumber } })
 
       const telnyxRequest = await telnyxService.createPortingOrder({
         phoneNumbers: [phoneNumber],
@@ -223,7 +224,7 @@ export async function POST(request: NextRequest) {
           .eq('id', existingNumber.id)
       }
 
-      console.log(`Successfully submitted porting request for ${phoneNumber}`)
+      voiceLogger.info('Successfully submitted porting request', { data: { phoneNumber, telnyxPortingId: telnyxRequest.id } })
 
       return NextResponse.json({
         success: true,
@@ -243,7 +244,7 @@ export async function POST(request: NextRequest) {
         }
       })
     } catch (telnyxError) {
-      console.error('Telnyx porting submission error:', telnyxError)
+      voiceLogger.error('Telnyx porting submission error', { error: telnyxError })
       
       // Update our database to reflect the failure
       await supabase
@@ -268,7 +269,7 @@ export async function POST(request: NextRequest) {
       )
     }
   } catch (error) {
-    console.error('Error submitting porting request:', error)
+    voiceLogger.error('Error submitting porting request', { error })
     return NextResponse.json(
       { error: 'Failed to submit porting request' },
       { status: 500 }

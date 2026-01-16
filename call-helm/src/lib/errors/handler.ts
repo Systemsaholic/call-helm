@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { ZodError } from 'zod'
+import { apiLogger } from '@/lib/logger'
 
 // Custom error classes
 export class AppError extends Error {
@@ -15,8 +16,13 @@ export class AppError extends Error {
   }
 }
 
+export interface ValidationErrorDetails {
+  field: string
+  message: string
+}
+
 export class ValidationError extends AppError {
-  constructor(message: string, public details?: any) {
+  constructor(message: string, public details?: ValidationErrorDetails[] | Record<string, string>) {
     super(message, 400, 'VALIDATION_ERROR')
   }
 }
@@ -51,8 +57,14 @@ export class ConflictError extends AppError {
   }
 }
 
+export interface QuotaInfo {
+  used: number
+  limit: number
+  resource: string
+}
+
 export class QuotaExceededError extends AppError {
-  constructor(message: string, public quota?: any) {
+  constructor(message: string, public quota?: QuotaInfo) {
     super(message, 402, 'QUOTA_EXCEEDED')
   }
 }
@@ -60,7 +72,7 @@ export class QuotaExceededError extends AppError {
 // Error handler function
 export function errorHandler(error: unknown): NextResponse {
   // Log error for monitoring
-  console.error('[Error Handler]:', error)
+  apiLogger.error('Unhandled error', { error })
 
   // Handle Zod validation errors
   if (error instanceof ZodError) {
@@ -81,7 +93,12 @@ export function errorHandler(error: unknown): NextResponse {
 
   // Handle custom app errors
   if (error instanceof AppError) {
-    const response: any = {
+    const response: {
+      error: string
+      code?: string
+      details?: ValidationErrorDetails[] | Record<string, string>
+      quota?: QuotaInfo
+    } = {
       error: error.message,
       code: error.code
     }
@@ -90,7 +107,7 @@ export function errorHandler(error: unknown): NextResponse {
     if (error instanceof ValidationError && error.details) {
       response.details = error.details
     }
-    
+
     if (error instanceof QuotaExceededError && error.quota) {
       response.quota = error.quota
     }
@@ -100,8 +117,8 @@ export function errorHandler(error: unknown): NextResponse {
 
   // Handle Supabase errors
   if (error && typeof error === 'object' && 'code' in error) {
-    const supabaseError = error as any
-    
+    const supabaseError = error as { code: string; message?: string }
+
     // Map common Supabase error codes
     if (supabaseError.code === 'PGRST116') {
       return NextResponse.json(
@@ -109,7 +126,7 @@ export function errorHandler(error: unknown): NextResponse {
         { status: 404 }
       )
     }
-    
+
     if (supabaseError.code === '23505') {
       return NextResponse.json(
         { error: 'Resource already exists', code: 'DUPLICATE' },
@@ -145,10 +162,10 @@ export function errorHandler(error: unknown): NextResponse {
 }
 
 // Async error wrapper for route handlers
-export function asyncHandler<T = any>(
-  handler: (...args: any[]) => Promise<T>
+export function asyncHandler<T, Args extends unknown[]>(
+  handler: (...args: Args) => Promise<T>
 ) {
-  return async (...args: any[]): Promise<T | NextResponse> => {
+  return async (...args: Args): Promise<T | NextResponse> => {
     try {
       return await handler(...args)
     } catch (error) {

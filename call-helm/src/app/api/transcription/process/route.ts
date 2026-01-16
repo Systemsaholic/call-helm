@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { billingService } from '@/lib/services/billing'
 import { trackAssemblyAIUsage, trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
+import { apiLogger } from '@/lib/logger'
 
 // AssemblyAI transcription service with native speaker diarization
 async function transcribeWithAssemblyAI(
@@ -25,7 +26,7 @@ async function transcribeWithAssemblyAI(
     let audioUrlForAssembly = audioUrl
 
     if (audioUrl.includes('telnyx.com') || audioUrl.includes('telnyx')) {
-      console.log('Fetching audio from Telnyx for AssemblyAI upload...')
+      apiLogger.debug('Fetching audio from Telnyx for AssemblyAI upload')
 
       // Fetch the audio with Telnyx authentication
       const telnyxApiKey = process.env.TELNYX_API_KEY
@@ -45,10 +46,10 @@ async function transcribeWithAssemblyAI(
       }
       
       const audioBlob = await audioResponse.blob()
-      console.log('Audio fetched, size:', (audioBlob.size / 1024 / 1024).toFixed(2), 'MB')
-      
+      apiLogger.debug('Audio fetched', { data: { sizeMB: (audioBlob.size / 1024 / 1024).toFixed(2) } })
+
       // Upload the audio file to AssemblyAI
-      console.log('Uploading audio to AssemblyAI...')
+      apiLogger.debug('Uploading audio to AssemblyAI')
       const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
         method: 'POST',
         headers: {
@@ -65,10 +66,10 @@ async function transcribeWithAssemblyAI(
       
       const uploadData = await uploadResponse.json()
       audioUrlForAssembly = uploadData.upload_url
-      console.log('Audio uploaded to AssemblyAI successfully')
+      apiLogger.debug('Audio uploaded to AssemblyAI successfully')
     }
-    
-    console.log('Submitting transcription request to AssemblyAI...')
+
+    apiLogger.debug('Submitting transcription request to AssemblyAI')
     
     // Submit the transcription request to AssemblyAI
     const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
@@ -109,7 +110,7 @@ async function transcribeWithAssemblyAI(
     const transcriptData = await transcriptResponse.json()
     const transcriptId = transcriptData.id
     
-    console.log('AssemblyAI transcript ID:', transcriptId)
+    apiLogger.debug('AssemblyAI transcript created', { data: { transcriptId } })
     
     // Poll for the transcription result
     let transcriptionData: any = null
@@ -131,7 +132,7 @@ async function transcribeWithAssemblyAI(
       
       transcriptionData = await statusResponse.json()
       
-      console.log(`Transcription status (attempt ${pollCount + 1}):`, transcriptionData.status)
+      apiLogger.debug('Transcription status', { data: { attempt: pollCount + 1, status: transcriptionData.status } })
       
       if (transcriptionData.status === 'completed') {
         break
@@ -242,13 +243,13 @@ async function transcribeWithAssemblyAI(
       
       // Log additional insights from AssemblyAI
       if (transcriptionData.sentiment_analysis_results) {
-        console.log('Sentiment analysis available:', transcriptionData.sentiment_analysis_results.length, 'segments')
+        apiLogger.debug('Sentiment analysis available', { data: { segments: transcriptionData.sentiment_analysis_results.length } })
       }
       if (transcriptionData.entities) {
-        console.log('Entities detected:', transcriptionData.entities.length)
+        apiLogger.debug('Entities detected', { data: { count: transcriptionData.entities.length } })
       }
       if (transcriptionData.summary) {
-        console.log('Summary generated:', transcriptionData.summary.substring(0, 100) + '...')
+        apiLogger.debug('Summary generated', { data: { preview: transcriptionData.summary.substring(0, 100) } })
       }
       
       // Store additional insights for later use
@@ -277,27 +278,23 @@ async function transcribeWithAssemblyAI(
     return formattedTranscript.trim()
     
   } catch (error) {
-    console.error('AssemblyAI transcription error:', error)
+    apiLogger.error('AssemblyAI transcription error', { error })
     throw error
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== TRANSCRIPTION PROCESS WEBHOOK ===')
-    
     const body = await request.json()
     const { callId, recordingUrl, recordingSid } = body
-    
+
+    apiLogger.info('Transcription process webhook', { data: { callId, recordingUrl, recordingSid } })
+
     if (!callId || !recordingUrl) {
-      return NextResponse.json({ 
-        error: 'Missing required fields: callId and recordingUrl' 
+      return NextResponse.json({
+        error: 'Missing required fields: callId and recordingUrl'
       }, { status: 400 })
     }
-    
-    console.log('Processing transcription for call:', callId)
-    console.log('Recording URL:', recordingUrl)
-    console.log('Recording SID:', recordingSid)
     
     // Use service role client to bypass RLS
     const supabase = createClient(
@@ -340,7 +337,7 @@ export async function POST(request: NextRequest) {
     )
 
     if (!quotaCheck.canUse) {
-      console.log('Transcription quota exceeded:', quotaCheck.reason)
+      apiLogger.warn('Transcription quota exceeded', { data: { reason: quotaCheck.reason } })
       
       // Update status to failed with quota reason
       await supabase
@@ -378,9 +375,9 @@ export async function POST(request: NextRequest) {
       } : undefined
       
       // Transcribe the audio
-      console.log('Starting transcription with AssemblyAI...')
+      apiLogger.debug('Starting transcription with AssemblyAI')
       const transcription = await transcribeWithAssemblyAI(recordingUrl, recordingSid, speakerData)
-      console.log('Transcription completed:', transcription.substring(0, 100) + '...')
+      apiLogger.debug('Transcription completed', { data: { preview: transcription.substring(0, 100) } })
       
       // Calculate actual minutes from transcription length (rough estimate)
       // AssemblyAI typically processes at ~3x real time, so we can estimate
@@ -410,12 +407,11 @@ export async function POST(request: NextRequest) {
         .eq('id', callId)
       
       if (updateError) {
-        console.error('Error updating transcription:', updateError)
+        apiLogger.error('Error updating transcription', { error: updateError })
         throw updateError
       }
-      
-      console.log('Transcription saved successfully for call:', callId)
-      console.log(`Tracked ${estimatedActualMinutes} minutes of AssemblyAI usage`)
+
+      apiLogger.info('Transcription saved successfully', { data: { callId, trackedMinutes: estimatedActualMinutes } })
       
       // Extract transcript ID from the transcription if present
       let assemblyTranscriptId: string | undefined
@@ -425,7 +421,7 @@ export async function POST(request: NextRequest) {
       }
       
       // Trigger enhanced AI analysis with AssemblyAI data
-      console.log('Triggering enhanced AI analysis...')
+      apiLogger.debug('Triggering enhanced AI analysis')
       const analysisUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
       
       fetch(`${analysisUrl}/api/analysis/enhanced`, {
@@ -438,7 +434,7 @@ export async function POST(request: NextRequest) {
           transcriptId: assemblyTranscriptId
         })
       }).catch(error => {
-        console.error('Failed to trigger AI analysis:', error)
+        apiLogger.error('Failed to trigger AI analysis', { error })
       })
       
       return NextResponse.json({
@@ -448,7 +444,7 @@ export async function POST(request: NextRequest) {
       })
       
     } catch (transcriptionError) {
-      console.error('Transcription failed:', transcriptionError)
+      apiLogger.error('Transcription failed', { error: transcriptionError })
       
       // Update status to failed
       await supabase
@@ -466,7 +462,7 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error('Transcription process error:', error)
+    apiLogger.error('Transcription process error', { error })
     return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

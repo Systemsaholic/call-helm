@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { billingLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,7 +73,7 @@ export async function GET(request: NextRequest) {
       })
 
     if (statsError) {
-      console.error('Error fetching usage stats:', statsError)
+      billingLogger.error('Error fetching usage stats', { error: statsError })
       return NextResponse.json({ error: 'Failed to fetch usage statistics' }, { status: 500 })
     }
 
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
       .limit(100) // Limit to most recent 100 events
 
     if (eventsError) {
-      console.error('Error fetching usage events:', eventsError)
+      billingLogger.error('Error fetching usage events', { error: eventsError })
     }
 
     // Calculate totals and trends
@@ -160,9 +161,9 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Usage stats error:', error)
-    return NextResponse.json({ 
-      error: 'Failed to fetch usage statistics' 
+    billingLogger.error('Usage stats error', { error })
+    return NextResponse.json({
+      error: 'Failed to fetch usage statistics'
     }, { status: 500 })
   }
 }
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest) {
     const { data: events, error } = await query.limit(100)
 
     if (error) {
-      console.error('Error fetching usage events:', error)
+      billingLogger.error('Error fetching usage events', { error })
       return NextResponse.json({ error: 'Failed to fetch usage events' }, { status: 500 })
     }
 
@@ -233,9 +234,9 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Usage events error:', error)
-    return NextResponse.json({ 
-      error: 'Failed to fetch usage events' 
+    billingLogger.error('Usage events error', { error })
+    return NextResponse.json({
+      error: 'Failed to fetch usage events'
     }, { status: 500 })
   }
 }

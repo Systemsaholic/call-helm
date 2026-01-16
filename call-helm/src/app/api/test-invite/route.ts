@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { apiLogger } from '@/lib/logger'
 
 // Test endpoint to verify invitation functionality
 export async function POST(request: NextRequest) {
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
     )
     
     if (error) {
-      console.error('Invitation error:', error)
+      apiLogger.error('Invitation error', { error })
       return NextResponse.json({ 
         error: 'Failed to send invitation',
         details: error.message,
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error: any) {
-    console.error('Test invite error:', error)
+    apiLogger.error('Test invite error', { error })
     return NextResponse.json({ 
       error: 'Internal server error',
       details: error.message

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 // POST - Pause a sending broadcast
 export async function POST(
@@ -58,7 +59,7 @@ export async function POST(
       .eq('id', id)
 
     if (updateError) {
-      console.error('Error pausing broadcast:', updateError)
+      smsLogger.error('Error pausing broadcast', { error: updateError })
       return NextResponse.json({ error: 'Failed to pause broadcast' }, { status: 500 })
     }
 
@@ -80,7 +81,7 @@ export async function POST(
       stats: statusCounts
     })
   } catch (error) {
-    console.error('Error in broadcast pause:', error)
+    smsLogger.error('Error in broadcast pause', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

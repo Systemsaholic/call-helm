@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Canadian area codes for auto-detection
 const CANADIAN_AREA_CODES = new Set([
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     // Auto-detect country from area code if not specified
     if (areaCode && !country) {
       country = detectCountryFromAreaCode(areaCode)
-      console.log(`Auto-detected country ${country} for area code ${areaCode}`)
+      voiceLogger.debug('Auto-detected country from area code', { data: { country, areaCode } })
     }
     country = country || 'US'
     
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
         stateProvince = provinceMap[region] || region
       }
       
-      console.log(`Searching for area codes for ${city}, ${stateProvince}, ${country}`)
+      voiceLogger.debug('Searching for area codes by city', { data: { city, stateProvince, country } })
       
       // Look up area codes for the city
       const { data: areaCodes, error: areaCodeError } = await supabase
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
         })
 
       if (!areaCodeError && areaCodes && areaCodes.length > 0) {
-        console.log(`Found area codes for ${city}: ${areaCodes.map((ac: any) => ac.area_code).join(', ')}`)
+        voiceLogger.debug('Found area codes for city', { data: { city, areaCodes: areaCodes.map((ac: { area_code: string }) => ac.area_code) } })
         searchMethod = 'city'
         
         // Search for numbers in each area code (limit results per area code)
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest) {
         }))
       } else {
         // No area codes found for city, log it and fall back to region search
-        console.log(`No area codes found for ${city}, falling back to region search`)
+        voiceLogger.debug('No area codes found for city, falling back to region search', { data: { city } })
         
         // Log the miss for monitoring
         await supabase.rpc('log_area_code_search_miss', {
@@ -171,7 +172,7 @@ export async function POST(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error searching phone numbers:', error)
+    voiceLogger.error('Error searching phone numbers', { error })
     return NextResponse.json(
       { error: 'Failed to search available numbers' },
       { status: 500 }

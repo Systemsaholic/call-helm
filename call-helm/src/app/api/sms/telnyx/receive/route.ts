@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 interface TelnyxInboundMessagePayload {
   id: string
@@ -72,16 +73,12 @@ export async function POST(request: NextRequest) {
     const messageBody = payload.text || ''
     const telnyxMessageId = payload.id
 
-    console.log('[Telnyx SMS Receive] Inbound message:', {
-      id: telnyxMessageId,
-      from: fromNumber,
-      to: toNumber,
-      type: payload.type,
-      bodyLength: messageBody.length
+    smsLogger.info('Telnyx SMS inbound message', {
+      data: { id: telnyxMessageId, from: fromNumber, to: toNumber, type: payload.type, bodyLength: messageBody.length }
     })
 
     if (!fromNumber || !toNumber) {
-      console.error('[Telnyx SMS] Missing from/to numbers')
+      smsLogger.error('Missing from/to numbers')
       return NextResponse.json({ received: true, error: 'Missing phone numbers' })
     }
 
@@ -137,7 +134,7 @@ export async function POST(request: NextRequest) {
 
         if (phoneData) {
           organizationId = phoneData.organization_id
-          console.log('[Telnyx SMS] Routed reply to org via existing conversation:', organizationId)
+          smsLogger.debug('Routed reply to org via existing conversation', { data: { organizationId } })
         }
       }
     }
@@ -158,11 +155,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!organizationId) {
-      console.error('[Telnyx SMS] No organization found for phone number:', toNumber)
+      smsLogger.error('No organization found for phone number', { data: { toNumber } })
       return NextResponse.json({ received: true, error: 'Organization not found' })
     }
 
-    console.log('[Telnyx SMS] Incoming SMS routed to organization:', organizationId)
+    smsLogger.info('Incoming SMS routed to organization', { data: { organizationId } })
 
     // Check if conversation exists
     let { data: conversation } = await supabase
@@ -192,7 +189,7 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (convError) {
-        console.error('[Telnyx SMS] Error creating conversation:', convError)
+        smsLogger.error('Error creating conversation', { error: convError })
         return NextResponse.json({ received: true, error: 'Failed to create conversation' })
       }
 
@@ -218,7 +215,7 @@ export async function POST(request: NextRequest) {
         .eq('id', conversation.id)
 
       if (updateError) {
-        console.error('[Telnyx SMS] Error updating conversation:', updateError)
+        smsLogger.error('Error updating conversation', { error: updateError })
       }
     }
 
@@ -241,11 +238,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (messageError) {
-      console.error('[Telnyx SMS] Error storing message:', messageError)
+      smsLogger.error('Error storing message', { error: messageError })
       return NextResponse.json({ received: true, error: 'Failed to store message' })
     }
 
-    console.log('[Telnyx SMS] Incoming SMS stored:', messageRecord.id)
+    smsLogger.info('Incoming SMS stored', { data: { messageId: messageRecord.id } })
 
     // Check for auto-reply settings
     const { data: autoReply } = await supabase
@@ -288,7 +285,7 @@ export async function POST(request: NextRequest) {
               message: autoReply.message_template,
               conversationId: conversation.id
             })
-          }).catch(err => console.error('[Telnyx SMS] Failed to send auto-reply:', err))
+          }).catch(err => smsLogger.error('Failed to send auto-reply', { error: err }))
         }
       }
     }
@@ -305,7 +302,7 @@ export async function POST(request: NextRequest) {
           messageId: messageRecord.id,
           conversationId: conversation.id
         })
-      }).catch(err => console.error('[Telnyx SMS] Failed to trigger SMS analysis:', err))
+      }).catch(err => smsLogger.error('Failed to trigger SMS analysis', { error: err }))
     }
 
     // Handle broadcast reply tracking
@@ -315,7 +312,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true })
 
   } catch (error) {
-    console.error('[Telnyx SMS Receive] Error:', error)
+    smsLogger.error('Telnyx SMS receive error', { error })
     return NextResponse.json({ received: true, error: 'Processing error' })
   }
 }
@@ -351,7 +348,7 @@ async function handleBroadcastReply(
       })
       .eq('id', broadcastRecipient.id)
 
-    console.log('[Telnyx SMS] Broadcast reply recorded for:', broadcastRecipient.broadcast_id)
+    smsLogger.info('Broadcast reply recorded', { data: { broadcastId: broadcastRecipient.broadcast_id } })
   }
 }
 

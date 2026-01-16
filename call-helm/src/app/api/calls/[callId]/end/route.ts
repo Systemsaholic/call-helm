@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { telnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +30,7 @@ export async function POST(
       .single()
 
     if (fetchError || !callRecord) {
-      console.error('Error fetching call:', fetchError)
+      voiceLogger.error('Error fetching call', { error: fetchError })
       return NextResponse.json({ error: 'Call not found' }, { status: 404 })
     }
 
@@ -40,9 +41,9 @@ export async function POST(
     if (externalCallId && provider === 'telnyx') {
       try {
         await telnyxService.hangupCall(externalCallId)
-        console.log('Successfully ended Telnyx call:', externalCallId)
+        voiceLogger.info('Successfully ended Telnyx call', { data: { externalCallId } })
       } catch (providerError) {
-        console.error('Error ending call with provider:', providerError)
+        voiceLogger.error('Error ending call with provider', { error: providerError })
         // Continue even if provider fails - we'll still update our database
       }
     }
@@ -63,14 +64,14 @@ export async function POST(
       .eq('id', callId)
     
     if (error) {
-      console.error('Error ending call:', error)
+      voiceLogger.error('Error ending call', { error })
       return NextResponse.json({ error: 'Failed to end call' }, { status: 500 })
     }
     
     return NextResponse.json({ success: true, callId })
     
   } catch (error) {
-    console.error('Error in end call endpoint:', error)
+    voiceLogger.error('Error in end call endpoint', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

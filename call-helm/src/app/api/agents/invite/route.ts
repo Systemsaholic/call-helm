@@ -8,6 +8,7 @@ import { inviteAgentsSchema } from '@/lib/validations/api.schema'
 import { asyncHandler, AuthenticationError } from '@/lib/errors/handler'
 import { rateLimiters } from '@/lib/middleware/rateLimiter'
 import { AGENTS } from '@/lib/constants'
+import { apiLogger } from '@/lib/logger'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -92,7 +93,7 @@ function generateInviteEmailHtml(params: {
 export const POST = asyncHandler(async (request: NextRequest) => {
   // Apply rate limiting for expensive operations
   const rateLimitResult = await rateLimiters.expensive(request, async () => {
-    console.log('Agent invite API route called')
+    apiLogger.info('Agent invite API route called')
 
     // Validate NEXT_PUBLIC_APP_URL is configured
     const appUrl = process.env.NEXT_PUBLIC_APP_URL
@@ -105,7 +106,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
 
     // Check Resend configuration
     if (!resend) {
-      console.warn('RESEND_API_KEY not configured - falling back to Supabase SMTP')
+      apiLogger.warn('RESEND_API_KEY not configured - falling back to Supabase SMTP')
     }
 
     // Get the current user's session
@@ -125,7 +126,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
                 cookieStore.set(name, value, options)
               )
             } catch {
-              console.error("Failed to set cookies in invite route")
+              apiLogger.error('Failed to set cookies in invite route')
             }
           }
         }
@@ -178,7 +179,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       .in('status', ['pending_invitation', 'invited'])
 
     if (fetchError) {
-      console.error('Error fetching agents:', fetchError)
+      apiLogger.error('Error fetching agents', { error: fetchError })
       return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
     }
 
@@ -221,7 +222,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
         // Handle user already exists
         if (linkError.message?.includes('already registered') || linkError.code === 'email_exists') {
           userAlreadyExists = true
-          console.log(`User ${agent.email} already exists, syncing records`)
+          apiLogger.debug('User already exists, syncing records', { data: { email: agent.email } })
 
           // Try to get existing user
           const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers({
@@ -236,7 +237,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
             }
           }
         } else {
-          console.error(`Failed to generate invite link for ${agent.email}:`, linkError)
+          apiLogger.error('Failed to generate invite link', { error: linkError, data: { email: agent.email } })
           throw linkError
         }
       } else if (linkData) {
@@ -250,7 +251,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
           inviteLink = `${appUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
         }
 
-        console.log(`Generated invite link for ${agent.email}`)
+        apiLogger.debug('Generated invite link', { data: { email: agent.email } })
       }
 
       // Send email via Resend if we have an invite link and Resend is configured
@@ -270,15 +271,15 @@ export const POST = asyncHandler(async (request: NextRequest) => {
             html: emailHtml
           })
 
-          console.log(`Invitation email sent to ${agent.email} via Resend`)
+          apiLogger.info('Invitation email sent via Resend', { data: { email: agent.email } })
         } catch (emailError) {
-          console.error(`Failed to send email to ${agent.email} via Resend:`, emailError)
+          apiLogger.error('Failed to send email via Resend', { error: emailError, data: { email: agent.email } })
           // Don't throw - the invite link was created successfully
           // The user can still be re-invited later
         }
       } else if (inviteLink && !resend) {
-        console.warn(`No RESEND_API_KEY configured - invite link generated but email not sent for ${agent.email}`)
-        console.log(`Invite link (manual): ${inviteLink}`)
+        apiLogger.warn('No RESEND_API_KEY configured - invite link generated but email not sent', { data: { email: agent.email } })
+        apiLogger.debug('Manual invite link generated', { data: { inviteLink } })
       }
 
       // Ensure profile exists
@@ -335,10 +336,10 @@ export const POST = asyncHandler(async (request: NextRequest) => {
         delayBetweenBatches: 500,
         maxConcurrency: 5,
         onBatchComplete: (index) => {
-          console.log(`Invitation batch ${index + 1} completed`)
+          apiLogger.debug('Invitation batch completed', { data: { batchIndex: index + 1 } })
         },
         onBatchError: (index, error) => {
-          console.error(`Invitation batch ${index + 1} failed:`, error)
+          apiLogger.error('Invitation batch failed', { error, data: { batchIndex: index + 1 } })
         }
       }
     )
@@ -363,10 +364,9 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     if (failures.length > 0) {
       message += `, ${failures.length} failed`
 
-      console.error('Failed invitations:', failures.map(f => ({
-        email: f.item?.email,
-        error: f.error?.message
-      })))
+      apiLogger.error('Failed invitations', {
+        data: { failures: failures.map(f => ({ email: f.item?.email, error: f.error?.message })) }
+      })
     }
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,7 +58,7 @@ export async function POST(
       }
     })
   } catch (error) {
-    console.error('Error using template:', error)
+    smsLogger.error('Error using SMS template', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

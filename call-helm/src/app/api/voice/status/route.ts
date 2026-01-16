@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,13 +18,8 @@ export async function POST(request: NextRequest) {
     const to = formData.get("To") as string
     const duration = formData.get("CallDuration") as string
 
-    console.log("=== SIGNALWIRE STATUS WEBHOOK ===")
-    console.log("Call status update:", {
-      callSid,
-      callStatus,
-      from,
-      to,
-      duration
+    voiceLogger.info('SignalWire status webhook', {
+      data: { callSid, callStatus, from, to, duration }
     })
 
     // Find the phone number record to get organization (properly parameterized)
@@ -31,7 +27,7 @@ export async function POST(request: NextRequest) {
     const sanitizedFrom = String(from || '').slice(0, 50) // Limit length
     const sanitizedTo = String(to || '').slice(0, 50) // Limit length
     
-    console.log("Looking for phone numbers:", { sanitizedFrom, sanitizedTo })
+    voiceLogger.debug('Looking for phone numbers', { data: { sanitizedFrom, sanitizedTo } })
     
     // First try to find by exact match
     const { data: phoneNumbers, error: phoneError } = await supabase
@@ -39,13 +35,13 @@ export async function POST(request: NextRequest) {
       .select("organization_id, number")
       .in("number", [sanitizedFrom, sanitizedTo])
       
-    console.log("Phone number lookup result:", { phoneNumbers, phoneError, count: phoneNumbers?.length })
+    voiceLogger.debug('Phone number lookup result', { data: { phoneNumbers, phoneError, count: phoneNumbers?.length } })
     
     // Take the first match (prefer From number if both exist)
     const phoneNumber = phoneNumbers?.find(p => p.number === sanitizedFrom) || phoneNumbers?.[0]
 
     if (phoneNumber && callSid && callStatus) {
-      console.log("Found phone number org:", phoneNumber.organization_id)
+      voiceLogger.debug('Found phone number org', { data: { organizationId: phoneNumber.organization_id } })
       
       // Map SignalWire status to our database enum values
       const statusMap: Record<string, string> = {
@@ -82,10 +78,10 @@ export async function POST(request: NextRequest) {
           .single()
         
         existingCall = callByNumbers
-        console.log("Found call by phone numbers for contact leg:", existingCall?.id)
+        voiceLogger.debug('Found call by phone numbers for contact leg', { data: { callId: existingCall?.id } })
       }
 
-      console.log("Found existing call:", existingCall?.id, "Error:", findError)
+      voiceLogger.debug('Found existing call', { data: { callId: existingCall?.id }, error: findError })
 
       if (existingCall) {
         // Define status progression order (lower index = earlier in flow)
@@ -110,13 +106,13 @@ export async function POST(request: NextRequest) {
         // Don't allow going backwards from completed/failed/canceled states
         const terminalStatuses = ['completed', 'failed', 'canceled', 'busy', 'no-answer']
         if (currentStatus && terminalStatuses.includes(currentStatus)) {
-          console.log(`Ignoring status regression: ${currentStatus} -> ${callStatus}`)
+          voiceLogger.debug('Ignoring status regression', { data: { currentStatus, newStatus: callStatus } })
           return NextResponse.json({ received: true, ignored: true })
         }
-        
+
         // Don't allow going backwards in general (except for contact-connected which is special)
         if (currentIndex >= 0 && newIndex >= 0 && newIndex < currentIndex && callStatus !== 'contact-connected') {
-          console.log(`Ignoring backwards status update: ${currentStatus} (${currentIndex}) -> ${callStatus} (${newIndex})`)
+          voiceLogger.debug('Ignoring backwards status update', { data: { currentStatus, currentIndex, newStatus: callStatus, newIndex } })
           return NextResponse.json({ received: true, ignored: true })
         }
         
@@ -128,7 +124,7 @@ export async function POST(request: NextRequest) {
         
         // If this is a different call SID but same phone numbers, it's the contact leg
         if (existingCall.metadata?.external_id !== callSid) {
-          console.log("Detected contact leg:", callSid, "for main call:", existingCall.metadata?.external_id)
+          voiceLogger.debug('Detected contact leg', { data: { contactCallSid: callSid, mainCallSid: existingCall.metadata?.external_id } })
           updatedMetadata.contact_call_sid = callSid
           
           // If contact answers, update status to show both parties connected
@@ -163,20 +159,20 @@ export async function POST(request: NextRequest) {
           .select()
         
         if (updateError) {
-          console.error('Error updating call record:', updateError)
+          voiceLogger.error('Error updating call record', { error: updateError })
         } else {
-          console.log('Updated call record with status:', callStatus, 'Result:', updateResult?.[0]?.id)
+          voiceLogger.debug('Updated call record with status', { data: { callStatus, callId: updateResult?.[0]?.id } })
         }
       } else {
-        console.log("Call record not found for SID:", callSid)
+        voiceLogger.debug('Call record not found for SID', { data: { callSid } })
       }
     } else {
-      console.log("Missing required data - phoneNumber:", !!phoneNumber, "callSid:", !!callSid, "callStatus:", !!callStatus)
+      voiceLogger.debug('Missing required data', { data: { hasPhoneNumber: !!phoneNumber, hasCallSid: !!callSid, hasCallStatus: !!callStatus } })
     }
 
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('Error handling call status:', error)
+    voiceLogger.error('Error handling call status', { error })
     return NextResponse.json({ error: 'Status update failed' }, { status: 500 })
   }
 }

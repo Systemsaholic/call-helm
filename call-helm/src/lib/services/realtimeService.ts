@@ -13,11 +13,15 @@
 
 import { createClient } from '@/lib/supabase/client'
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import { realtimeLogger } from '@/lib/logger'
 
-type SubscriptionCallback<T = any> = (payload: T) => void
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PostgresChangeCallback = (payload: RealtimePostgresChangesPayload<any>) => void
-type BroadcastCallback = (payload: any) => void
+type BroadcastPayload = { event: string; payload: Record<string, unknown> }
+type BroadcastCallback = (payload: BroadcastPayload) => void
 type PresenceCallback = (state: PresenceState) => void
+// Union type for all possible subscription callbacks
+type SubscriptionCallback = PostgresChangeCallback | BroadcastCallback
 
 interface PresenceState {
   [key: string]: PresenceUser[]
@@ -27,7 +31,8 @@ interface PresenceUser {
   id: string
   status: 'online' | 'offline' | 'away'
   lastSeen?: string
-  [key: string]: any
+  online_at?: string
+  [key: string]: string | undefined
 }
 
 interface ChannelSubscription {
@@ -67,34 +72,38 @@ class RealtimeService {
     let channelSub = this.channels.get(channelName)
 
     if (!channelSub) {
-      // Create new channel
-      const channel = this.supabase
-        .channel(channelName)
-        .on(
-          'postgres_changes' as any,
-          {
-            event: config.event,
-            schema: config.schema,
-            table: config.table,
-            filter: config.filter,
-          },
-          (payload: RealtimePostgresChangesPayload<any>) => {
-            // Route to all subscribers
-            const sub = this.channels.get(channelName)
-            if (sub) {
-              sub.subscribers.forEach(cb => cb(payload))
-            }
-          }
-        )
-        .subscribe((status) => {
-          console.log(`📡 Channel ${channelName} status:`, status)
+      // Create new channel with postgres_changes subscription
+      const channel = this.supabase.channel(channelName)
 
-          if (status === 'CHANNEL_ERROR') {
-            this.handleChannelError(channelName)
-          } else if (status === 'SUBSCRIBED') {
-            this.reconnectAttempts = 0 // Reset on successful connection
+      // Supabase SDK type definitions don't properly handle postgres_changes overload
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(channel as any).on(
+        'postgres_changes',
+        {
+          event: config.event,
+          schema: config.schema,
+          table: config.table,
+          filter: config.filter,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (payload: RealtimePostgresChangesPayload<any>) => {
+          // Route to all subscribers
+          const sub = this.channels.get(channelName)
+          if (sub) {
+            sub.subscribers.forEach(cb => (cb as PostgresChangeCallback)(payload))
           }
-        })
+        }
+      )
+
+      channel.subscribe((status) => {
+        realtimeLogger.debug(`Channel status: ${status}`, { data: { channelName } })
+
+        if (status === 'CHANNEL_ERROR') {
+          this.handleChannelError(channelName)
+        } else if (status === 'SUBSCRIBED') {
+          this.reconnectAttempts = 0 // Reset on successful connection
+        }
+      })
 
       channelSub = {
         channel,
@@ -133,15 +142,15 @@ class RealtimeService {
       // Create new channel
       const channel = this.supabase
         .channel(channelName)
-        .on('broadcast', { event }, (payload) => {
+        .on('broadcast', { event }, (payload: BroadcastPayload) => {
           // Route to all subscribers
           const sub = this.channels.get(channelName)
           if (sub) {
-            sub.subscribers.forEach(cb => cb(payload))
+            sub.subscribers.forEach(cb => (cb as BroadcastCallback)(payload))
           }
         })
         .subscribe((status) => {
-          console.log(`📡 Broadcast channel ${channelName} status:`, status)
+          realtimeLogger.debug(`Broadcast channel status: ${status}`, { data: { channelName } })
 
           if (status === 'CHANNEL_ERROR') {
             this.handleChannelError(channelName)
@@ -172,7 +181,7 @@ class RealtimeService {
    * @param event - Event name
    * @param payload - Data to broadcast
    */
-  async broadcast(channelName: string, event: string, payload: any): Promise<void> {
+  async broadcast(channelName: string, event: string, payload: Record<string, unknown>): Promise<void> {
     const channelSub = this.channels.get(channelName)
 
     if (channelSub) {
@@ -182,7 +191,7 @@ class RealtimeService {
         payload
       })
     } else {
-      console.warn(`Cannot broadcast to ${channelName}: channel not found`)
+      realtimeLogger.warn(`Cannot broadcast: channel not found`, { data: { channelName } })
     }
   }
 
@@ -223,13 +232,13 @@ class RealtimeService {
           }
         })
         .on('presence', { event: 'join' }, ({ key, newPresences }) => {
-          console.log(`👋 User joined ${channelName}:`, key, newPresences)
+          realtimeLogger.debug('User joined', { data: { channelName, key, newPresences } })
         })
         .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-          console.log(`👋 User left ${channelName}:`, key, leftPresences)
+          realtimeLogger.debug('User left', { data: { channelName, key, leftPresences } })
         })
         .subscribe(async (status) => {
-          console.log(`📡 Presence channel ${channelName} status:`, status)
+          realtimeLogger.debug(`Presence channel status: ${status}`, { data: { channelName } })
 
           if (status === 'SUBSCRIBED') {
             // Track this user's presence
@@ -317,7 +326,7 @@ class RealtimeService {
             .channel(channelName)
             .subscribe((status) => {
               if (status === 'SUBSCRIBED') {
-                console.log(`📡 Typing channel ${channelName} ready`)
+                realtimeLogger.debug('Typing channel ready', { data: { channelName } })
               }
             })
 
@@ -336,7 +345,8 @@ class RealtimeService {
       },
       onTyping: (callback: (event: { userId: string; isTyping: boolean }) => void) => {
         return this.subscribeToBroadcast(channelName, 'typing', (payload) => {
-          callback(payload.payload)
+          const typingData = payload.payload as { userId: string; isTyping: boolean }
+          callback(typingData)
         })
       }
     }
@@ -355,7 +365,7 @@ class RealtimeService {
 
     // If no more subscribers, remove the channel
     if (channelSub.subscribers.size === 0) {
-      console.log(`🗑️ Removing channel ${channelName} (no subscribers)`)
+      realtimeLogger.debug('Removing channel (no subscribers)', { data: { channelName } })
       this.supabase.removeChannel(channelSub.channel)
       this.channels.delete(channelName)
     }
@@ -366,14 +376,14 @@ class RealtimeService {
    */
   private handleChannelError(channelName: string): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`❌ Max reconnection attempts reached for ${channelName}`)
+      realtimeLogger.error('Max reconnection attempts reached', { data: { channelName } })
       return
     }
 
     this.reconnectAttempts++
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1) // Exponential backoff
 
-    console.log(`🔄 Reconnecting channel ${channelName} in ${delay}ms (attempt ${this.reconnectAttempts})`)
+    realtimeLogger.info('Reconnecting channel', { data: { channelName, delayMs: delay, attempt: this.reconnectAttempts } })
 
     setTimeout(() => {
       const channelSub = this.channels.get(channelName)
@@ -382,7 +392,7 @@ class RealtimeService {
         this.channels.delete(channelName)
 
         // Subscribers will be notified via their callback on next event
-        console.log(`🔄 Channel ${channelName} recreated after error`)
+        realtimeLogger.info('Channel recreated after error', { data: { channelName } })
       }
     }, delay)
   }
@@ -391,7 +401,7 @@ class RealtimeService {
    * Clean up all channels (call on app unmount/logout)
    */
   cleanup(): void {
-    console.log('🧹 Cleaning up all realtime channels')
+    realtimeLogger.info('Cleaning up all realtime channels')
 
     this.channels.forEach((channelSub, channelName) => {
       this.supabase.removeChannel(channelSub.channel)

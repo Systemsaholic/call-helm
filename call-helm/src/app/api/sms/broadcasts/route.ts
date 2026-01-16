@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { billingService } from '@/lib/services/billing'
+import { smsLogger } from '@/lib/logger'
 
 interface CreateBroadcastRequest {
   name: string
@@ -99,7 +100,7 @@ export async function GET(request: NextRequest) {
     const { data: broadcasts, error, count } = await query
 
     if (error) {
-      console.error('Error fetching broadcasts:', error)
+      smsLogger.error('Error fetching broadcasts', { error })
       return NextResponse.json({ error: 'Failed to fetch broadcasts' }, { status: 500 })
     }
 
@@ -111,7 +112,7 @@ export async function GET(request: NextRequest) {
       offset
     })
   } catch (error) {
-    console.error('Error in broadcasts GET:', error)
+    smsLogger.error('Error in broadcasts GET', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -246,7 +247,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (broadcastError) {
-      console.error('Error creating broadcast:', broadcastError)
+      smsLogger.error('Error creating broadcast', { error: broadcastError })
       return NextResponse.json({ error: 'Failed to create broadcast' }, { status: 500 })
     }
 
@@ -265,7 +266,7 @@ export async function POST(request: NextRequest) {
       .insert(recipientRecords)
 
     if (recipientsError) {
-      console.error('Error creating broadcast recipients:', recipientsError)
+      smsLogger.error('Error creating broadcast recipients', { error: recipientsError })
       // Rollback broadcast
       await supabase.from('sms_broadcasts').delete().eq('id', broadcast.id)
       return NextResponse.json({ error: 'Failed to create broadcast recipients' }, { status: 500 })
@@ -296,7 +297,7 @@ export async function POST(request: NextRequest) {
       smsUsageWarning: broadcastCheck.reason
     }, { status: 201 })
   } catch (error) {
-    console.error('Error in broadcasts POST:', error)
+    smsLogger.error('Error in broadcasts POST', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(
   request: NextRequest,
@@ -58,11 +59,11 @@ export async function POST(
       .single()
     
     if (error) {
-      console.error('Error marking call as timed out:', error)
+      voiceLogger.error('Error marking call as timed out', { error })
       return NextResponse.json({ error: 'Failed to update call' }, { status: 500 })
     }
     
-    console.log(`Call ${callId} marked as timed out at stage: ${timeoutStage}`)
+    voiceLogger.info('Call marked as timed out', { data: { callId, timeoutStage } })
     
     return NextResponse.json({
       success: true,
@@ -72,7 +73,7 @@ export async function POST(
     })
     
   } catch (error) {
-    console.error('Error in timeout endpoint:', error)
+    voiceLogger.error('Error in timeout endpoint', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

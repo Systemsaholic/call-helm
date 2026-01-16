@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { apiLogger } from '@/lib/logger'
 
 // Supabase admin client
 const supabase = createClient(
@@ -105,13 +106,13 @@ async function getOrganizationAdminEmails(organizationId: string): Promise<strin
  */
 async function sendSuspensionEmail(organizationId: string, organizationName: string): Promise<void> {
   if (!resend) {
-    console.warn('RESEND_API_KEY not configured - suspension email not sent')
+    apiLogger.warn('RESEND_API_KEY not configured - suspension email not sent')
     return
   }
 
   const adminEmails = await getOrganizationAdminEmails(organizationId)
   if (adminEmails.length === 0) {
-    console.error('No admin emails found for suspended org:', organizationId)
+    apiLogger.error('No admin emails found for suspended org', { data: { organizationId } })
     return
   }
 
@@ -128,9 +129,9 @@ async function sendSuspensionEmail(organizationId: string, organizationName: str
       })
     })
 
-    console.log(`Suspension email sent for org ${organizationId}`)
+    apiLogger.info('Suspension email sent', { data: { organizationId } })
   } catch (error) {
-    console.error('Failed to send suspension email:', error)
+    apiLogger.error('Failed to send suspension email', { error })
   }
 }
 
@@ -157,7 +158,7 @@ export async function GET(request: NextRequest) {
       .lte('suspension_scheduled_at', now.toISOString())
 
     if (fetchError) {
-      console.error('Error fetching overdue organizations:', fetchError)
+      apiLogger.error('Error fetching overdue organizations', { error: fetchError })
       return NextResponse.json({
         success: false,
         error: 'Failed to fetch overdue organizations'
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    console.log(`Found ${overdueOrgs.length} organizations to suspend`)
+    apiLogger.info('Found organizations to suspend', { data: { count: overdueOrgs.length } })
 
     // Suspend each organization
     for (const org of overdueOrgs) {
@@ -188,7 +189,7 @@ export async function GET(request: NextRequest) {
           .eq('id', org.id)
 
         if (updateError) {
-          console.error(`Failed to suspend org ${org.id}:`, updateError)
+          apiLogger.error('Failed to suspend org', { error: updateError, data: { orgId: org.id } })
           errors++
           continue
         }
@@ -197,9 +198,9 @@ export async function GET(request: NextRequest) {
         await sendSuspensionEmail(org.id, org.name)
 
         suspended++
-        console.log(`Suspended organization: ${org.id} (${org.name})`)
+        apiLogger.info('Suspended organization', { data: { orgId: org.id, orgName: org.name } })
       } catch (orgError) {
-        console.error(`Error processing org ${org.id}:`, orgError)
+        apiLogger.error('Error processing org', { error: orgError, data: { orgId: org.id } })
         errors++
       }
     }
@@ -212,7 +213,7 @@ export async function GET(request: NextRequest) {
       total: overdueOrgs.length
     })
   } catch (error) {
-    console.error('Cron job error:', error)
+    apiLogger.error('Suspend overdue accounts cron job error', { error })
     return NextResponse.json({
       success: false,
       error: 'Cron job failed'

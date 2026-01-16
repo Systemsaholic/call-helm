@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateThreeCXApiKey } from '@/lib/services/threeCX';
+import { apiLogger } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -208,7 +209,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error generating XML template:', error);
+    apiLogger.error('Error generating 3CX XML template', { error });
     return NextResponse.json({ error: 'Failed to generate template' }, { status: 500 });
   }
 }

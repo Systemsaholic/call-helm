@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { asyncHandler, AuthenticationError, AuthorizationError } from '@/lib/errors/handler'
+import { voiceLogger } from '@/lib/logger'
 
 // Note: With Telnyx, webhooks are configured at the connection level, not per-number
 // This endpoint updates the database webhook URL reference
@@ -59,7 +60,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       webhookUrl
     })
   } catch (error) {
-    console.error('Failed to update webhook URL:', error)
+    voiceLogger.error('Failed to update webhook URL', { error })
     return NextResponse.json({
       error: error instanceof Error ? error.message : 'Failed to update webhook URL',
       code: 'UPDATE_WEBHOOKS_FAILED'

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 // Mark messages as read
 export async function POST(request: NextRequest) {
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
         })
 
       if (error) {
-        console.error('Error marking conversation as read:', error)
+        smsLogger.error('Error marking conversation as read', { error })
         return NextResponse.json(
           { error: 'Failed to mark conversation as read' },
           { status: 500 }
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
         })
 
       if (error) {
-        console.error('Error marking messages as read:', error)
+        smsLogger.error('Error marking messages as read', { error })
         return NextResponse.json(
           { error: 'Failed to mark messages as read' },
           { status: 500 }
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   } catch (error) {
-    console.error('Error in read status POST:', error)
+    smsLogger.error('Error in read status POST', { error })
     return NextResponse.json(
       { error: 'Failed to update read status' },
       { status: 500 }
@@ -136,7 +137,7 @@ export async function GET(request: NextRequest) {
         .single()
 
       if (error) {
-        console.error('Error fetching unread count:', error)
+        smsLogger.error('Error fetching unread count', { error })
         return NextResponse.json(
           { error: 'Failed to fetch unread count' },
           { status: 500 }
@@ -158,7 +159,7 @@ export async function GET(request: NextRequest) {
       .order('last_message_at', { ascending: false })
 
     if (error) {
-      console.error('Error fetching unread by conversation:', error)
+      smsLogger.error('Error fetching unread by conversation', { error })
       return NextResponse.json(
         { error: 'Failed to fetch unread counts' },
         { status: 500 }
@@ -170,7 +171,7 @@ export async function GET(request: NextRequest) {
       conversations: conversations || []
     })
   } catch (error) {
-    console.error('Error in read status GET:', error)
+    smsLogger.error('Error in read status GET', { error })
     return NextResponse.json(
       { error: 'Failed to fetch read status' },
       { status: 500 }

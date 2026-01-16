@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { apiLogger } from '@/lib/logger'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (orgError) {
-      console.error('Error fetching organization:', orgError)
+      apiLogger.error('Error fetching organization', { error: orgError })
       return NextResponse.json({ error: 'Failed to fetch organization' }, { status: 500 })
     }
 
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ progress })
   } catch (error) {
-    console.error('Onboarding progress GET error:', error)
+    apiLogger.error('Onboarding progress GET error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -192,7 +193,7 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (orgError) {
-      console.error('Error fetching organization:', orgError)
+      apiLogger.error('Error fetching organization', { error: orgError })
       return NextResponse.json({ error: 'Failed to fetch organization' }, { status: 500 })
     }
 
@@ -207,13 +208,13 @@ export async function PATCH(request: NextRequest) {
       .eq('id', organizationId)
 
     if (updateError) {
-      console.error('Error updating onboarding progress:', updateError)
+      apiLogger.error('Error updating onboarding progress', { error: updateError })
       return NextResponse.json({ error: 'Failed to update progress' }, { status: 500 })
     }
 
     return NextResponse.json({ progress: newProgress })
   } catch (error) {
-    console.error('Onboarding progress PATCH error:', error)
+    apiLogger.error('Onboarding progress PATCH error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

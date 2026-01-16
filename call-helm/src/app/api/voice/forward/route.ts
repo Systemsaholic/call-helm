@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import crypto from "crypto"
+import { voiceLogger } from '@/lib/logger'
 
 function timingSafeCompare(a: string, b: string): boolean {
   const aa = Buffer.from(a || "", "utf8")
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Ensure required params present
     if (!callSid || !from || !to) {
-      console.error("Missing required webhook form fields", { callSid, from, to })
+      voiceLogger.error("Missing required webhook form fields", { data: { callSid, from, to } })
       const twiml = `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Say>We could not process this call due to missing data. Goodbye.</Say>\n  <Hangup/>\n</Response>`
       return new NextResponse(twiml, { headers: { "Content-Type": "text/xml" }, status: 400 })
     }
@@ -37,16 +38,12 @@ export async function POST(request: NextRequest) {
     if (webhookSecret) {
       const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex")
       if (!timingSafeCompare(expected, signature)) {
-        console.warn("Invalid SignalWire signature for forwarding")
+        voiceLogger.warn("Invalid SignalWire signature for forwarding")
         return new NextResponse("Invalid signature", { status: 403 })
       }
     }
 
-    console.log("Incoming call for forwarding:", {
-      callSid,
-      from,
-      to
-    })
+    voiceLogger.info("Incoming call for forwarding", { data: { callSid, from, to } })
 
     // Look up forwarding configuration
     const { data: phoneNumber } = await supabase.from("phone_numbers").select("forwarding_destination, organization_id, friendly_name").eq("number", to).eq("forwarding_enabled", true).single()
@@ -103,7 +100,7 @@ export async function POST(request: NextRequest) {
       headers: { "Content-Type": "text/xml" }
     })
   } catch (error) {
-    console.error('Error handling call forwarding:', error)
+    voiceLogger.error('Error handling call forwarding', { error })
     
     // Error response with fallback
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>

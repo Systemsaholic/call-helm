@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
+import { voiceLogger } from '@/lib/logger'
 
 // Encrypt sensitive data
 function encrypt(text: string, key: string): string {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     // Encrypt the API token - require a persistent ENCRYPTION_KEY
     const encryptionKey = process.env.ENCRYPTION_KEY
     if (!encryptionKey) {
-      console.error("ENCRYPTION_KEY is required for voice setup")
+      voiceLogger.error("ENCRYPTION_KEY is required for voice setup")
       return NextResponse.json({ error: "Server not configured" }, { status: 500 })
     }
     const encryptedToken = encrypt(apiToken, encryptionKey)
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error("Voice integration error:", error)
+      voiceLogger.error("Voice integration error", { error })
       return NextResponse.json({ error: "Failed to save voice settings" }, { status: 500 })
     }
 
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest) {
       webhookSecret: webhookSecret
     })
   } catch (error) {
-    console.error('Voice setup error:', error)
+    voiceLogger.error('Voice setup error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -160,7 +161,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Get voice settings error:', error)
+    voiceLogger.error('Get voice settings error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

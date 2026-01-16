@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // Initialize Supabase client with service role for webhook
 const supabase = createClient(
@@ -34,8 +35,8 @@ function checkOptInKeyword(message: string): boolean {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== SMS WEBHOOK RECEIVED ===')
-    
+    smsLogger.info('SMS webhook received')
+
     // Parse form data from SignalWire
     const formData = await request.formData()
     
@@ -56,13 +57,8 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    console.log('SMS Details:', {
-      messageSid,
-      from,
-      to,
-      body: body.substring(0, 50) + '...',
-      numMedia,
-      status
+    smsLogger.debug('SMS Details', {
+      data: { messageSid, from, to, bodyLength: body.length, numMedia, status }
     })
     
     // Find organization by phone number
@@ -73,7 +69,7 @@ export async function POST(request: NextRequest) {
       .single()
     
     if (orgError || !org) {
-      console.error('Organization not found for phone:', to)
+      smsLogger.error('Organization not found for phone', { data: { to } })
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
     }
     
@@ -135,8 +131,8 @@ export async function POST(request: NextRequest) {
     
     // Check if contact is opted out
     if (conversationData?.is_opted_out) {
-      console.log('Contact is opted out, ignoring message')
-      return NextResponse.json({ 
+      smsLogger.debug('Contact is opted out, ignoring message')
+      return NextResponse.json({
         success: true,
         action: 'ignored_opted_out'
       })
@@ -170,7 +166,7 @@ export async function POST(request: NextRequest) {
         .single()
       
       if (convError) {
-        console.error('Error creating conversation:', convError)
+        smsLogger.error('Error creating conversation', { error: convError })
         return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 })
       }
       
@@ -209,14 +205,14 @@ export async function POST(request: NextRequest) {
       .single()
     
     if (messageError) {
-      console.error('Error storing message:', messageError)
+      smsLogger.error('Error storing message', { error: messageError })
       return NextResponse.json({ error: 'Failed to store message' }, { status: 500 })
     }
     
     // Send notifications to assigned agent
     if (assignedAgentId) {
       // In a real app, you would send push notifications, websocket events, etc.
-      console.log(`Notifying agent ${assignedAgentId} of new message`)
+      smsLogger.debug('Notifying agent of new message', { data: { agentId: assignedAgentId } })
       
       // You could also create a notification record
       await supabase
@@ -250,7 +246,7 @@ export async function POST(request: NextRequest) {
           messageId: message.id,
           conversationId: conversationData.id
         })
-      }).catch(err => console.error('Failed to trigger SMS analysis:', err))
+      }).catch(err => smsLogger.error('Failed to trigger SMS analysis', { error: err }))
     }
     
     // Return TwiML response (empty to acknowledge receipt)
@@ -265,8 +261,8 @@ export async function POST(request: NextRequest) {
     )
     
   } catch (error) {
-    console.error('SMS webhook error:', error)
-    
+    smsLogger.error('SMS webhook error', { error })
+
     // Return TwiML error response
     return new NextResponse(
       '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
@@ -341,7 +337,7 @@ async function handleAutoReplies(
     }
     
   } catch (error) {
-    console.error('Auto-reply error:', error)
+    smsLogger.error('Auto-reply error', { error })
   }
 }
 
@@ -406,7 +402,7 @@ async function sendAutoReply(
     }
     
   } catch (error) {
-    console.error('Failed to send auto-reply:', error)
+    smsLogger.error('Failed to send auto-reply', { error })
   }
 }
 

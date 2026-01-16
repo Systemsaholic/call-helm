@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Configure webhooks for an organization's phone numbers
 // Note: With Telnyx, webhooks are configured at the connection level, not per-number
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
           status: 'configured'
         })
       } catch (error) {
-        console.error(`Error configuring webhooks for number ${numberId}:`, error)
+        voiceLogger.error('Error configuring webhooks for number', { data: { numberId }, error })
         errors.push({
           numberId,
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
       failed: errors.length
     })
   } catch (error) {
-    console.error('Error configuring webhooks:', error)
+    voiceLogger.error('Error configuring webhooks', { error })
     return NextResponse.json(
       { error: 'Failed to configure webhooks' },
       { status: 500 }
@@ -160,7 +161,7 @@ export async function GET(request: NextRequest) {
       summary
     })
   } catch (error) {
-    console.error('Error getting webhook status:', error)
+    voiceLogger.error('Error getting webhook status', { error })
     return NextResponse.json(
       { error: 'Failed to get webhook configuration status' },
       { status: 500 }

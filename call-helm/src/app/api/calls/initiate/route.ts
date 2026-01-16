@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Initialize Telnyx service
 const telnyx = new TelnyxService()
@@ -28,16 +29,12 @@ export async function POST(req: NextRequest) {
       scriptId
     } = body
 
-    console.log('=== CALL INITIATE REQUEST ===')
-    console.log('Provider: telnyx')
-    console.log('Contact ID:', contactId)
-    console.log('Phone Number (raw):', phoneNumber)
-    console.log('Call List ID:', callListId)
-    console.log('Script ID:', scriptId)
-    console.log('User ID:', user?.id)
+    voiceLogger.info('Call initiate request', {
+      data: { provider: 'telnyx', contactId, phoneNumber, callListId, scriptId, userId: user?.id }
+    })
 
     if (!phoneNumber) {
-      console.error('ERROR: No phone number provided')
+      voiceLogger.error('No phone number provided')
       return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
     }
 
@@ -56,11 +53,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log('Formatted phone number:', formattedPhoneNumber)
-    
+    voiceLogger.debug('Formatted phone number', { data: { formattedPhoneNumber } })
+
     // Validate E.164 phone number
     if (!PHONE_E164_REGEX.test(formattedPhoneNumber)) {
-      console.error('ERROR: Invalid phone number format:', formattedPhoneNumber)
+      voiceLogger.error('Invalid phone number format', { data: { formattedPhoneNumber } })
       return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 })
     }
 
@@ -72,16 +69,16 @@ export async function POST(req: NextRequest) {
       .eq("is_active", true)
       .single()
     
-    console.log('Member lookup result:', { member, error: memberError })
+    voiceLogger.debug('Member lookup result', { data: { member, error: memberError } })
 
     if (!member?.organization_id) {
-      console.error('ERROR: No organization found for user')
+      voiceLogger.error('No organization found for user')
       return NextResponse.json({ error: "No organization found" }, { status: 400 })
     }
-    
-    console.log('Organization ID:', member.organization_id)
-    console.log('Member ID:', member.id)
-    console.log('Member Phone:', member.phone)
+
+    voiceLogger.debug('Organization context', {
+      data: { organizationId: member.organization_id, memberId: member.id, memberPhone: member.phone }
+    })
 
     // Check usage limits before allowing call
     const { data: usageData } = await supabase.from("usage_tracking").select("used_amount, tier_included").eq("organization_id", member.organization_id).eq("resource_type", "call_minutes").gte("billing_period_end", new Date().toISOString()).single()
@@ -130,7 +127,7 @@ export async function POST(req: NextRequest) {
     const wantsToRecord = userPrefs?.default_record_calls === true
     const enableRecording = canRecord && wantsToRecord
     
-    console.log('Global recording check:', { canRecord, wantsToRecord, enableRecording })
+    voiceLogger.debug('Recording check', { data: { canRecord, wantsToRecord, enableRecording } })
 
     // Get organization's phone number (from number)
     const { data: phoneNumberData, error: phoneError } = await supabase
@@ -141,10 +138,10 @@ export async function POST(req: NextRequest) {
       .order('is_primary', { ascending: false })
       .limit(1)
 
-    console.log('Phone number query result:', { phoneNumberData, phoneError })
+    voiceLogger.debug('Phone number query result', { data: { phoneNumberData, phoneError } })
 
     if (phoneError || !phoneNumberData || phoneNumberData.length === 0) {
-      console.error('ERROR: No phone number configured - Query returned:', { phoneError, count: phoneNumberData?.length })
+      voiceLogger.error('No phone number configured', { data: { phoneError, count: phoneNumberData?.length } })
       return NextResponse.json({
         error: 'Organization phone number not configured. Please add a phone number in Settings.'
       }, { status: 400 })
@@ -154,7 +151,7 @@ export async function POST(req: NextRequest) {
 
     // Check if Telnyx is configured
     if (!TelnyxService.isConfigured()) {
-      console.error('Telnyx not configured')
+      voiceLogger.error('Telnyx not configured')
       return NextResponse.json({ error: 'Voice service not configured' }, { status: 503 })
     }
 
@@ -198,10 +195,8 @@ export async function POST(req: NextRequest) {
         clientState
       })
 
-      console.log('Telnyx call initiated:', {
-        callControlId: callControlData.callControlId,
-        to: formattedPhoneNumber,
-        from: fromNumber
+      voiceLogger.info('Telnyx call initiated', {
+        data: { callControlId: callControlData.callControlId, to: formattedPhoneNumber, from: fromNumber }
       })
 
       externalCallId = callControlData.callControlId
@@ -209,35 +204,32 @@ export async function POST(req: NextRequest) {
       callData.metadata.call_session_id = callControlData.callSessionId
       callData.metadata.call_leg_id = callControlData.callLegId
     } catch (telnyxError: any) {
-      console.error('Telnyx call initiation error:', telnyxError)
+      voiceLogger.error('Telnyx call initiation error', { error: telnyxError })
       return NextResponse.json({
         error: `Failed to initiate call: ${telnyxError.message}`
       }, { status: 500 })
     }
 
     // Create call record in database
-    console.log('=== CREATING CALL RECORD ===')
-    console.log('Call data to insert:', JSON.stringify(callData, null, 2))
-    
+    voiceLogger.debug('Creating call record', { data: { callData } })
+
     const { data: call, error: dbError } = await supabase.from("calls").insert(callData).select().single()
 
     if (dbError) {
-      console.error("=== DATABASE ERROR ===")
-      console.error("Error code:", dbError.code)
-      console.error("Error message:", dbError.message)
-      console.error("Error details:", dbError.details)
-      console.error("Error hint:", dbError.hint)
-      console.error("Call data attempted:", callData)
-      
-      return NextResponse.json({ 
+      voiceLogger.error('Database error creating call record', {
+        error: dbError,
+        data: { code: dbError.code, message: dbError.message, details: dbError.details, hint: dbError.hint, callData }
+      })
+
+      return NextResponse.json({
         error: "Failed to create call record",
         details: dbError.message,
         code: dbError.code,
         hint: dbError.hint
       }, { status: 500 })
     }
-    
-    console.log('Call record created successfully:', call.id)
+
+    voiceLogger.info('Call record created', { data: { callId: call.id } })
 
     // Update call list contact status if applicable
     if (callListId && contactId) {
@@ -284,7 +276,7 @@ export async function POST(req: NextRequest) {
       status: call.status
     })
   } catch (error) {
-    console.error('Call initiation error:', error)
+    voiceLogger.error('Call initiation error', { error })
     return NextResponse.json(
       { error: 'Failed to initiate call' },
       { status: 500 }

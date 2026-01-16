@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { smsLogger } from '@/lib/logger'
 
 // Initialize Telnyx service
 const telnyx = new TelnyxService()
@@ -198,7 +199,7 @@ export async function POST(request: NextRequest) {
           .single()
         
         if (convError) {
-          console.error('Error creating conversation:', convError)
+          smsLogger.error('Error creating conversation', { error: convError })
           return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 })
         }
         
@@ -224,7 +225,7 @@ export async function POST(request: NextRequest) {
       .single()
     
     if (messageError) {
-      console.error('Error creating message record:', messageError)
+      smsLogger.error('Error creating message record', { error: messageError })
       return NextResponse.json({ error: 'Failed to create message record' }, { status: 500 })
     }
     
@@ -232,11 +233,8 @@ export async function POST(request: NextRequest) {
     try {
       const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
 
-      console.log('Telnyx SMS Request:', {
-        from: fromNumber,
-        to: formattedTo,
-        messageLength: finalMessage.length,
-        hasMedia: mediaUrls && mediaUrls.length > 0
+      smsLogger.debug('Telnyx SMS Request', {
+        data: { from: fromNumber, to: formattedTo, messageLength: finalMessage.length, hasMedia: mediaUrls && mediaUrls.length > 0 }
       })
 
       const telnyxResponse = await telnyx.sendMessage({
@@ -247,12 +245,8 @@ export async function POST(request: NextRequest) {
         webhookUrl: webhookUrl ? `${webhookUrl}/api/sms/telnyx/status` : undefined
       })
 
-      console.log('Telnyx SMS sent successfully:', {
-        id: telnyxResponse.id,
-        status: telnyxResponse.status,
-        to: telnyxResponse.to,
-        from: telnyxResponse.from,
-        segments: telnyxResponse.parts
+      smsLogger.info('Telnyx SMS sent successfully', {
+        data: { id: telnyxResponse.id, status: telnyxResponse.status, to: telnyxResponse.to, from: telnyxResponse.from, segments: telnyxResponse.parts }
       })
 
       // Update message record with Telnyx message ID
@@ -296,7 +290,7 @@ export async function POST(request: NextRequest) {
             messageId: messageRecord.id,
             conversationId: finalConversationId
           })
-        }).catch(err => console.error('Failed to trigger SMS analysis:', err))
+        }).catch(err => smsLogger.error('Failed to trigger SMS analysis', { error: err }))
       }
 
       return NextResponse.json({
@@ -309,7 +303,7 @@ export async function POST(request: NextRequest) {
       })
 
     } catch (error) {
-      console.error('Error sending SMS:', error)
+      smsLogger.error('Error sending SMS', { error })
 
       // Update message status to failed
       await supabase
@@ -328,7 +322,7 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error('SMS send error:', error)
+    smsLogger.error('SMS send error', { error })
     return NextResponse.json({ 
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

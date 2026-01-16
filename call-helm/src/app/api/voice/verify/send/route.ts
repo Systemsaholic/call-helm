@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
       message: 'Verification code sent via SMS'
     })
   } catch (error) {
-    console.error('Error sending verification code:', error)
+    voiceLogger.error('Error sending verification code', { error })
     return NextResponse.json(
       { error: 'Failed to send verification code' },
       { status: 500 }
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
       recommendedChannel: 'sms'
     })
   } catch (error) {
-    console.error('Error looking up phone number:', error)
+    voiceLogger.error('Error looking up phone number', { error })
     return NextResponse.json(
       { error: 'Failed to lookup phone number' },
       { status: 500 }

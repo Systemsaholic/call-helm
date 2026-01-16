@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,10 +37,10 @@ export async function GET(request: NextRequest) {
       .gte('created_at', tenMinutesAgo)
     
     if (callsError) {
-      console.error('Error checking call health:', callsError)
-      return NextResponse.json({ 
-        healthy: true, 
-        message: 'Unable to check system health' 
+      voiceLogger.error('Error checking call health', { error: callsError })
+      return NextResponse.json({
+        healthy: true,
+        message: 'Unable to check system health'
       })
     }
     
@@ -78,11 +79,13 @@ export async function GET(request: NextRequest) {
       (recentTimeouts / totalRecentCalls) * 100 : 0
     
     // Debug logging
-    console.log('Health check:', {
-      activeCalls: activeCalls?.length || 0,
-      recentTimeouts,
-      webhookStale,
-      totalRecentCalls
+    voiceLogger.debug('Health check', {
+      data: {
+        activeCalls: activeCalls?.length || 0,
+        recentTimeouts,
+        webhookStale,
+        totalRecentCalls
+      }
     })
     
     return NextResponse.json({
@@ -100,10 +103,10 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Health check error:', error)
-    return NextResponse.json({ 
-      healthy: true, 
-      message: 'Health check unavailable' 
+    voiceLogger.error('Health check error', { error })
+    return NextResponse.json({
+      healthy: true,
+      message: 'Health check unavailable'
     })
   }
 }

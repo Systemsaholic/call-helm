@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +35,7 @@ export async function GET(
 
     return NextResponse.json({ success: true, scheduled: data })
   } catch (error) {
-    console.error('Error fetching scheduled message:', error)
+    smsLogger.error('Error fetching scheduled message', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -83,7 +84,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, scheduled: data })
   } catch (error) {
-    console.error('Error updating scheduled message:', error)
+    smsLogger.error('Error updating scheduled message', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -112,7 +113,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error cancelling scheduled message:', error)
+    smsLogger.error('Error cancelling scheduled message', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

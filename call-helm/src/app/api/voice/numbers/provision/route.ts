@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService } from '@/lib/services/telnyx'
 import { provisionPhoneNumberSchema } from '@/lib/validations/api.schema'
 import { asyncHandler, ValidationError, AuthenticationError, AuthorizationError } from '@/lib/errors/handler'
+import { voiceLogger } from '@/lib/logger'
 
 export const POST = asyncHandler(async (request: NextRequest) => {
   const supabase = await createServerSupabaseClient()
@@ -61,7 +62,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       messagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID
     })
   } catch (error) {
-    console.error('Failed to purchase number:', error)
+    voiceLogger.error('Failed to purchase number', { error })
     return NextResponse.json({
       error: error instanceof Error ? error.message : 'Failed to purchase phone number',
       code: 'PURCHASE_FAILED'
@@ -102,9 +103,9 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     try {
       await telnyxService.releaseNumber(purchasedNumber.id)
     } catch (releaseError) {
-      console.error("Failed to release number after create failure:", releaseError)
+      voiceLogger.error('Failed to release number after create failure', { error: releaseError })
     }
-    console.error("Error creating phone number record:", phoneError)
+    voiceLogger.error('Error creating phone number record', { error: phoneError })
     throw phoneError
   }
 
@@ -127,9 +128,9 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       await telnyxService.releaseNumber(purchasedNumber.id)
       await supabase.from("phone_numbers").delete().eq("id", createdPhone.id)
     } catch (releaseError) {
-      console.error("Failed to release number after error:", releaseError)
+      voiceLogger.error('Failed to release number after error', { error: releaseError })
     }
-    console.error("Error updating voice integration:", updateError)
+    voiceLogger.error('Error updating voice integration', { error: updateError })
     throw updateError
   }
 

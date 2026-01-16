@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { apiLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest) {
 
     // Log all cookies
     const allCookies = cookieStore.getAll()
-    console.log('Test Auth - Available cookies:', allCookies.map(c => ({ name: c.name, hasValue: !!c.value })))
+    apiLogger.debug('Test Auth - Available cookies', { data: { cookies: allCookies.map(c => ({ name: c.name, hasValue: !!c.value })) } })
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
     const { data: { user }, error } = await supabase.auth.getUser()
     
     if (error) {
-      console.error('Test Auth - Auth error:', error)
+      apiLogger.error('Test Auth - Auth error', { error })
       return NextResponse.json({ 
         authenticated: false, 
         error: error.message,
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     }
     
     if (!user) {
-      console.error('Test Auth - No user found')
+      apiLogger.error('Test Auth - No user found')
       return NextResponse.json({ 
         authenticated: false,
         error: 'No user found',
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Test Auth - Unexpected error:', error)
+    apiLogger.error('Test Auth - Unexpected error', { error })
     return NextResponse.json({ 
       authenticated: false,
       error: 'Unexpected error',

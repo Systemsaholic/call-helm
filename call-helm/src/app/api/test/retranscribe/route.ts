@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { voiceLogger } from '@/lib/logger'
 
 // TEST ENDPOINT - Not for production use
 // This endpoint allows re-transcribing calls for testing purposes
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== TEST RETRANSCRIBE ENDPOINT ===')
+    voiceLogger.info('Test retranscribe endpoint called')
     
     const body = await request.json()
     const { callId } = body
@@ -37,9 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No recording available' }, { status: 400 })
     }
     
-    console.log('Re-transcribing call:', callId)
-    console.log('Recording URL:', call.recording_url)
-    console.log('Recording SID:', call.recording_sid)
+    voiceLogger.info('Re-transcribing call', { data: { callId, recordingUrl: call.recording_url, recordingSid: call.recording_sid } })
     
     // Clear existing transcription and analysis
     await supabase
@@ -70,11 +69,11 @@ export async function POST(request: NextRequest) {
     })
     
     if (!transcriptionResponse.ok) {
-      const error = await transcriptionResponse.text()
-      console.error('Transcription failed:', error)
+      const errorText = await transcriptionResponse.text()
+      voiceLogger.error('Transcription failed', { error: new Error(errorText) })
       return NextResponse.json({
         error: 'Transcription failed',
-        details: error
+        details: errorText
       }, { status: 500 })
     }
     
@@ -88,7 +87,7 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Re-transcribe error:', error)
+    voiceLogger.error('Re-transcribe error', { error })
     return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

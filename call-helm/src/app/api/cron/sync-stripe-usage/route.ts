@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { apiLogger } from '@/lib/logger'
 import {
   stripe,
   METERED_PRICE_IDS,
@@ -76,8 +77,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('=== STRIPE USAGE SYNC JOB ===')
-  console.log('Started at:', new Date().toISOString())
+  apiLogger.info('Stripe usage sync job started', { data: { timestamp: new Date().toISOString() } })
 
   const results = {
     processed: 0,
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
       .in('subscription_status', ['active', 'trialing', 'past_due'])
 
     if (orgError) {
-      console.error('Error fetching organizations:', orgError)
+      apiLogger.error('Error fetching organizations', { error: orgError })
       return NextResponse.json({
         error: 'Failed to fetch organizations',
         details: orgError.message
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
     }
 
     results.processed = organizations?.length || 0
-    console.log('Organizations with active subscriptions:', results.processed)
+    apiLogger.info('Organizations with active subscriptions', { data: { count: results.processed } })
 
     for (const org of (organizations as OrganizationUsage[]) || []) {
       const report: UsageReport = {
@@ -197,9 +197,9 @@ export async function POST(request: NextRequest) {
                 await reportUsage(subscriptionItemId, overage)
                 overageReport.reported = true
                 results.reported++
-                console.log(
-                  `Reported ${overage} ${calc.type} overage for org ${org.organization_id}`
-                )
+                apiLogger.info('Reported overage to Stripe', {
+                  data: { overage, type: calc.type, orgId: org.organization_id }
+                })
               } else {
                 overageReport.error = 'No subscription item found'
                 results.skipped++
@@ -221,17 +221,18 @@ export async function POST(request: NextRequest) {
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        console.error(`Failed to process org ${org.organization_id}:`, errorMsg)
+        apiLogger.error('Failed to process org', { error, data: { orgId: org.organization_id } })
         results.errors.push(`Org ${org.organization_id}: ${errorMsg}`)
       }
     }
 
-    console.log('=== JOB COMPLETE ===')
-    console.log('Results:', {
-      processed: results.processed,
-      reported: results.reported,
-      failed: results.failed,
-      skipped: results.skipped
+    apiLogger.info('Stripe usage sync job complete', {
+      data: {
+        processed: results.processed,
+        reported: results.reported,
+        failed: results.failed,
+        skipped: results.skipped
+      }
     })
 
     return NextResponse.json({
@@ -249,7 +250,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Usage sync job error:', error)
+    apiLogger.error('Usage sync job error', { error })
     return NextResponse.json({
       error: 'Job failed',
       details: error instanceof Error ? error.message : 'Unknown error',

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateThreeCXApiKey, logThreeCXEvent } from '@/lib/services/threeCX';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      console.error('Error creating contact:', error);
+      apiLogger.error('Error creating contact', { error });
       return NextResponse.json({ error: 'Failed to create contact' }, { status: 500 });
     }
 
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
       contactUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/contacts/${contact.id}`
     });
   } catch (error) {
-    console.error('Error in 3CX contact creation:', error);
+    apiLogger.error('Error in 3CX contact creation', { error });
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

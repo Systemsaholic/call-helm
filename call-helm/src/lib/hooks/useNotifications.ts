@@ -3,12 +3,20 @@ import { useAuth } from '@/lib/hooks/useAuth'
 import { toast } from 'sonner'
 import { useNewMessageSubscription } from './useRealtimeSubscription'
 
+export interface NotificationData {
+  action?: string
+  campaignId?: string
+  callListId?: string
+  contactId?: string
+  [key: string]: string | number | boolean | undefined
+}
+
 export interface Notification {
   id: string
   type: 'assignment' | 'call_ready' | 'campaign_status' | 'usage_alert' | 'system'
   title: string
   message: string
-  data?: Record<string, any>
+  data?: NotificationData
   priority: 'low' | 'normal' | 'high' | 'urgent'
   read: boolean
   created_at: string
@@ -29,6 +37,39 @@ export interface CallQueueNotification {
   assigned_at: string
   due_at?: string
   status: 'pending' | 'acknowledged' | 'calling' | 'completed'
+}
+
+// Types for Supabase join responses
+interface CallListRelation {
+  id: string
+  name: string
+}
+
+interface ContactRelation {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  phone_number: string
+}
+
+// Note: Supabase returns single objects for one-to-one relations but arrays for one-to-many
+// The shape depends on the relationship direction
+interface CallListContactWithRelations {
+  id: string
+  contact_id: string
+  assigned_to: string
+  assigned_at: string
+  status: string
+  priority: number
+  call_lists: CallListRelation | CallListRelation[] | null
+  contacts: ContactRelation | ContactRelation[] | null
+}
+
+// Helper to safely get first item from potentially array or single relation
+function getRelation<T>(relation: T | T[] | null): T | null {
+  if (!relation) return null
+  if (Array.isArray(relation)) return relation[0] || null
+  return relation
 }
 
 // Query keys for notifications
@@ -247,18 +288,22 @@ export function useCallQueueNotifications() {
 
         if (error) throw error
 
-        const queueItems: CallQueueNotification[] = data?.map(item => ({
-          id: item.id,
-          call_list_contact_id: item.id,
-          contact_id: item.contact_id,
-          assigned_agent_id: item.assigned_to,
-          campaign_name: (item.call_lists as any)?.name || 'Unknown Campaign',
-          contact_name: `${(item.contacts as any)?.first_name || ''} ${(item.contacts as any)?.last_name || ''}`.trim(),
-          contact_phone: (item.contacts as any)?.phone_number || '',
-          priority: item.priority,
-          assigned_at: item.assigned_at,
-          status: 'pending',
-        })) || []
+        const queueItems: CallQueueNotification[] = (data as CallListContactWithRelations[] | null)?.map(item => {
+          const callList = getRelation(item.call_lists)
+          const contact = getRelation(item.contacts)
+          return {
+            id: item.id,
+            call_list_contact_id: item.id,
+            contact_id: item.contact_id,
+            assigned_agent_id: item.assigned_to,
+            campaign_name: callList?.name || 'Unknown Campaign',
+            contact_name: `${contact?.first_name || ''} ${contact?.last_name || ''}`.trim(),
+            contact_phone: contact?.phone_number || '',
+            priority: item.priority,
+            assigned_at: item.assigned_at,
+            status: 'pending',
+          }
+        }) || []
 
         setCallQueue(queueItems)
       } catch (error) {
@@ -319,16 +364,19 @@ export function useCallQueueNotifications() {
                 .single()
 
               if (fullData) {
+                const typedData = fullData as CallListContactWithRelations
+                const callList = getRelation(typedData.call_lists)
+                const contact = getRelation(typedData.contacts)
                 const queueItem: CallQueueNotification = {
-                  id: fullData.id,
-                  call_list_contact_id: fullData.id,
-                  contact_id: fullData.contact_id,
-                  assigned_agent_id: fullData.assigned_to,
-                  campaign_name: (fullData.call_lists as any)?.name || 'Unknown Campaign',
-                  contact_name: `${(fullData.contacts as any)?.first_name || ''} ${(fullData.contacts as any)?.last_name || ''}`.trim(),
-                  contact_phone: (fullData.contacts as any)?.phone_number || '',
-                  priority: fullData.priority,
-                  assigned_at: fullData.assigned_at,
+                  id: typedData.id,
+                  call_list_contact_id: typedData.id,
+                  contact_id: typedData.contact_id,
+                  assigned_agent_id: typedData.assigned_to,
+                  campaign_name: callList?.name || 'Unknown Campaign',
+                  contact_name: `${contact?.first_name || ''} ${contact?.last_name || ''}`.trim(),
+                  contact_phone: contact?.phone_number || '',
+                  priority: typedData.priority,
+                  assigned_at: typedData.assigned_at,
                   status: 'pending',
                 }
 
@@ -345,7 +393,7 @@ export function useCallQueueNotifications() {
                   action: {
                     label: 'Start Calling',
                     onClick: () => {
-                      window.location.href = `/dashboard/call-board?list=${(fullData.call_lists as any)?.id}`
+                      window.location.href = `/dashboard/call-board?list=${callList?.id}`
                     }
                   }
                 })
@@ -518,7 +566,10 @@ export function useSMSNotifications() {
     // Create audio element for notification sound using Web Audio API
     const createNotificationSound = () => {
       try {
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+        // Use type assertion for webkit prefix support
+        const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        if (!AudioContextClass) return null
+        const audioContext = new AudioContextClass()
         const oscillator = audioContext.createOscillator()
         const gainNode = audioContext.createGain()
 
@@ -590,7 +641,13 @@ export function useSMSNotifications() {
   }, [notificationSettings.playSound, notificationSettings.soundEnabled])
 
   // Show toast notification for new message
-  const showNewMessageNotification = useCallback((messageData: any) => {
+  interface InboundMessageData {
+    from_number?: string
+    message_body?: string
+    direction?: 'inbound' | 'outbound'
+  }
+
+  const showNewMessageNotification = useCallback((messageData: InboundMessageData) => {
     if (!notificationSettings.showToasts) return
 
     const senderInfo = messageData.from_number ?

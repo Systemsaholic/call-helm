@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 import { encryptEIN, isEncryptionConfigured } from '@/lib/security/encryption'
+import { apiLogger } from '@/lib/logger'
 
 // Create a new SMS brand for 10DLC compliance
 export async function POST(request: NextRequest) {
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
         einIsEncrypted = true
       }
     } else {
-      console.warn('DATA_ENCRYPTION_KEY not configured - EIN will be stored unencrypted')
+      apiLogger.warn('DATA_ENCRYPTION_KEY not configured - EIN will be stored unencrypted')
     }
 
     // Store brand in our database first
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (dbError) {
-      console.error('Database error creating brand:', dbError)
+      apiLogger.error('Database error creating brand', { error: dbError })
       return NextResponse.json(
         { error: 'Failed to create brand record' },
         { status: 500 }
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
 
     // Submit to Telnyx Campaign Registry
     try {
-      console.log(`Creating brand "${brandName}" in Telnyx Campaign Registry`)
+      apiLogger.info('Creating brand in Telnyx Campaign Registry', { data: { brandName } })
 
       const telnyxBrand = await telnyxService.createBrand({
         brandName,
@@ -157,11 +158,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (updateError) {
-        console.error('Error updating brand with Telnyx ID:', updateError)
+        apiLogger.error('Error updating brand with Telnyx ID', { error: updateError })
         // Don't fail the request since the brand was created successfully
       }
 
-      console.log(`Successfully created brand "${brandName}" with Telnyx ID: ${telnyxBrand.id}`)
+      apiLogger.info('Successfully created brand in Telnyx', { data: { brandName, telnyxBrandId: telnyxBrand.id } })
 
       return NextResponse.json({
         success: true,
@@ -184,7 +185,7 @@ export async function POST(request: NextRequest) {
         }
       })
     } catch (telnyxError) {
-      console.error('Telnyx brand creation error:', telnyxError)
+      apiLogger.error('Telnyx brand creation error', { error: telnyxError })
 
       // Update our database to reflect the failure
       await supabase
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
       )
     }
   } catch (error) {
-    console.error('Error creating SMS brand:', error)
+    apiLogger.error('Error creating SMS brand', { error })
     return NextResponse.json(
       { error: 'Failed to create SMS brand' },
       { status: 500 }

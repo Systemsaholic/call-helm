@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateThreeCXApiKey, logThreeCXEvent } from '@/lib/services/threeCX';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -29,8 +30,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log('=== 3CX Contact Search Request ===');
-    console.log('Search query:', query);
+    apiLogger.info('3CX Contact Search Request', { data: { query } });
 
     // Full-text search across multiple fields including phone_number
     const { data: contacts, error } = await supabase
@@ -41,11 +41,11 @@ export async function GET(request: NextRequest) {
       .limit(20);
 
     if (error) {
-      console.error('Error searching contacts:', error);
+      apiLogger.error('Error searching contacts', { error });
       return NextResponse.json({ error: 'Database error', contacts: [] }, { status: 500 });
     }
 
-    console.log('Search results:', contacts?.length || 0, 'contacts found');
+    apiLogger.info('Search results', { data: { count: contacts?.length || 0 } });
 
     await logThreeCXEvent({
       organization_id: organizationId,
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, contacts: formattedContacts });
   } catch (error) {
-    console.error('Error in 3CX contact search:', error);
+    apiLogger.error('Error in 3CX contact search', { error });
     return NextResponse.json({ error: 'Internal server error', contacts: [] }, { status: 500 });
   }
 }

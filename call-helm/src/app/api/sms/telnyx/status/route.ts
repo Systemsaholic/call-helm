@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // Telnyx delivery statuses
 type TelnyxDeliveryStatus =
@@ -93,12 +94,8 @@ export async function POST(request: NextRequest) {
     const recipientStatus = payload.to[0]?.status
     const recipientPhone = payload.to[0]?.phone_number
 
-    console.log(`[Telnyx SMS Status] ${event_type}:`, {
-      id: payload.id,
-      to: recipientPhone,
-      status: recipientStatus,
-      cost: payload.cost?.amount,
-      parts: payload.parts
+    smsLogger.info('Telnyx SMS status update', {
+      data: { eventType: event_type, id: payload.id, to: recipientPhone, status: recipientStatus, cost: payload.cost?.amount, parts: payload.parts }
     })
 
     // Use service role client to bypass RLS
@@ -140,28 +137,26 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (updateError) {
-      console.error('[Telnyx SMS Status] Failed to update message:', updateError)
+      smsLogger.error('Telnyx SMS status - failed to update message', { error: updateError })
       // Still return 200 to acknowledge receipt
       return NextResponse.json({ received: true, error: 'Message not found' })
     }
 
-    console.log('[Telnyx SMS Status] Updated message:', updatedMessage?.id, 'to status:', status)
+    smsLogger.debug('Telnyx SMS status - updated message', { data: { messageId: updatedMessage?.id, status } })
 
     // Handle broadcast recipient status updates
     await updateBroadcastRecipient(supabase, payload, status)
 
     // For failures, log for monitoring
     if (status === 'failed' || status === 'undelivered') {
-      console.warn('[Telnyx SMS] Delivery failed:', {
-        messageId: payload.id,
-        to: recipientPhone,
-        error: payload.errors?.[0]?.detail || 'Unknown error'
+      smsLogger.warn('Telnyx SMS delivery failed', {
+        data: { messageId: payload.id, to: recipientPhone, error: payload.errors?.[0]?.detail || 'Unknown error' }
       })
     }
 
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('[Telnyx SMS Status] Error:', error)
+    smsLogger.error('Telnyx SMS status webhook error', { error })
     return NextResponse.json({ received: true, error: 'Processing error' })
   }
 }
@@ -263,7 +258,7 @@ async function updateBroadcastRecipient(
     }
   }
 
-  console.log('[Telnyx SMS Status] Updated broadcast recipient:', recipient.id, status)
+  smsLogger.debug('Telnyx SMS status - updated broadcast recipient', { data: { recipientId: recipient.id, status } })
 }
 
 // Health check

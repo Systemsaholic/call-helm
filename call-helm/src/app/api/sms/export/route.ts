@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     })
   } catch (error) {
-    console.error('Error exporting messages:', error)
+    smsLogger.error('Error exporting messages', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

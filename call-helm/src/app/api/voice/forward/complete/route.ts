@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { voiceLogger } from '@/lib/logger'
 
 // Handle the completion of forwarding (after dial ends)
 export async function POST(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'text/xml' }
     })
   } catch (error) {
-    console.error('Error handling forward completion:', error)
+    voiceLogger.error('Error handling forward completion', { error })
     
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>

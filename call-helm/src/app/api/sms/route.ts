@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error fetching SMS messages:', error)
+    smsLogger.error('Error fetching SMS messages', { error })
     return NextResponse.json(
       { error: 'Failed to fetch SMS messages' },
       { status: 500 }
@@ -184,7 +185,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error sending SMS:', error)
+    smsLogger.error('Error sending SMS', { error })
     return NextResponse.json(
       { error: 'Failed to send SMS' },
       { status: 500 }

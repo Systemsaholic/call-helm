@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { telnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Note: With Telnyx, webhooks are configured at the connection level, not per-number
 // This endpoint is kept for backward compatibility but functionality is limited
@@ -12,13 +13,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "App URL not configured" }, { status: 500 })
     }
 
-    console.log('=== TELNYX WEBHOOK INFO ===')
-    console.log('App URL:', appUrl)
-    console.log('Note: Telnyx webhooks are configured at the connection level in the Telnyx portal')
+    voiceLogger.info('Telnyx webhook info requested', { data: { appUrl, note: 'Telnyx webhooks are configured at the connection level in the Telnyx portal' } })
 
     // List all owned numbers for reference
     const numbers = await telnyxService.listOwnedNumbers()
-    console.log('Found numbers:', numbers.map(n => n.phoneNumber))
+    voiceLogger.debug('Found numbers', { data: { phoneNumbers: numbers.map(n => n.phoneNumber) } })
 
     // With Telnyx, webhooks are configured at the connection level
     // This endpoint now just returns info about the numbers
@@ -39,7 +38,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error getting webhook info:', error)
+    voiceLogger.error('Error getting webhook info', { error })
     return NextResponse.json({
       error: error instanceof Error ? error.message : 'Failed to get webhook info'
     }, { status: 500 })

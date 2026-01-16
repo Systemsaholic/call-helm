@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { apiLogger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,14 +32,14 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: true })
 
     if (error) {
-      console.error('Error fetching phone numbers:', error)
+      apiLogger.error('Error fetching phone numbers', { error })
       return NextResponse.json({ error: 'Failed to fetch phone numbers' }, { status: 500 })
     }
 
     return NextResponse.json({ phoneNumbers: phoneNumbers || [] })
 
   } catch (error) {
-    console.error('Phone numbers GET error:', error)
+    apiLogger.error('Phone numbers GET error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -108,11 +109,11 @@ export async function POST(request: NextRequest) {
           p_number: number
         })
         if (rpcError) {
-          console.error("RPC set_primary_phone_number error:", rpcError)
+          apiLogger.error('RPC set_primary_phone_number error', { error: rpcError })
           return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
         }
       } catch (err) {
-        console.error("RPC call failed:", err)
+        apiLogger.error('RPC call failed', { error: err })
         return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
       }
     }
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error("Error creating phone number:", error)
+      apiLogger.error('Error creating phone number', { error })
       return NextResponse.json({ error: "Failed to create phone number" }, { status: 500 })
     }
 
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ phoneNumber })
   } catch (error) {
-    console.error('Phone number POST error:', error)
+    apiLogger.error('Phone number POST error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -201,11 +202,11 @@ export async function PATCH(request: NextRequest) {
           p_number: null
         })
         if (rpcError) {
-          console.error("RPC set_primary_phone_number error:", rpcError)
+          apiLogger.error('RPC set_primary_phone_number error', { error: rpcError })
           return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
         }
       } catch (err) {
-        console.error("RPC call failed:", err)
+        apiLogger.error('RPC call failed', { error: err })
         return NextResponse.json({ error: "Failed to set primary number" }, { status: 500 })
       }
 
@@ -227,14 +228,14 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Error updating phone number:', error)
+      apiLogger.error('Error updating phone number', { error })
       return NextResponse.json({ error: 'Failed to update phone number' }, { status: 500 })
     }
 
     return NextResponse.json({ phoneNumber: data })
 
   } catch (error) {
-    console.error('Phone number PATCH error:', error)
+    apiLogger.error('Phone number PATCH error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -291,7 +292,7 @@ export async function DELETE(request: NextRequest) {
       .eq('organization_id', member.organization_id)
 
     if (error) {
-      console.error('Error deleting phone number:', error)
+      apiLogger.error('Error deleting phone number', { error })
       return NextResponse.json({ error: 'Failed to delete phone number' }, { status: 500 })
     }
 
@@ -320,7 +321,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true })
 
   } catch (error) {
-    console.error('Phone number DELETE error:', error)
+    apiLogger.error('Phone number DELETE error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -21,7 +21,7 @@ export interface Contact {
   position?: string
   notes?: string
   tags?: string[]
-  custom_fields?: Record<string, any>
+  custom_fields?: Record<string, string | number | boolean | null>
   status: 'active' | 'inactive' | 'do_not_call' | 'duplicate' | 'invalid'
   do_not_call_reason?: string
   source?: string
@@ -49,7 +49,7 @@ export interface ContactInput {
   position?: string
   notes?: string
   tags?: string[]
-  custom_fields?: Record<string, any>
+  custom_fields?: Record<string, string | number | boolean | null>
   status?: 'active' | 'inactive' | 'do_not_call'
 }
 
@@ -274,7 +274,7 @@ export function useCreateContact() {
       queryClient.invalidateQueries({ queryKey: contactKeys.lists() })
       toast.success('Contact created successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to create contact')
     },
   })
@@ -297,7 +297,7 @@ export function useUpdateContact() {
       if (!member) throw new Error('No organization found')
 
       // Prepare the update object, excluding full_name if present
-      const updateData: any = { ...updates }
+      const updateData: Partial<ContactInput> & { first_name?: string; last_name?: string } = { ...updates }
       
       // If full_name is provided, split it into first_name and last_name
       if (updates.full_name) {
@@ -337,25 +337,25 @@ export function useUpdateContact() {
       // Cancel outgoing refetches (so they don't overwrite our optimistic update)
       await queryClient.cancelQueries({ queryKey: contactKeys.lists() })
       await queryClient.cancelQueries({ queryKey: contactKeys.detail(id) })
-      
+
       // Snapshot the previous value
-      const previousContacts = queryClient.getQueryData(contactKeys.lists())
-      const previousDetail = queryClient.getQueryData(contactKeys.detail(id))
+      const previousContacts = queryClient.getQueryData<Contact[]>(contactKeys.lists())
+      const previousDetail = queryClient.getQueryData<Contact>(contactKeys.detail(id))
       
       // Optimistically update to the new value
       queryClient.setQueriesData(
         { queryKey: contactKeys.lists() },
-        (old: any) => {
+        (old: Contact[] | undefined) => {
           if (!old) return old
           return old.map((contact: Contact) =>
             contact.id === id ? { ...contact, ...updates, updated_at: new Date().toISOString() } : contact
           )
         }
       )
-      
+
       queryClient.setQueryData(
         contactKeys.detail(id),
-        (old: any) => {
+        (old: Contact | undefined) => {
           if (!old) return old
           return { ...old, ...updates, updated_at: new Date().toISOString() }
         }
@@ -364,7 +364,7 @@ export function useUpdateContact() {
       // Return a context with the previous and new data
       return { previousContacts, previousDetail, id }
     },
-    onError: (error: any, variables, context: any) => {
+    onError: (error: Error, variables, context: { previousContacts?: Contact[]; previousDetail?: Contact; id: string } | undefined) => {
       // If the mutation fails, use the context to roll back
       if (context?.previousContacts) {
         queryClient.setQueriesData({ queryKey: contactKeys.lists() }, context.previousContacts)
@@ -409,7 +409,7 @@ export function useDeleteContacts() {
       queryClient.invalidateQueries({ queryKey: contactKeys.lists() })
       toast.success('Contact(s) deleted successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to delete contact(s)')
     },
   })
@@ -515,7 +515,7 @@ export function useImportContacts() {
       queryClient.invalidateQueries({ queryKey: contactKeys.lists() })
       toast.success(`${data.length} contacts imported successfully`)
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to import contacts')
     },
   })
@@ -630,7 +630,7 @@ export function useMergeDuplicates() {
       queryClient.invalidateQueries({ queryKey: contactKeys.detail(data.primaryId) })
       toast.success(`${data.mergedCount} duplicate(s) merged successfully`)
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to merge duplicates')
     },
   })

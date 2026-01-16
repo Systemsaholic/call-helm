@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 // Add a reaction to a message
 export async function POST(request: NextRequest) {
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (error) {
-      console.error('Error adding reaction:', error)
+      smsLogger.error('Error adding reaction', { error })
       return NextResponse.json(
         { error: 'Failed to add reaction' },
         { status: 500 }
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
       reaction: reactionData
     })
   } catch (error) {
-    console.error('Error in reaction POST:', error)
+    smsLogger.error('Error in reaction POST', { error })
     return NextResponse.json(
       { error: 'Failed to add reaction' },
       { status: 500 }
@@ -124,7 +125,7 @@ export async function DELETE(request: NextRequest) {
       .eq('reaction', reaction)
 
     if (error) {
-      console.error('Error removing reaction:', error)
+      smsLogger.error('Error removing reaction', { error })
       return NextResponse.json(
         { error: 'Failed to remove reaction' },
         { status: 500 }
@@ -148,7 +149,7 @@ export async function DELETE(request: NextRequest) {
       success: true
     })
   } catch (error) {
-    console.error('Error in reaction DELETE:', error)
+    smsLogger.error('Error in reaction DELETE', { error })
     return NextResponse.json(
       { error: 'Failed to remove reaction' },
       { status: 500 }
@@ -206,7 +207,7 @@ export async function GET(request: NextRequest) {
       .eq('organization_id', member.organization_id)
 
     if (error) {
-      console.error('Error fetching reactions:', error)
+      smsLogger.error('Error fetching reactions', { error })
       return NextResponse.json(
         { error: 'Failed to fetch reactions' },
         { status: 500 }
@@ -257,7 +258,7 @@ export async function GET(request: NextRequest) {
       reactions: formattedMessages
     })
   } catch (error) {
-    console.error('Error in reaction GET:', error)
+    smsLogger.error('Error in reaction GET', { error })
     return NextResponse.json(
       { error: 'Failed to fetch reactions' },
       { status: 500 }

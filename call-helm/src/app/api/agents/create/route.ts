@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createAgentSchema } from '@/lib/validations/agent.schema'
 import { asyncHandler, AuthenticationError, AuthorizationError } from '@/lib/errors/handler'
+import { apiLogger } from '@/lib/logger'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -25,7 +26,7 @@ const supabaseAdmin = createClient(
 )
 
 export const POST = asyncHandler(async (request: NextRequest) => {
-  console.log('Create Agent API route called')
+  apiLogger.info('Create Agent API route called')
 
   // Get the current user's session
   const cookieStore = await cookies()
@@ -44,7 +45,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
               cookieStore.set(name, value, options)
             )
           } catch {
-            console.error("Failed to set cookies in create agent route")
+            apiLogger.warn('Failed to set cookies in create agent route')
           }
         }
       }
@@ -70,7 +71,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     .single()
 
   if (memberError || !currentMember) {
-    console.error('Error fetching current member:', memberError)
+    apiLogger.error('Error fetching current member', { error: memberError })
     throw new AuthorizationError('You must belong to an organization to add agents')
   }
 
@@ -116,14 +117,14 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     .single()
 
   if (createError) {
-    console.error('Error creating agent:', createError)
+    apiLogger.error('Error creating agent', { error: createError })
     return NextResponse.json(
       { error: 'Failed to create agent', details: createError.message },
       { status: 500 }
     )
   }
 
-  console.log('Agent created:', newAgent.id)
+  apiLogger.info('Agent created', { data: { agentId: newAgent.id } })
 
   return NextResponse.json({
     success: true,

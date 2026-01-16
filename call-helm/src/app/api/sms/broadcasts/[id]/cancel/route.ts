@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 // POST - Cancel a broadcast
 export async function POST(
@@ -59,7 +60,7 @@ export async function POST(
       .eq('id', id)
 
     if (updateError) {
-      console.error('Error cancelling broadcast:', updateError)
+      smsLogger.error('Error cancelling broadcast', { error: updateError })
       return NextResponse.json({ error: 'Failed to cancel broadcast' }, { status: 500 })
     }
 
@@ -74,7 +75,7 @@ export async function POST(
       .eq('status', 'pending')
 
     if (recipientError) {
-      console.error('Error updating recipients:', recipientError)
+      smsLogger.error('Error updating recipients', { error: recipientError })
       // Don't fail the request, the broadcast is already cancelled
     }
 
@@ -96,7 +97,7 @@ export async function POST(
       stats: statusCounts
     })
   } catch (error) {
-    console.error('Error in broadcast cancel:', error)
+    smsLogger.error('Error in broadcast cancel', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

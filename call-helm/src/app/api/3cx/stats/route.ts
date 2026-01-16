@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getThreeCXStats } from '@/lib/services/threeCX';
+import { apiLogger } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(stats);
 
   } catch (error) {
-    console.error('Error fetching 3CX stats:', error);
+    apiLogger.error('Error fetching 3CX stats', { error });
     return NextResponse.json(
       { error: 'Failed to fetch statistics' },
       { status: 500 }

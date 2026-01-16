@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // Initialize Supabase client with service role
 const supabase = createClient(
@@ -139,8 +140,8 @@ async function analyzeMessage(message: string, conversationContext?: any): Promi
     const data = await response.json()
     return JSON.parse(data.choices[0].message.content)
   } catch (error) {
-    console.error('SMS analysis error:', error)
-    
+    smsLogger.error('SMS analysis error', { error })
+
     // Return basic analysis if AI fails
     return {
       sentiment: 'neutral',
@@ -201,7 +202,7 @@ async function getConversationContext(conversationId: string) {
       recentMessages
     }
   } catch (error) {
-    console.error('Error getting conversation context:', error)
+    smsLogger.error('Error getting conversation context', { error })
     return null
   }
 }
@@ -217,7 +218,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    console.log('Analyzing SMS message:', messageId)
+    smsLogger.info('Analyzing SMS message', { data: { messageId } })
     
     // Get message details
     const { data: message, error: messageError } = await supabase
@@ -253,7 +254,7 @@ export async function POST(request: NextRequest) {
       .eq('id', messageId)
     
     if (updateError) {
-      console.error('Error updating message with analysis:', updateError)
+      smsLogger.error('Error updating message with analysis', { error: updateError })
     }
     
     // Update conversation with aggregated insights
@@ -355,8 +356,8 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('SMS analysis error:', error)
-    return NextResponse.json({ 
+    smsLogger.error('SMS analysis endpoint error', { error })
+    return NextResponse.json({
       error: 'Analysis failed',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })

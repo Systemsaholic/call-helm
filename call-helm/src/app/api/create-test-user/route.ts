@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { createTestUserSchema } from '@/lib/validations/api.schema'
 import { asyncHandler, ValidationError } from '@/lib/errors/handler'
+import { apiLogger } from '@/lib/logger'
 
 function getRequiredEnv(key: string): string {
   const v = process.env[key]
@@ -41,7 +42,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   })
 
   if (authError) {
-    console.error("Auth error:", authError)
+    apiLogger.error("Auth error", { error: authError })
     throw authError
   }
 
@@ -52,7 +53,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   // Add user to Organization (use validated organizationId or env fallback)
   const organizationId = validatedInput.organizationId || process.env.ORGANIZATION_ID
   if (!organizationId) {
-    console.error("ORGANIZATION_ID not configured and not provided")
+    apiLogger.error("ORGANIZATION_ID not configured and not provided")
     throw new ValidationError("Test user creation not configured. Please set ORGANIZATION_ID in environment variables or provide organizationId in request.")
   }
   
@@ -71,7 +72,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     .single()
 
   if (orgError) {
-    console.error("Org member error:", orgError)
+    apiLogger.error("Org member error", { error: orgError })
     // Still return user info even if org assignment fails
   }
 

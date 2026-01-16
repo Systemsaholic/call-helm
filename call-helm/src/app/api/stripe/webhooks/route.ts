@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { stripe, mapStripeStatus, addMeteredItemsToSubscription, isMeteredBillingConfigured } from '@/lib/stripe'
 import Stripe from 'stripe'
 import { Resend } from 'resend'
+import { webhookLogger, billingLogger } from '@/lib/logger'
 
 // Initialize Resend for email notifications
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
@@ -250,7 +251,7 @@ function generateAccountReactivatedEmailHtml(params: {
  */
 async function sendAccountReactivatedEmail(organizationId: string): Promise<void> {
   if (!resend) {
-    console.warn('RESEND_API_KEY not configured - reactivation email not sent')
+    billingLogger.warn('RESEND_API_KEY not configured - reactivation email not sent')
     return
   }
 
@@ -278,9 +279,9 @@ async function sendAccountReactivatedEmail(organizationId: string): Promise<void
       })
     })
 
-    console.log(`Account reactivated email sent for org ${organizationId}`)
+    billingLogger.info('Account reactivated email sent', { data: { organizationId } })
   } catch (error) {
-    console.error('Failed to send reactivation email:', error)
+    billingLogger.error('Failed to send reactivation email', { error })
   }
 }
 
@@ -292,7 +293,7 @@ async function sendPaymentFailureEmail(
   invoice: Stripe.Invoice
 ): Promise<void> {
   if (!resend) {
-    console.warn('RESEND_API_KEY not configured - payment failure email not sent')
+    billingLogger.warn('RESEND_API_KEY not configured - payment failure email not sent')
     return
   }
 
@@ -304,14 +305,14 @@ async function sendPaymentFailureEmail(
     .single()
 
   if (!org) {
-    console.error('Organization not found for payment failure email:', organizationId)
+    billingLogger.error('Organization not found for payment failure email', { data: { organizationId } })
     return
   }
 
   // Get admin emails
   const adminEmails = await getOrganizationAdminEmails(organizationId)
   if (adminEmails.length === 0) {
-    console.error('No admin emails found for organization:', organizationId)
+    billingLogger.error('No admin emails found for organization', { data: { organizationId } })
     return
   }
 
@@ -348,9 +349,9 @@ async function sendPaymentFailureEmail(
       html: emailHtml
     })
 
-    console.log(`Payment failure email sent to ${adminEmails.length} admin(s) for org ${organizationId}`)
+    billingLogger.info('Payment failure email sent', { data: { organizationId, adminCount: adminEmails.length } })
   } catch (error) {
-    console.error('Failed to send payment failure email:', error)
+    billingLogger.error('Failed to send payment failure email', { error })
   }
 }
 
@@ -377,7 +378,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   const planSlug = session.metadata?.plan_slug
 
   if (!organizationId || !planSlug) {
-    console.error('Missing metadata in checkout session:', session.id)
+    billingLogger.error('Missing metadata in checkout session', { data: { sessionId: session.id } })
     return
   }
 
@@ -411,7 +412,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     .eq('id', organizationId)
 
   if (error) {
-    console.error('Failed to update organization after checkout:', error)
+    billingLogger.error('Failed to update organization after checkout', { error })
     throw error
   }
 
@@ -419,14 +420,14 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   if (isMeteredBillingConfigured()) {
     try {
       await addMeteredItemsToSubscription(subscriptionId)
-      console.log(`Added metered items to subscription ${subscriptionId}`)
+      billingLogger.info('Added metered items to subscription', { data: { subscriptionId } })
     } catch (meteredError) {
       // Log but don't fail - metered items can be added later
-      console.error('Failed to add metered items:', meteredError)
+      billingLogger.error('Failed to add metered items', { error: meteredError })
     }
   }
 
-  console.log(`Organization ${organizationId} upgraded to ${planSlug}`)
+  billingLogger.info('Organization upgraded', { data: { organizationId, planSlug } })
 }
 
 // Map Stripe price IDs to plan slugs
@@ -450,7 +451,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     || await getOrganizationIdFromCustomer(subscription.customer as string)
 
   if (!organizationId) {
-    console.error('Could not find organization for subscription:', subscription.id)
+    billingLogger.error('Could not find organization for subscription', { data: { subscriptionId: subscription.id } })
     return
   }
 
@@ -496,11 +497,11 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     .eq('id', organizationId)
 
   if (error) {
-    console.error('Failed to update organization subscription:', error)
+    billingLogger.error('Failed to update organization subscription', { error })
     throw error
   }
 
-  console.log(`Organization ${organizationId} subscription updated to ${subscription.status}`)
+  billingLogger.info('Organization subscription updated', { data: { organizationId, status: subscription.status } })
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
@@ -508,7 +509,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     || await getOrganizationIdFromCustomer(subscription.customer as string)
 
   if (!organizationId) {
-    console.error('Could not find organization for deleted subscription:', subscription.id)
+    billingLogger.error('Could not find organization for deleted subscription', { data: { subscriptionId: subscription.id } })
     return
   }
 
@@ -533,11 +534,11 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     .eq('id', organizationId)
 
   if (error) {
-    console.error('Failed to downgrade organization:', error)
+    billingLogger.error('Failed to downgrade organization', { error })
     throw error
   }
 
-  console.log(`Organization ${organizationId} subscription canceled, downgraded to free`)
+  billingLogger.info('Organization subscription canceled, downgraded to free', { data: { organizationId } })
 }
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
@@ -545,7 +546,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const organizationId = await getOrganizationIdFromCustomer(customerId)
 
   if (!organizationId) {
-    console.error('Could not find organization for failed payment:', invoice.id)
+    billingLogger.error('Could not find organization for failed payment', { data: { invoiceId: invoice.id } })
     return
   }
 
@@ -580,14 +581,16 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     .eq('id', organizationId)
 
   if (error) {
-    console.error('Failed to update organization payment status:', error)
+    billingLogger.error('Failed to update organization payment status', { error })
     throw error
   }
 
   // Send payment failure notification email
   await sendPaymentFailureEmail(organizationId, invoice)
 
-  console.log(`Organization ${organizationId} payment failed, suspension scheduled for ${suspensionDate.toISOString()}`)
+  billingLogger.info('Organization payment failed, suspension scheduled', {
+    data: { organizationId, suspensionDate: suspensionDate.toISOString() }
+  })
 }
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
@@ -618,7 +621,7 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
       })
       .eq('id', organizationId)
 
-    console.log(`Organization ${organizationId} payment succeeded, status restored to active`)
+    billingLogger.info('Organization payment succeeded, status restored to active', { data: { organizationId } })
 
     // Send reactivation email if account was suspended
     if (org?.subscription_status === 'suspended') {
@@ -632,10 +635,17 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   ) || []
 
   if (usageCharges.length > 0) {
-    console.log(`Organization ${organizationId} invoice includes ${usageCharges.length} usage-based charges:`)
-    for (const charge of usageCharges) {
-      console.log(`  - ${charge.description}: $${(charge.amount / 100).toFixed(2)} (${charge.quantity} units)`)
-    }
+    billingLogger.info('Invoice includes usage-based charges', {
+      data: {
+        organizationId,
+        chargeCount: usageCharges.length,
+        charges: usageCharges.map(c => ({
+          description: c.description,
+          amount: (c.amount / 100).toFixed(2),
+          quantity: c.quantity
+        }))
+      }
+    })
 
     // Record usage billing event
     await supabase
@@ -674,10 +684,15 @@ async function handleInvoiceFinalized(invoice: Stripe.Invoice) {
   const totalUsageCharges = usageLines.reduce((sum, line) => sum + line.amount, 0)
 
   if (usageLines.length > 0) {
-    console.log(`Invoice ${invoice.id} finalized for org ${organizationId}`)
-    console.log(`  Subscription charges: $${((invoice.subtotal - totalUsageCharges) / 100).toFixed(2)}`)
-    console.log(`  Usage charges: $${(totalUsageCharges / 100).toFixed(2)}`)
-    console.log(`  Total: $${(invoice.total / 100).toFixed(2)}`)
+    billingLogger.info('Invoice finalized with usage charges', {
+      data: {
+        invoiceId: invoice.id,
+        organizationId,
+        subscriptionCharges: ((invoice.subtotal - totalUsageCharges) / 100).toFixed(2),
+        usageCharges: (totalUsageCharges / 100).toFixed(2),
+        total: (invoice.total / 100).toFixed(2)
+      }
+    })
 
     // Could send email notification about upcoming usage charges here
   }
@@ -704,7 +719,7 @@ export async function POST(request: NextRequest) {
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
-    console.error('Webhook signature verification failed:', message)
+    webhookLogger.error('Webhook signature verification failed', { error: err, data: { message } })
     return NextResponse.json(
       { error: `Webhook signature verification failed: ${message}` },
       { status: 400 }
@@ -739,12 +754,12 @@ export async function POST(request: NextRequest) {
         break
 
       default:
-        console.log(`Unhandled event type: ${event.type}`)
+        webhookLogger.debug('Unhandled event type', { data: { eventType: event.type } })
     }
 
     return NextResponse.json({ received: true })
   } catch (error) {
-    console.error('Webhook handler error:', error)
+    webhookLogger.error('Webhook handler error', { error })
     return NextResponse.json(
       { error: 'Webhook handler failed' },
       { status: 500 }

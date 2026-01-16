@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { apiLogger } from '@/lib/logger'
 
 interface AssemblyAIAnalysis {
   summary?: string
@@ -525,7 +526,7 @@ async function performAdvancedAnalysis(
     const data = await response.json()
     return JSON.parse(data.choices[0].message.content)
   } catch (error) {
-    console.error('Advanced analysis error:', error)
+    apiLogger.error('Advanced analysis error', { error })
     // Return partial analysis if GPT-4 fails
     return {
       executive_summary: assemblyData.summary || 'Analysis unavailable',
@@ -714,7 +715,7 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Enhanced analysis error:', error)
+    apiLogger.error('Enhanced analysis error', { error })
     return NextResponse.json({
       error: 'Analysis failed',
       details: error instanceof Error ? error.message : 'Unknown error'

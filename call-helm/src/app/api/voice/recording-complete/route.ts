@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== RECORDING COMPLETE WEBHOOK ===')
-    
+    voiceLogger.info('Recording complete webhook received')
+
     // Parse form data from SignalWire
     const formData = await request.formData()
     const recordingSid = formData.get('RecordingSid') as string
@@ -12,17 +13,13 @@ export async function POST(request: NextRequest) {
     const recordingDuration = formData.get('RecordingDuration') as string
     const callSid = formData.get('CallSid') as string
     const recordingStatus = formData.get('RecordingStatus') as string
-    
-    console.log('Recording webhook data:', {
-      recordingSid,
-      recordingUrl,
-      recordingDuration,
-      callSid,
-      recordingStatus
+
+    voiceLogger.debug('Recording webhook data', {
+      data: { recordingSid, recordingUrl, recordingDuration, callSid, recordingStatus }
     })
-    
+
     if (!recordingSid || !recordingUrl || !callSid) {
-      console.error('Missing required recording data')
+      voiceLogger.error('Missing required recording data')
       return NextResponse.json({ received: true })
     }
     
@@ -40,11 +37,11 @@ export async function POST(request: NextRequest) {
       .single()
     
     if (callError || !call) {
-      console.error('Call not found for recording:', callSid)
+      voiceLogger.error('Call not found for recording', { data: { callSid } })
       return NextResponse.json({ received: true })
     }
-    
-    console.log('Found call for recording:', call.id)
+
+    voiceLogger.debug('Found call for recording', { data: { callId: call.id } })
     
     // Update call record with recording information
     const { error: updateError } = await supabase
@@ -62,7 +59,7 @@ export async function POST(request: NextRequest) {
       .eq('id', call.id)
     
     if (updateError) {
-      console.error('Error updating call with recording:', updateError)
+      voiceLogger.error('Error updating call with recording', { error: updateError })
       return NextResponse.json({ received: true })
     }
     
@@ -78,11 +75,11 @@ export async function POST(request: NextRequest) {
       })
     
     if (jobError) {
-      console.error('Error creating transcription job:', jobError)
+      voiceLogger.error('Error creating transcription job', { error: jobError })
     }
-    
-    // Queue transcription processing 
-    console.log('Recording saved and triggering transcription for call:', call.id)
+
+    // Queue transcription processing
+    voiceLogger.info('Recording saved, triggering transcription', { data: { callId: call.id } })
     
     // Trigger transcription processing asynchronously
     try {
@@ -98,12 +95,12 @@ export async function POST(request: NextRequest) {
       })
       
       if (!transcriptionResponse.ok) {
-        console.error('Failed to trigger transcription:', transcriptionResponse.statusText)
+        voiceLogger.error('Failed to trigger transcription', { data: { status: transcriptionResponse.statusText } })
       } else {
-        console.log('Transcription triggered successfully')
+        voiceLogger.info('Transcription triggered successfully')
       }
     } catch (transcriptionError) {
-      console.error('Error triggering transcription:', transcriptionError)
+      voiceLogger.error('Error triggering transcription', { error: transcriptionError })
     }
     
     return NextResponse.json({ 
@@ -113,9 +110,9 @@ export async function POST(request: NextRequest) {
     })
     
   } catch (error) {
-    console.error('Error handling recording webhook:', error)
-    return NextResponse.json({ 
-      error: 'Recording webhook failed' 
+    voiceLogger.error('Error handling recording webhook', { error })
+    return NextResponse.json({
+      error: 'Recording webhook failed'
     }, { status: 500 })
   }
 }

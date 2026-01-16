@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       affected: data?.length || 0
     })
   } catch (error) {
-    console.error('Error performing bulk action:', error)
+    smsLogger.error('Error performing bulk action', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

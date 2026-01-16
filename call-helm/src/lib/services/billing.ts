@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { Database } from '@/lib/database.types'
+import { billingLogger } from '@/lib/logger'
 
 type SubscriptionPlan = Database['public']['Tables']['subscription_plans']['Row']
 type Organization = Database['public']['Tables']['organizations']['Row']
@@ -89,21 +90,18 @@ export class BillingService {
         .single()
 
       if (error) {
-        // Better error logging with actual error details
-        console.error('Error fetching organization limits:', {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          organizationId
+        billingLogger.error('Error fetching organization limits', {
+          error,
+          data: { organizationId, code: error.code, details: error.details }
         })
-        
+
         // Return null instead of throwing to prevent app crashes
         return null
       }
 
       return data
     } catch (err) {
-      console.error('Unexpected error fetching organization limits:', err)
+      billingLogger.error('Unexpected error fetching organization limits', { error: err })
       return null
     }
   }
@@ -129,7 +127,7 @@ export class BillingService {
         reason: data ? undefined : 'Feature not available in current plan'
       }
     } catch (error) {
-      console.error('Error checking feature access:', error)
+      billingLogger.error('Error checking feature access', { error })
       return {
         hasAccess: false,
         feature: featureName,
@@ -157,7 +155,7 @@ export class BillingService {
 
       return data as UsageLimitCheck
     } catch (error) {
-      console.error('Error checking usage limit:', error)
+      billingLogger.error('Error checking usage limit', { error })
       return {
         can_use: false,
         limit: 0,
@@ -195,7 +193,7 @@ export class BillingService {
       })
 
     if (error) {
-      console.error('Error tracking usage:', error)
+      billingLogger.error('Error tracking usage', { error })
       throw error
     }
   }
@@ -340,7 +338,7 @@ export class BillingService {
         .eq('status', 'active')
 
       if (error) {
-        console.error('Error checking phone number count:', error)
+        billingLogger.error('Error checking phone number count', { error })
         return {
           canPurchase: false,
           reason: 'Unable to check current phone number usage'
@@ -378,7 +376,7 @@ export class BillingService {
         numbersAvailable: limit - currentCount
       }
     } catch (error) {
-      console.error('Error checking phone number purchase eligibility:', error)
+      billingLogger.error('Error checking phone number purchase eligibility', { error })
       return {
         canPurchase: false,
         reason: 'Error checking phone number eligibility'
@@ -473,7 +471,7 @@ export class BillingService {
         limit
       }
     } catch (error) {
-      console.error('Error checking AI service usage:', error)
+      billingLogger.error('Error checking AI service usage', { error })
       return {
         canUse: false,
         reason: 'Error checking AI service limits'
@@ -526,7 +524,7 @@ export class BillingService {
           : undefined
       }
     } catch (error) {
-      console.error('Error checking broadcast eligibility:', error)
+      billingLogger.error('Error checking broadcast eligibility', { error })
       return {
         canSend: false,
         reason: 'Error checking broadcast eligibility'
@@ -560,7 +558,7 @@ export class BillingService {
         .maybeSingle()
 
       if (error) {
-        console.error('Error checking 10DLC assignment:', error)
+        billingLogger.error('Error checking 10DLC assignment', { error })
         return { valid: false, error: 'Error checking 10DLC compliance' }
       }
 
@@ -595,7 +593,7 @@ export class BillingService {
 
       return { valid: true, campaignId: assignment.campaign_id }
     } catch (error) {
-      console.error('Error validating 10DLC compliance:', error)
+      billingLogger.error('Error validating 10DLC compliance', { error })
       return { valid: false, error: 'Error validating 10DLC compliance' }
     }
   }

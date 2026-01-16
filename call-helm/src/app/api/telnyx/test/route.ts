@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 export async function GET() {
   try {
@@ -68,7 +69,7 @@ export async function GET() {
       }
     })
   } catch (error) {
-    console.error('[Telnyx Test] Error:', error)
+    voiceLogger.error('Telnyx connection test error', { error })
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'

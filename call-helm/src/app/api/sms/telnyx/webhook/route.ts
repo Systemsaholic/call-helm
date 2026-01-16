@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // ============================================================================
 // Type Definitions
@@ -112,9 +113,8 @@ export async function POST(request: NextRequest) {
     const { data } = body
     const { event_type, payload } = data
 
-    console.log(`[Telnyx SMS] Webhook received: ${event_type}`, {
-      id: payload.id,
-      direction: payload.direction
+    smsLogger.info('Telnyx SMS webhook received', {
+      data: { eventType: event_type, id: payload.id, direction: payload.direction }
     })
 
     // Use service role client to bypass RLS
@@ -131,11 +131,11 @@ export async function POST(request: NextRequest) {
       case 'message.finalized':
         return handleStatusUpdate(supabase, payload as TelnyxOutboundPayload)
       default:
-        console.log(`[Telnyx SMS] Unknown event type: ${event_type}`)
+        smsLogger.debug('Telnyx SMS unknown event type', { data: { eventType: event_type } })
         return NextResponse.json({ received: true })
     }
   } catch (error) {
-    console.error('[Telnyx SMS] Webhook error:', error)
+    smsLogger.error('Telnyx SMS webhook error', { error })
     return NextResponse.json({ received: true, error: 'Processing error' })
   }
 }
@@ -166,16 +166,12 @@ async function handleInboundMessage(
   const messageBody = payload.text || ''
   const telnyxMessageId = payload.id
 
-  console.log('[Telnyx SMS] Inbound message:', {
-    id: telnyxMessageId,
-    from: fromNumber,
-    to: toNumber,
-    type: payload.type,
-    bodyLength: messageBody.length
+  smsLogger.info('Telnyx SMS inbound message', {
+    data: { id: telnyxMessageId, from: fromNumber, to: toNumber, type: payload.type, bodyLength: messageBody.length }
   })
 
   if (!fromNumber || !toNumber) {
-    console.error('[Telnyx SMS] Missing from/to numbers')
+    smsLogger.error('Telnyx SMS missing from/to numbers')
     return NextResponse.json({ received: true, error: 'Missing phone numbers' })
   }
 
@@ -225,7 +221,7 @@ async function handleInboundMessage(
 
       if (phoneData) {
         organizationId = phoneData.organization_id
-        console.log('[Telnyx SMS] Routed reply to org via existing conversation:', organizationId)
+        smsLogger.debug('Telnyx SMS routed reply via existing conversation', { data: { organizationId } })
       }
     }
   }
@@ -246,11 +242,11 @@ async function handleInboundMessage(
   }
 
   if (!organizationId) {
-    console.error('[Telnyx SMS] No organization found for phone number:', toNumber)
+    smsLogger.error('Telnyx SMS no organization found for phone number', { data: { toNumber } })
     return NextResponse.json({ received: true, error: 'Organization not found' })
   }
 
-  console.log('[Telnyx SMS] Incoming SMS routed to organization:', organizationId)
+  smsLogger.info('Telnyx SMS incoming message routed to organization', { data: { organizationId } })
 
   // Check if conversation exists
   let { data: conversation } = await supabase
@@ -280,7 +276,7 @@ async function handleInboundMessage(
       .single()
 
     if (convError) {
-      console.error('[Telnyx SMS] Error creating conversation:', convError)
+      smsLogger.error('Telnyx SMS error creating conversation', { error: convError })
       return NextResponse.json({ received: true, error: 'Failed to create conversation' })
     }
 
@@ -306,7 +302,7 @@ async function handleInboundMessage(
       .eq('id', conversation.id)
 
     if (updateError) {
-      console.error('[Telnyx SMS] Error updating conversation:', updateError)
+      smsLogger.error('Telnyx SMS error updating conversation', { error: updateError })
     }
   }
 
@@ -329,11 +325,11 @@ async function handleInboundMessage(
     .single()
 
   if (messageError) {
-    console.error('[Telnyx SMS] Error storing message:', messageError)
+    smsLogger.error('Telnyx SMS error storing message', { error: messageError })
     return NextResponse.json({ received: true, error: 'Failed to store message' })
   }
 
-  console.log('[Telnyx SMS] Incoming SMS stored:', messageRecord.id)
+  smsLogger.debug('Telnyx SMS incoming message stored', { data: { messageId: messageRecord.id } })
 
   // Handle broadcast reply tracking
   await handleBroadcastReply(supabase, organizationId, fromNumber, messageBody, payload.received_at)
@@ -363,12 +359,8 @@ async function handleStatusUpdate(supabase: any, payload: TelnyxOutboundPayload)
   const recipientStatus = payload.to[0]?.status
   const recipientPhone = payload.to[0]?.phone_number
 
-  console.log(`[Telnyx SMS Status] Processing:`, {
-    id: payload.id,
-    to: recipientPhone,
-    status: recipientStatus,
-    cost: payload.cost?.amount,
-    parts: payload.parts
+  smsLogger.info('Telnyx SMS status processing', {
+    data: { id: payload.id, to: recipientPhone, status: recipientStatus, cost: payload.cost?.amount, parts: payload.parts }
   })
 
   // Map Telnyx status to our internal status
@@ -404,22 +396,20 @@ async function handleStatusUpdate(supabase: any, payload: TelnyxOutboundPayload)
     .single()
 
   if (updateError) {
-    console.error('[Telnyx SMS Status] Failed to update message:', updateError)
+    smsLogger.error('Telnyx SMS status failed to update message', { error: updateError })
     // Still return 200 to acknowledge receipt
     return NextResponse.json({ received: true, error: 'Message not found' })
   }
 
-  console.log('[Telnyx SMS Status] Updated message:', updatedMessage?.id, 'to status:', status)
+  smsLogger.debug('Telnyx SMS status updated message', { data: { messageId: updatedMessage?.id, status } })
 
   // Handle broadcast recipient status updates
   await updateBroadcastRecipient(supabase, payload, status)
 
   // For failures, log for monitoring
   if (status === 'failed' || status === 'undelivered') {
-    console.warn('[Telnyx SMS] Delivery failed:', {
-      messageId: payload.id,
-      to: recipientPhone,
-      error: payload.errors?.[0]?.detail || 'Unknown error'
+    smsLogger.warn('Telnyx SMS delivery failed', {
+      data: { messageId: payload.id, to: recipientPhone, error: payload.errors?.[0]?.detail || 'Unknown error' }
     })
   }
 
@@ -458,7 +448,7 @@ async function handleBroadcastReply(
       })
       .eq('id', broadcastRecipient.id)
 
-    console.log('[Telnyx SMS] Broadcast reply recorded for:', broadcastRecipient.broadcast_id)
+    smsLogger.debug('Telnyx SMS broadcast reply recorded', { data: { broadcastId: broadcastRecipient.broadcast_id } })
   }
 }
 
@@ -529,7 +519,7 @@ async function updateBroadcastRecipient(
     }
   }
 
-  console.log('[Telnyx SMS Status] Updated broadcast recipient:', recipient.id, status)
+  smsLogger.debug('Telnyx SMS status updated broadcast recipient', { data: { recipientId: recipient.id, status } })
 }
 
 // ============================================================================

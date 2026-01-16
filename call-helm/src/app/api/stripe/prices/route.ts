@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { stripe } from '@/lib/stripe'
 import { createClient } from '@supabase/supabase-js'
+import { billingLogger } from '@/lib/logger'
 
 export interface StripePriceInfo {
   id: string
@@ -33,7 +34,7 @@ async function getPlanPriceIdsFromDatabase(): Promise<Record<string, { monthly: 
     .eq('is_active', true)
 
   if (error) {
-    console.error('Failed to fetch plan price IDs from database:', error)
+    billingLogger.error('Failed to fetch plan price IDs from database', { error })
     return {}
   }
 
@@ -90,7 +91,7 @@ export async function GET() {
     // Fetch all prices from Stripe in one call
     const pricePromises = validPriceIds.map(id =>
       stripe.prices.retrieve(id, { expand: ['product'] }).catch(err => {
-        console.error(`Failed to fetch price ${id}:`, err.message)
+        billingLogger.error('Failed to fetch price', { data: { priceId: id }, error: err })
         return null
       })
     )
@@ -148,7 +149,7 @@ export async function GET() {
       },
     })
   } catch (error) {
-    console.error('Failed to fetch Stripe prices:', error)
+    billingLogger.error('Failed to fetch Stripe prices', { error })
     return NextResponse.json(
       { error: 'Failed to fetch prices' },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
+import { webhookLogger } from '@/lib/logger'
 
 // DEPRECATED: This route is for legacy SignalWire webhooks
 // New webhooks should use /api/voice/telnyx/webhook
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
         if (webhookSecret && signature) {
           const isValid = verifySignalWireSignature(rawBody, signature, webhookSecret)
           if (!isValid) {
-            console.warn('Invalid SignalWire webhook signature')
+            webhookLogger.warn('Invalid SignalWire webhook signature')
             return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
           }
         }
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     }
     
     if (!organizationId) {
-      console.error('Organization not found for SignalWire webhook:', data)
+      webhookLogger.error('Organization not found for SignalWire webhook', { data })
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
     }
 
@@ -105,13 +106,13 @@ export async function POST(request: NextRequest) {
         break
         
       default:
-        console.log('Unhandled SignalWire call status:', callStatus)
+        webhookLogger.debug('Unhandled SignalWire call status', { data: { callStatus } })
     }
     
     return NextResponse.json({ received: true })
     
   } catch (error) {
-    console.error('SignalWire webhook error:', error)
+    webhookLogger.error('SignalWire webhook error', { error })
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 })
   }
 }
@@ -132,7 +133,7 @@ async function handleCallInitiated(supabase: any, organizationId: string, data: 
       .single()
     
     if (callRecord) {
-      console.log('Updated calls table with initiated status for:', call_sid)
+      webhookLogger.debug('Updated calls table with initiated status', { data: { callSid: call_sid } })
     }
     
     // Find existing call attempt or create one
@@ -174,7 +175,7 @@ async function handleCallInitiated(supabase: any, organizationId: string, data: 
         })
     }
   } catch (error) {
-    console.error('Error handling SignalWire call initiated:', error)
+    webhookLogger.error('Error handling SignalWire call initiated', { error })
   }
 }
 
@@ -194,7 +195,7 @@ async function handleCallRinging(supabase: any, organizationId: string, data: an
       .single()
     
     if (callRecord) {
-      console.log('Updated calls table with ringing status for:', call_sid)
+      webhookLogger.debug('Updated calls table with ringing status', { data: { callSid: call_sid } })
     }
     
     // Update call attempt if exists
@@ -208,7 +209,7 @@ async function handleCallRinging(supabase: any, organizationId: string, data: an
       .eq('organization_id', organizationId)
 
   } catch (error) {
-    console.error('Error handling SignalWire call ringing:', error)
+    webhookLogger.error('Error handling SignalWire call ringing', { error })
   }
 }
 
@@ -228,7 +229,7 @@ async function handleCallAnswered(supabase: any, organizationId: string, data: a
       .single()
     
     if (callRecord) {
-      console.log('Updated calls table with in-progress status for:', call_sid)
+      webhookLogger.debug('Updated calls table with in-progress status', { data: { callSid: call_sid } })
     }
     
     // Update call attempt
@@ -242,7 +243,7 @@ async function handleCallAnswered(supabase: any, organizationId: string, data: a
       .eq('organization_id', organizationId)
 
   } catch (error) {
-    console.error('Error handling SignalWire call answered:', error)
+    webhookLogger.error('Error handling SignalWire call answered', { error })
   }
 }
 
@@ -267,11 +268,11 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
       .single()
     
     if (callRecord) {
-      console.log('Updated calls table with completed status for:', call_sid)
-      
+      webhookLogger.debug('Updated calls table with completed status', { data: { callSid: call_sid } })
+
       // Trigger transcription if recording is available
       if (recording_url && recording_sid) {
-        console.log('Triggering transcription for recording:', recording_sid)
+        webhookLogger.info('Triggering transcription for recording', { data: { recordingSid: recording_sid } })
         const transcriptionUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
         
         fetch(`${transcriptionUrl}/api/transcription/process`, {
@@ -285,7 +286,7 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
             recordingSid: recording_sid
           })
         }).catch(error => {
-          console.error('Failed to trigger transcription:', error)
+          webhookLogger.error('Failed to trigger transcription', { error })
         })
       }
     }
@@ -307,7 +308,7 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
       .single()
 
     if (error) {
-      console.error('Error updating call attempt:', error)
+      webhookLogger.error('Error updating call attempt', { error })
       return
     }
 
@@ -378,7 +379,7 @@ async function handleCallCompleted(supabase: any, organizationId: string, data: 
     }
 
   } catch (error) {
-    console.error('Error handling SignalWire call completed:', error)
+    webhookLogger.error('Error handling SignalWire call completed', { error })
   }
 }
 
@@ -418,7 +419,7 @@ async function handleCallFailed(supabase: any, organizationId: string, data: any
       .single()
     
     if (callRecord) {
-      console.log(`Updated calls table with ${status} status for:`, call_sid)
+      webhookLogger.debug('Updated calls table with status', { data: { status, callSid: call_sid } })
     }
 
     // Update call attempt
@@ -456,7 +457,7 @@ async function handleCallFailed(supabase: any, organizationId: string, data: any
     }
 
   } catch (error) {
-    console.error('Error handling SignalWire call failed:', error)
+    webhookLogger.error('Error handling SignalWire call failed', { error })
   }
 }
 

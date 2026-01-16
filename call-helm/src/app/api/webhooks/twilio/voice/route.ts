@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { webhookLogger } from '@/lib/logger'
 
 // Validate Twilio request signature
 async function validateTwilioRequest(req: NextRequest): Promise<boolean> {
@@ -22,7 +23,7 @@ async function validateTwilioRequest(req: NextRequest): Promise<boolean> {
     const twilio = require('twilio')
     return twilio.validateRequest(authToken, signature, url, params)
   } catch (err) {
-    console.error('Twilio validation error:', err)
+    webhookLogger.error('Twilio validation error', { error: err })
     return false
   }
 }
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('TwiML voice error:', error)
+    webhookLogger.error('TwiML voice error', { error })
     
     // Return fallback TwiML
     const fallbackTwiml = `<?xml version="1.0" encoding="UTF-8"?>

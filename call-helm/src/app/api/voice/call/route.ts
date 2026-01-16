@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Initialize Telnyx service
 const telnyx = new TelnyxService()
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     // Check if Telnyx is configured
     if (!TelnyxService.isConfigured()) {
-      console.error('Telnyx not configured')
+      voiceLogger.error('Telnyx not configured')
       return NextResponse.json({ error: 'Voice service not configured' }, { status: 503 })
     }
 
@@ -105,13 +106,11 @@ export async function POST(request: NextRequest) {
         clientState
       })
 
-      console.log('Telnyx call initiated:', {
-        callControlId: callData.callControlId,
-        to: phoneNumber,
-        from: fromNumber
+      voiceLogger.info('Telnyx call initiated', {
+        data: { callControlId: callData.callControlId, to: phoneNumber, from: fromNumber }
       })
     } catch (error) {
-      console.error('Telnyx call error:', error)
+      voiceLogger.error('Telnyx call error', { error })
       return NextResponse.json(
         {
           error: 'Failed to initiate call. Please try again.'
@@ -146,7 +145,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (attemptError) {
-      console.error("Error creating call attempt:", attemptError)
+      voiceLogger.error('Error creating call attempt', { error: attemptError })
     }
 
     // Track call minute usage (estimated 1 minute per call initiation)
@@ -191,9 +190,9 @@ export async function POST(request: NextRequest) {
       phoneNumber: phoneNumber
     })
   } catch (error) {
-    console.error('Call initiation error:', error)
-    return NextResponse.json({ 
-      error: 'Failed to initiate call' 
+    voiceLogger.error('Call initiation error', { error })
+    return NextResponse.json({
+      error: 'Failed to initiate call'
     }, { status: 500 })
   }
 }
@@ -234,9 +233,9 @@ export async function DELETE(request: NextRequest) {
     // End call via Telnyx Call Control API
     try {
       await telnyx.hangupCall(callAttempt.provider_call_id)
-      console.log('Telnyx call ended:', callAttempt.provider_call_id)
+      voiceLogger.info('Telnyx call ended', { data: { callControlId: callAttempt.provider_call_id } })
     } catch (error) {
-      console.error('Error ending Telnyx call:', error)
+      voiceLogger.error('Error ending Telnyx call', { error })
       // Continue to update the record even if the hangup fails
       // (the call may have already ended)
     }
@@ -256,7 +255,7 @@ export async function DELETE(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('End call error:', error)
+    voiceLogger.error('End call error', { error })
     return NextResponse.json({ error: 'Failed to end call' }, { status: 500 })
   }
 }

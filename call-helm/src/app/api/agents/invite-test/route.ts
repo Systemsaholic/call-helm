@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { apiLogger } from '@/lib/logger'
 
 // Test endpoint that simulates invitations without actually sending emails
 export async function POST(request: NextRequest) {
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       .in('status', ['pending_invitation', 'invited'])
 
     if (fetchError) {
-      console.error('Error fetching agents:', fetchError)
+      apiLogger.error('Error fetching agents', { error: fetchError })
       return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
     }
 
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
             .eq('id', agent.id)
 
           if (updateError) {
-            console.error(`Failed to update agent status for ${agent.email}:`, updateError)
+            apiLogger.error('Failed to update agent status', { data: { email: agent.email }, error: updateError })
             throw updateError
           }
 
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
             })
 
           if (trackError) {
-            console.error(`Failed to track invitation for ${agent.email}:`, trackError)
+            apiLogger.warn('Failed to track invitation', { data: { email: agent.email }, error: trackError })
             // Don't throw here, status was updated successfully
           }
 
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
     const failures = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
 
     if (failures.length > 0) {
-      console.error('Some invitations failed:', failures)
+      apiLogger.error('Some invitations failed', { data: { failures } })
     }
 
     // Check if any were resent
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Invitation test API error:', error)
+    apiLogger.error('Invitation test API error', { error })
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

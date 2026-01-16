@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { apiLogger } from '@/lib/logger'
 
 // Create a new SMS campaign for 10DLC compliance
 export async function POST(request: NextRequest) {
@@ -149,7 +150,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (dbError) {
-      console.error('Database error creating campaign:', dbError)
+      apiLogger.error('Database error creating campaign', { error: dbError })
       return NextResponse.json(
         { error: 'Failed to create campaign record' },
         { status: 500 }
@@ -158,7 +159,7 @@ export async function POST(request: NextRequest) {
 
     // Submit to Telnyx Campaign Registry
     try {
-      console.log(`Creating campaign "${campaignName}" in Telnyx Campaign Registry`)
+      apiLogger.info('Creating campaign in Telnyx Campaign Registry', { data: { campaignName } })
 
       const telnyxCampaign = await telnyxService.createCampaign({
         brandId: brand.telnyx_brand_id,
@@ -199,11 +200,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (updateError) {
-        console.error('Error updating campaign with Telnyx ID:', updateError)
+        apiLogger.error('Error updating campaign with Telnyx ID', { error: updateError })
         // Don't fail the request since the campaign was created successfully
       }
 
-      console.log(`Successfully created campaign "${campaignName}" with Telnyx ID: ${telnyxCampaign.id}`)
+      apiLogger.info('Successfully created campaign in Telnyx', { data: { campaignName, telnyxCampaignId: telnyxCampaign.id } })
 
       return NextResponse.json({
         success: true,
@@ -228,7 +229,7 @@ export async function POST(request: NextRequest) {
         }
       })
     } catch (telnyxError) {
-      console.error('Telnyx campaign creation error:', telnyxError)
+      apiLogger.error('Telnyx campaign creation error', { error: telnyxError })
 
       // Update our database to reflect the failure
       await supabase
@@ -253,7 +254,7 @@ export async function POST(request: NextRequest) {
       )
     }
   } catch (error) {
-    console.error('Error creating SMS campaign:', error)
+    apiLogger.error('Error creating SMS campaign', { error })
     return NextResponse.json(
       { error: 'Failed to create SMS campaign' },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { validatePhone } from '@/lib/utils/phone'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (updateError) {
-      console.error('Database update error:', updateError)
+      voiceLogger.error('Database update error', { error: updateError })
       return NextResponse.json(
         { success: false, error: 'Failed to update phone number' },
         { status: 500 }
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`Updated forwarding for phone number ${phoneNumber.number} to ${forwardingDestination}`)
+    voiceLogger.info('Updated forwarding for phone number', { data: { number: phoneNumber.number, forwardingDestination } })
 
     return NextResponse.json({
       success: true,
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Update forwarding error:', error)
+    voiceLogger.error('Update forwarding error', { error })
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

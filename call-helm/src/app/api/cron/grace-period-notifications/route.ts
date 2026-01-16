@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { apiLogger } from '@/lib/logger'
 
 // Use service role for cron job
 const supabaseAdmin = createClient(
@@ -181,8 +182,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('=== GRACE PERIOD NOTIFICATION JOB ===')
-  console.log('Started at:', new Date().toISOString())
+  apiLogger.info('Grace period notification job started', { data: { timestamp: new Date().toISOString() } })
 
   const results = {
     processed: 0,
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
       .limit(50) // Process in batches
 
     if (fetchError) {
-      console.error('Error fetching notifications:', fetchError)
+      apiLogger.error('Error fetching notifications', { error: fetchError })
       return NextResponse.json({
         error: 'Failed to fetch notifications',
         details: fetchError.message
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
     }
 
     results.processed = notifications?.length || 0
-    console.log('Notifications to process:', results.processed)
+    apiLogger.info('Notifications to process', { data: { count: results.processed } })
 
     for (const notification of notifications || []) {
       try {
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
           .eq('status', 'active')
 
         if (!admins || admins.length === 0) {
-          console.log(`No admin emails found for org ${notification.organization_id}`)
+          apiLogger.debug('No admin emails found for org', { data: { organizationId: notification.organization_id } })
           continue
         }
 
@@ -249,7 +249,7 @@ export async function POST(request: NextRequest) {
         for (const admin of admins) {
           if (!admin.email) continue
 
-          console.log(`Sending ${notification.notification_type} email to ${admin.email}`)
+          apiLogger.debug('Sending notification email', { data: { type: notification.notification_type, email: admin.email } })
 
           if (process.env.RESEND_API_KEY) {
             await resend.emails.send({
@@ -259,7 +259,7 @@ export async function POST(request: NextRequest) {
               html: emailContent.html
             })
           } else {
-            console.log('RESEND_API_KEY not set, skipping email send')
+            apiLogger.debug('RESEND_API_KEY not set, skipping email send')
           }
 
           // Update notification record
@@ -279,14 +279,13 @@ export async function POST(request: NextRequest) {
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        console.error(`Failed to send notification ${notification.id}:`, errorMsg)
+        apiLogger.error('Failed to send notification', { error, data: { notificationId: notification.id } })
         results.failed++
         results.errors.push(`Notification ${notification.id}: ${errorMsg}`)
       }
     }
 
-    console.log('=== JOB COMPLETE ===')
-    console.log('Results:', results)
+    apiLogger.info('Grace period notification job complete', { data: { results } })
 
     return NextResponse.json({
       success: true,
@@ -295,7 +294,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Notification job error:', error)
+    apiLogger.error('Notification job error', { error })
     return NextResponse.json({
       error: 'Job failed',
       details: error instanceof Error ? error.message : 'Unknown error',

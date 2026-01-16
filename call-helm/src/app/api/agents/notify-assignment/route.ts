@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { Resend } from 'resend'
 import { z } from 'zod'
+import { apiLogger } from '@/lib/logger'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -103,7 +104,7 @@ function generateAssignmentEmailHtml(params: {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('Agent assignment notification API called')
+  apiLogger.info('Agent assignment notification API called')
 
   try {
     // Get the current user's session
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
                 cookieStore.set(name, value, options)
               )
             } catch {
-              console.error("Failed to set cookies in notify-assignment route")
+              apiLogger.error('Failed to set cookies in notify-assignment route')
             }
           }
         }
@@ -180,7 +181,7 @@ export async function POST(request: NextRequest) {
       .in('id', agentIds)
 
     if (agentsError) {
-      console.error('Error fetching agents:', agentsError)
+      apiLogger.error('Error fetching agents', { error: agentsError })
       return NextResponse.json({ error: 'Failed to fetch agent details' }, { status: 500 })
     }
 
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest) {
 
     // Check if Resend is configured
     if (!resend) {
-      console.warn('RESEND_API_KEY not configured - notifications not sent')
+      apiLogger.warn('RESEND_API_KEY not configured - notifications not sent')
       return NextResponse.json({
         success: true,
         sent: 0,
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest) {
       agentAssignments.map(async (assignment) => {
         const agent = agents.find(a => a.id === assignment.agentId)
         if (!agent || !agent.email) {
-          console.warn(`Agent ${assignment.agentId} not found or has no email`)
+          apiLogger.warn('Agent not found or has no email', { data: { agentId: assignment.agentId } })
           return { success: false, agentId: assignment.agentId, reason: 'Agent not found' }
         }
 
@@ -227,10 +228,12 @@ export async function POST(request: NextRequest) {
             html: emailHtml
           })
 
-          console.log(`Assignment notification sent to ${agent.email} (${assignment.contactCount} contacts)`)
+          apiLogger.info('Assignment notification sent', {
+            data: { email: agent.email, contactCount: assignment.contactCount }
+          })
           return { success: true, agentId: assignment.agentId, email: agent.email }
         } catch (emailError) {
-          console.error(`Failed to send notification to ${agent.email}:`, emailError)
+          apiLogger.error('Failed to send notification', { error: emailError, data: { email: agent.email } })
           return {
             success: false,
             agentId: assignment.agentId,
@@ -245,7 +248,9 @@ export async function POST(request: NextRequest) {
     const successes = results.filter((r) => r.status === 'fulfilled' && (r.value as any).success)
     const failures = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !(r.value as any).success))
 
-    console.log(`Assignment notifications: ${successes.length} sent, ${failures.length} failed`)
+    apiLogger.info('Assignment notifications complete', {
+      data: { sent: successes.length, failed: failures.length }
+    })
 
     return NextResponse.json({
       success: true,
@@ -258,7 +263,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Assignment notification API error:', error)
+    apiLogger.error('Assignment notification API error', { error })
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

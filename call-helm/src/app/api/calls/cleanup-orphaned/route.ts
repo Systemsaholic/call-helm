@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { voiceLogger } from '@/lib/logger'
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
       .rpc('cleanup_orphaned_calls')
     
     if (error) {
-      console.error('Error running cleanup function:', error)
+      voiceLogger.error('Error running cleanup function', { error })
       return NextResponse.json({ 
         error: 'Failed to cleanup orphaned calls',
         details: error.message 
@@ -34,12 +35,12 @@ export async function POST(request: NextRequest) {
       .eq('metadata->>call_status', 'initiated')
     
     if (fetchError) {
-      console.error('Error fetching stuck initiated calls:', fetchError)
+      voiceLogger.error('Error fetching stuck initiated calls', { error: fetchError })
     }
 
     let cleanedCount = 0
     if (initiatedCalls && initiatedCalls.length > 0) {
-      console.log(`Found ${initiatedCalls.length} stuck initiated calls to cleanup`)
+      voiceLogger.info('Found stuck initiated calls to cleanup', { data: { count: initiatedCalls.length } })
       
       // Update each stuck call (preserving existing metadata)
       for (const call of initiatedCalls) {
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
         if (!updateError) {
           cleanedCount++
         } else {
-          console.error(`Failed to cleanup call ${call.id}:`, updateError)
+          voiceLogger.error('Failed to cleanup call', { error: updateError, data: { callId: call.id } })
         }
       }
     }
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
       .or('metadata->>call_status.eq.ringing,metadata->>call_status.eq.answered')
     
     if (!ringingFetchError && ringingCalls && ringingCalls.length > 0) {
-      console.log(`Found ${ringingCalls.length} stuck ringing calls to cleanup`)
+      voiceLogger.info('Found stuck ringing calls to cleanup', { data: { count: ringingCalls.length } })
       
       for (const call of ringingCalls) {
         // First get existing metadata
@@ -129,7 +130,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Cleanup endpoint error:', error)
+    voiceLogger.error('Cleanup endpoint error', { error })
     return NextResponse.json({ 
       error: 'Internal server error' 
     }, { status: 500 })

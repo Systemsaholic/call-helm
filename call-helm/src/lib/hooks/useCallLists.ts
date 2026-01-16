@@ -10,7 +10,7 @@ export interface CallList {
   description?: string
   campaign_type?: string
   distribution_strategy: 'manual' | 'round_robin' | 'load_based' | 'skill_based'
-  distribution_config?: Record<string, any>
+  distribution_config?: Record<string, string | number | boolean | string[]>
   status: 'draft' | 'active' | 'paused' | 'completed' | 'archived'
   priority: number
   start_date?: string
@@ -51,7 +51,7 @@ export interface CallListInput {
   description?: string
   campaign_type?: string
   distribution_strategy: 'manual' | 'round_robin' | 'load_based' | 'skill_based'
-  distribution_config?: Record<string, any>
+  distribution_config?: Record<string, string | number | boolean | string[]>
   status?: 'draft' | 'active' | 'paused'
   priority?: number
   start_date?: string
@@ -91,8 +91,19 @@ export interface CallListContact {
   final_disposition?: string
   outcome_notes?: string
   // Relations
-  contact?: any
-  assigned_agent?: any
+  contact?: {
+    id: string
+    full_name: string
+    phone_number: string
+    email?: string
+    company?: string
+    status: string
+  }
+  assigned_agent?: {
+    id: string
+    full_name: string
+    email: string
+  }
 }
 
 export interface AssignmentStrategy {
@@ -108,10 +119,16 @@ export interface AssignmentStrategy {
 }
 
 // Query keys
+export interface CallListFilters {
+  status?: string
+  searchTerm?: string
+  assignedToMe?: boolean
+}
+
 export const callListKeys = {
   all: ['callLists'] as const,
   lists: () => [...callListKeys.all, 'list'] as const,
-  list: (filters?: any) => [...callListKeys.lists(), filters] as const,
+  list: (filters?: CallListFilters) => [...callListKeys.lists(), filters] as const,
   detail: (id: string) => [...callListKeys.all, 'detail', id] as const,
   contacts: (id: string) => [...callListKeys.all, 'contacts', id] as const,
   assignments: (id: string) => [...callListKeys.all, 'assignments', id] as const,
@@ -119,11 +136,7 @@ export const callListKeys = {
 }
 
 // Fetch call lists
-export function useCallLists(filters?: {
-  status?: string
-  searchTerm?: string
-  assignedToMe?: boolean
-}) {
+export function useCallLists(filters?: CallListFilters) {
   const { supabase, user } = useAuth()
 
   return useQuery({
@@ -293,7 +306,7 @@ export function useCreateCallList() {
       queryClient.invalidateQueries({ queryKey: callListKeys.lists() })
       toast.success('Call list created successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to create call list')
     },
   })
@@ -324,7 +337,7 @@ export function useUpdateCallList() {
       queryClient.invalidateQueries({ queryKey: callListKeys.detail(data.id) })
       toast.success('Call list updated successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to update call list')
     },
   })
@@ -385,7 +398,7 @@ export function useAddContactsToCallList() {
       queryClient.invalidateQueries({ queryKey: callListKeys.detail(variables.callListId) })
       toast.success('Contacts added to call list')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to add contacts')
     },
   })
@@ -549,7 +562,7 @@ export function useAssignContacts() {
         sendAssignmentNotifications(data.callListId, agentAssignments)
       }
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to assign contacts')
     },
   })
@@ -626,7 +639,7 @@ export function useArchiveCallList() {
       queryClient.invalidateQueries({ queryKey: callListKeys.lists() })
       toast.success('Call list archived')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to archive call list')
     },
   })

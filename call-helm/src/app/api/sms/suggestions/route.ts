@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import OpenAI from 'openai'
+import { smsLogger } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -117,7 +118,7 @@ Generate 3 reply suggestions for the agent to respond to the most recent custome
       suggestions: suggestions.slice(0, 3)
     })
   } catch (error) {
-    console.error('Error generating suggestions:', error)
+    smsLogger.error('Error generating AI suggestions', { error })
     return NextResponse.json({ error: 'Failed to generate suggestions' }, { status: 500 })
   }
 }

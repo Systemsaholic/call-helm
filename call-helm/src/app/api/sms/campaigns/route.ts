@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { smsLogger } from '@/lib/logger'
 
 // Get organization's SMS campaigns
 export async function GET(request: NextRequest) {
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Database error fetching campaigns:', error)
+      smsLogger.error('Database error fetching campaigns', { error })
       return NextResponse.json(
         { error: 'Failed to fetch campaigns' },
         { status: 500 }
@@ -82,7 +83,7 @@ export async function GET(request: NextRequest) {
               updatedCampaign = { ...updatedCampaign, ...updateData }
             }
           } catch (syncError) {
-            console.error(`Error syncing campaign ${campaign.id}:`, syncError)
+            smsLogger.error('Error syncing campaign', { data: { campaignId: campaign.id }, error: syncError })
             // Continue with other campaigns even if one fails
           }
         }
@@ -125,7 +126,7 @@ export async function GET(request: NextRequest) {
       summary
     })
   } catch (error) {
-    console.error('Error getting SMS campaigns:', error)
+    smsLogger.error('Error getting SMS campaigns', { error })
     return NextResponse.json(
       { error: 'Failed to get SMS campaigns' },
       { status: 500 }

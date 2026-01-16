@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { smsLogger } from '@/lib/logger'
 
 interface UpdateBroadcastRequest {
   name?: string
@@ -108,7 +109,7 @@ export async function GET(
       statusBreakdown: statusCounts
     })
   } catch (error) {
-    console.error('Error in broadcast GET:', error)
+    smsLogger.error('Error in broadcast GET', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -178,7 +179,7 @@ export async function PATCH(
       .single()
 
     if (updateError) {
-      console.error('Error updating broadcast:', updateError)
+      smsLogger.error('Error updating broadcast', { error: updateError })
       return NextResponse.json({ error: 'Failed to update broadcast' }, { status: 500 })
     }
 
@@ -187,7 +188,7 @@ export async function PATCH(
       broadcast
     })
   } catch (error) {
-    console.error('Error in broadcast PATCH:', error)
+    smsLogger.error('Error in broadcast PATCH', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -246,7 +247,7 @@ export async function DELETE(
       .eq('id', id)
 
     if (deleteError) {
-      console.error('Error deleting broadcast:', deleteError)
+      smsLogger.error('Error deleting broadcast', { error: deleteError })
       return NextResponse.json({ error: 'Failed to delete broadcast' }, { status: 500 })
     }
 
@@ -255,7 +256,7 @@ export async function DELETE(
       message: 'Broadcast deleted successfully'
     })
   } catch (error) {
-    console.error('Error in broadcast DELETE:', error)
+    smsLogger.error('Error in broadcast DELETE', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

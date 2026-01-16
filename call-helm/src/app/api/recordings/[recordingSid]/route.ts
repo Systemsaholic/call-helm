@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voiceLogger } from '@/lib/logger'
 
 export async function GET(
   request: NextRequest,
@@ -8,14 +9,14 @@ export async function GET(
   try {
     const { recordingSid } = await params
     
-    console.log('Recording proxy request for SID:', recordingSid)
-    
+    voiceLogger.debug('Recording proxy request', { data: { recordingSid } })
+
     // Get authenticated user and verify access
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
+
     if (authError || !user) {
-      console.error('Auth error:', authError)
+      voiceLogger.error('Auth error in recording proxy', { error: authError })
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -27,8 +28,7 @@ export async function GET(
       .single()
 
     if (callError || !call) {
-      console.error('Call lookup error:', callError)
-      console.error('Recording SID not found:', recordingSid)
+      voiceLogger.error('Recording SID not found', { error: callError, data: { recordingSid } })
       return NextResponse.json({ error: 'Recording not found' }, { status: 404 })
     }
 
@@ -63,24 +63,24 @@ export async function GET(
       headers['Authorization'] = `Basic ${auth}`
     }
     
-    console.log('Fetching recording from:', recordingUrl)
-    console.log('Auth configured:', !!(swProjectId && swApiToken))
+    voiceLogger.debug('Fetching recording', { data: { recordingUrl, authConfigured: !!(swProjectId && swApiToken) } })
 
     // Fetch the recording
     const recordingResponse = await fetch(recordingUrl, { headers })
     
     if (!recordingResponse.ok) {
-      console.error('Failed to fetch recording:', {
-        status: recordingResponse.status,
-        statusText: recordingResponse.statusText,
-        url: recordingUrl,
-        authConfigured: !!(swProjectId && swApiToken)
-      })
-      
       // Try to get error details
       const errorText = await recordingResponse.text()
-      console.error('Error response body:', errorText)
-      
+      voiceLogger.error('Failed to fetch recording', {
+        data: {
+          status: recordingResponse.status,
+          statusText: recordingResponse.statusText,
+          url: recordingUrl,
+          authConfigured: !!(swProjectId && swApiToken),
+          errorBody: errorText
+        }
+      })
+
       return NextResponse.json({ 
         error: 'Failed to fetch recording',
         status: recordingResponse.status,
@@ -103,7 +103,7 @@ export async function GET(
     })
     
   } catch (error) {
-    console.error('Recording proxy error:', error)
+    voiceLogger.error('Recording proxy error', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

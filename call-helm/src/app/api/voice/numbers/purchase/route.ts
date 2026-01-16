@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 // Purchase a phone number for an organization
 export async function POST(request: NextRequest) {
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Purchase number from Telnyx
-    console.log(`Purchasing number ${phoneNumber} for organization ${member.organization_id}`)
+    voiceLogger.info('Purchasing number from Telnyx', { data: { phoneNumber, organizationId: member.organization_id } })
 
     const purchasedNumber = await telnyxService.purchaseNumber(phoneNumber, {
       connectionId: process.env.TELNYX_CONNECTION_ID,
@@ -106,13 +107,13 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (dbError) {
-      console.error('Database error after successful Telnyx purchase:', dbError)
+      voiceLogger.error('Database error after successful Telnyx purchase', { error: dbError })
 
       // Try to release the Telnyx number since we couldn't store it
       try {
         await telnyxService.releaseNumber(purchasedNumber.id)
       } catch (releaseError) {
-        console.error('Failed to release Telnyx number after database error:', releaseError)
+        voiceLogger.error('Failed to release Telnyx number after database error', { error: releaseError })
       }
 
       return NextResponse.json(
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`Successfully purchased and configured number ${phoneNumber}`)
+    voiceLogger.info('Successfully purchased and configured number', { data: { phoneNumber } })
 
     return NextResponse.json({
       success: true,
@@ -140,7 +141,7 @@ export async function POST(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error purchasing phone number:', error)
+    voiceLogger.error('Error purchasing phone number', { error })
 
     // Provide more specific error messages
     let errorMessage = 'Failed to purchase phone number'

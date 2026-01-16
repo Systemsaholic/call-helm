@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // Format phone number to E.164 format
 function formatPhoneNumber(phone: string): string {
@@ -34,21 +35,23 @@ function isOptInKeyword(message: string): boolean {
 // SignalWire incoming SMS webhook handler
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== INCOMING SMS WEBHOOK ===')
-    
+    smsLogger.info('Incoming SMS webhook received')
+
     // Parse form-encoded data from SignalWire
     const formData = await request.formData()
-    const data: any = {}
+    const data: Record<string, string> = {}
     formData.forEach((value, key) => {
-      data[key] = value
+      data[key] = String(value)
     })
-    
-    console.log('Incoming SMS:', {
-      from: data.From,
-      to: data.To,
-      body: data.Body,
-      messageSid: data.MessageSid,
-      numMedia: data.NumMedia
+
+    smsLogger.debug('Incoming SMS', {
+      data: {
+        from: data.From,
+        to: data.To,
+        body: data.Body,
+        messageSid: data.MessageSid,
+        numMedia: data.NumMedia
+      }
     })
     
     const fromNumber = formatPhoneNumber(data.From || '')
@@ -119,7 +122,7 @@ export async function POST(request: NextRequest) {
 
         if (phoneData) {
           organizationId = phoneData.organization_id
-          console.log('Routed reply to org via existing conversation:', organizationId)
+          smsLogger.debug('Routed reply to org via existing conversation', { data: { organizationId } })
         }
       }
     }
@@ -140,11 +143,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (!organizationId) {
-      console.error('No organization found for phone number:', toNumber)
+      smsLogger.error('No organization found for phone number', { data: { toNumber } })
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
     }
 
-    console.log('Incoming SMS routed to organization:', organizationId)
+    smsLogger.info('Incoming SMS routed to organization', { data: { organizationId } })
     
     // Check if conversation exists
     let { data: conversation } = await supabase
@@ -174,7 +177,7 @@ export async function POST(request: NextRequest) {
         .single()
       
       if (convError) {
-        console.error('Error creating conversation:', convError)
+        smsLogger.error('Error creating conversation', { error: convError })
         return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 })
       }
       
@@ -200,7 +203,7 @@ export async function POST(request: NextRequest) {
         .eq('id', conversation.id)
       
       if (updateError) {
-        console.error('Error updating conversation:', updateError)
+        smsLogger.error('Error updating conversation', { error: updateError })
       }
     }
     
@@ -223,11 +226,11 @@ export async function POST(request: NextRequest) {
       .single()
     
     if (messageError) {
-      console.error('Error storing message:', messageError)
+      smsLogger.error('Error storing message', { error: messageError })
       return NextResponse.json({ error: 'Failed to store message' }, { status: 500 })
     }
-    
-    console.log('Incoming SMS stored:', messageRecord.id)
+
+    smsLogger.info('Incoming SMS stored', { data: { messageId: messageRecord.id } })
     
     // Check for auto-reply settings
     const { data: autoReply } = await supabase
@@ -271,7 +274,7 @@ export async function POST(request: NextRequest) {
               message: autoReply.message_template,
               conversationId: conversation.id
             })
-          }).catch(err => console.error('Failed to send auto-reply:', err))
+          }).catch(err => smsLogger.error('Failed to send auto-reply', { error: err }))
         }
       }
     }
@@ -288,15 +291,15 @@ export async function POST(request: NextRequest) {
           messageId: messageRecord.id,
           conversationId: conversation.id
         })
-      }).catch(err => console.error('Failed to trigger SMS analysis:', err))
+      }).catch(err => smsLogger.error('Failed to trigger SMS analysis', { error: err }))
     }
     
     // Return empty response to SignalWire
     return new Response(null, { status: 204 })
     
   } catch (error) {
-    console.error('Incoming SMS webhook error:', error)
-    return NextResponse.json({ 
+    smsLogger.error('Incoming SMS webhook error', { error })
+    return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })

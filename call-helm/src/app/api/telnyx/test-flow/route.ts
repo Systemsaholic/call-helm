@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { TelnyxService } from '@/lib/services/telnyx'
+import { voiceLogger } from '@/lib/logger'
 
 const TELNYX_NUMBER = '+16138006184'
 
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   const results: TestResult[] = []
 
-  console.log('[Telnyx Test Flow] Starting full flow test to:', destinationPhone)
+  voiceLogger.info('Telnyx Test Flow - Starting full flow test', { data: { destinationPhone } })
 
   // Format destination phone - handle various input formats
   let formattedDestination = destinationPhone.replace(/\D/g, '')
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
         duration: Date.now() - voiceStart
       })
 
-      console.log('[Test] Voice call initiated:', callResult.callControlId)
+      voiceLogger.info('Voice call initiated', { data: { callControlId: callResult.callControlId } })
 
     } catch (error) {
       results.push({
@@ -127,7 +128,7 @@ This is a test message to verify Telnyx SMS integration is working correctly.`
         duration: Date.now() - smsStart
       })
 
-      console.log('[Test] SMS sent:', smsResult.id)
+      voiceLogger.info('SMS sent', { data: { messageId: smsResult.id } })
 
     } catch (error) {
       results.push({
@@ -183,7 +184,7 @@ Reply STOP to unsubscribe.`
         duration: Date.now() - broadcastStart
       })
 
-      console.log('[Test] Broadcast sent:', smsResult.id)
+      voiceLogger.info('Broadcast sent', { data: { messageId: smsResult.id } })
 
     } catch (error) {
       results.push({

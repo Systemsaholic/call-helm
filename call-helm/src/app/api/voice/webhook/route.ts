@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
+import { voiceLogger } from '@/lib/logger'
 
 // Verify webhook signature
 function verifyWebhookSignature(payload: string, signature: string, secret: string): boolean {
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
         if (integration.webhook_secret && signature) {
           const isValid = verifyWebhookSignature(rawBody, signature, integration.webhook_secret)
           if (!isValid) {
-            console.warn("Invalid webhook signature - rejecting request")
+            voiceLogger.warn('Invalid webhook signature - rejecting request')
             return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
           }
         }
@@ -77,13 +78,13 @@ export async function POST(request: NextRequest) {
         break
         
       default:
-        console.log('Unhandled event type:', eventType)
+        voiceLogger.debug('Unhandled event type', { data: { eventType } })
     }
-    
+
     return NextResponse.json({ received: true })
-    
+
   } catch (error) {
-    console.error('Webhook error:', error)
+    voiceLogger.error('Webhook error', { error })
     return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 })
   }
 }
@@ -124,10 +125,10 @@ async function handleCallInitiated(supabase: any, organizationId: string, data: 
       })
     
     if (error) {
-      console.error('Error creating call attempt:', error)
+      voiceLogger.error('Error creating call attempt', { error })
     }
   } catch (error) {
-    console.error('Error handling call initiated:', error)
+    voiceLogger.error('Error handling call initiated', { error })
   }
 }
 
@@ -146,10 +147,10 @@ async function handleCallAnswered(supabase: any, organizationId: string, data: a
       .eq('organization_id', organizationId)
     
     if (error) {
-      console.error('Error updating call attempt:', error)
+      voiceLogger.error('Error updating call attempt', { error })
     }
   } catch (error) {
-    console.error('Error handling call answered:', error)
+    voiceLogger.error('Error handling call answered', { error })
   }
 }
 
@@ -193,7 +194,7 @@ async function handleCallEnded(supabase: any, organizationId: string, data: any)
       .single()
     
     if (error) {
-      console.error('Error updating call attempt:', error)
+      voiceLogger.error('Error updating call attempt', { error })
       return
     }
     
@@ -264,7 +265,7 @@ async function handleCallEnded(supabase: any, organizationId: string, data: any)
     }
     
   } catch (error) {
-    console.error('Error handling call ended:', error)
+    voiceLogger.error('Error handling call ended', { error })
   }
 }
 
@@ -284,10 +285,10 @@ async function handleRecordingFinished(supabase: any, organizationId: string, da
       .eq('organization_id', organizationId)
     
     if (error) {
-      console.error('Error updating recording info:', error)
+      voiceLogger.error('Error updating recording info', { error })
     }
   } catch (error) {
-    console.error('Error handling recording finished:', error)
+    voiceLogger.error('Error handling recording finished', { error })
   }
 }
 

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
 import { billingService } from '@/lib/services/billing'
 import { trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
+import { apiLogger } from '@/lib/logger'
 
 // Lazy initialization to avoid build-time errors
 let _openai: OpenAI | null = null
@@ -135,14 +136,14 @@ Note: The transcript is already separated by speaker (Agent and Customer). Use t
       compliance_flags: analysis.compliance_flags || {}
     }
   } catch (error) {
-    console.error('OpenAI analysis error:', error)
+    apiLogger.error('OpenAI analysis error', { error })
     throw error
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== AI ANALYSIS PROCESS ===')
+    apiLogger.info('AI analysis process started')
     
     const body = await request.json()
     const { callId, transcription } = body
@@ -153,8 +154,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
     
-    console.log('Processing AI analysis for call:', callId)
-    console.log('Transcription length:', transcription.length)
+    apiLogger.info('Processing AI analysis for call', { data: { callId, transcriptionLength: transcription.length } })
     
     // Use service role client to bypass RLS
     const supabase = createClient(
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
     )
 
     if (!quotaCheck.canUse) {
-      console.log('AI analysis quota exceeded:', quotaCheck.reason)
+      apiLogger.warn('AI analysis quota exceeded', { data: { reason: quotaCheck.reason } })
       return NextResponse.json({
         error: 'AI analysis quota exceeded',
         details: quotaCheck.reason,
@@ -203,13 +203,15 @@ export async function POST(request: NextRequest) {
     
     try {
       // Analyze the transcription
-      console.log('Starting AI analysis...')
+      apiLogger.debug('Starting AI analysis')
       const analysis = await analyzeTranscription(transcription, call)
-      console.log('AI analysis completed:', {
-        hasSummary: !!analysis.summary,
-        actionItemsCount: analysis.action_items.length,
-        keyPointsCount: analysis.key_points.length,
-        sentiment: analysis.mood_sentiment
+      apiLogger.info('AI analysis completed', {
+        data: {
+          hasSummary: !!analysis.summary,
+          actionItemsCount: analysis.action_items.length,
+          keyPointsCount: analysis.key_points.length,
+          sentiment: analysis.mood_sentiment
+        }
       })
       
       // Track AI analysis usage
@@ -252,16 +254,15 @@ export async function POST(request: NextRequest) {
         .eq('id', callId)
       
       if (updateError) {
-        console.error('Error updating analysis:', updateError)
+        apiLogger.error('Error updating analysis', { error: updateError })
         throw updateError
       }
-      
-      console.log('AI analysis saved successfully for call:', callId)
-      console.log('Tracked AI analysis usage for organization:', call.organization_id)
+
+      apiLogger.info('AI analysis saved successfully', { data: { callId, organizationId: call.organization_id } })
       
       // If follow-up is required, create a task or notification
       if (analysis.follow_up_required && analysis.action_items.length > 0) {
-        console.log('Follow-up required with action items:', analysis.action_items)
+        apiLogger.debug('Follow-up required with action items', { data: { actionItems: analysis.action_items } })
         // Could create tasks or notifications here
       }
       
@@ -277,7 +278,7 @@ export async function POST(request: NextRequest) {
       })
       
     } catch (analysisError) {
-      console.error('Analysis failed:', analysisError)
+      apiLogger.error('Analysis failed', { error: analysisError })
       
       return NextResponse.json({
         error: 'Analysis failed',
@@ -286,7 +287,7 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error('Analysis process error:', error)
+    apiLogger.error('Analysis process error', { error })
     return NextResponse.json({
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

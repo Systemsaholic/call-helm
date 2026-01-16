@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { generateThreeCXApiKey, getThreeCXIntegration } from '@/lib/services/threeCX';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-    console.error('Error in 3CX setup:', error);
+    apiLogger.error('Error in 3CX setup', { error });
     return NextResponse.json(
       { error: 'Failed to generate API key' },
       { status: 500 }
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
     });
 
   } catch (error) {
-    console.error('Error getting 3CX setup:', error);
+    apiLogger.error('Error getting 3CX setup', { error });
     return NextResponse.json(
       { error: 'Failed to get integration status' },
       { status: 500 }

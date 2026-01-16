@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -30,7 +31,7 @@ export async function DELETE(
       .eq('id', id);
 
     if (error) {
-      console.error('Error deleting agent mapping:', error);
+      apiLogger.error('Error deleting agent mapping', { error });
       return NextResponse.json(
         { error: 'Failed to delete agent mapping' },
         { status: 500 }
@@ -40,7 +41,7 @@ export async function DELETE(
     return NextResponse.json({ success: true });
 
   } catch (error) {
-    console.error('Error in agent mapping DELETE:', error);
+    apiLogger.error('Error in agent mapping DELETE', { error });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
