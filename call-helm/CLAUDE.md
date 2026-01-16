@@ -27,8 +27,8 @@ pnpm test:ui                # Run tests with Playwright UI
 pnpm test:headed            # Run tests in headed browser mode
 pnpm test:debug             # Debug tests
 
-# Webhooks
-pnpm webhooks:update        # Update SignalWire webhooks to ngrok URL
+# Webhooks (configured in Telnyx portal)
+# Telnyx webhooks point to: https://buffalo-massive-violently.ngrok-free.app
 ```
 
 ## Architecture
@@ -46,14 +46,14 @@ All database queries filter by `organization_id`. Row-Level Security (RLS) is en
 
 ### Key Directories
 - `/src/app/api/` - API routes (calls, SMS webhooks, transcription, analysis)
-- `/src/lib/services/` - Business logic (billing, SignalWire, 3CX PBX)
+- `/src/lib/services/` - Business logic (billing, Telnyx, 3CX PBX)
 - `/src/lib/hooks/` - React Query hooks with mutations
 - `/src/lib/stores/` - Zustand stores
 - `/src/components/ui/` - shadcn/ui base components
 - `/supabase/migrations/` - Database migrations
 
 ### External Integrations
-- **SignalWire** - Voice calling and SMS
+- **Telnyx** - Voice calling and SMS
 - **AssemblyAI** - Transcription with speaker diarization
 - **OpenAI** - Sentiment analysis, keyword extraction, call scoring
 - **Stripe** - Subscription billing
@@ -65,9 +65,9 @@ Required in `.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=https://seeaalajmchrtblbhvwq.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SIGNALWIRE_SPACE_URL=your-space-url
-SIGNALWIRE_PROJECT_ID=your-project-id
-SIGNALWIRE_API_TOKEN=your-api-token
+TELNYX_API_KEY=your-telnyx-api-key
+TELNYX_PUBLIC_KEY=your-telnyx-public-key
+TELNYX_APP_ID=your-telnyx-app-id
 OPENAI_API_KEY=your-openai-key
 ASSEMBLYAI_API_KEY=your-assemblyai-key
 NEXT_PUBLIC_APP_URL=https://your-domain.com
@@ -81,7 +81,7 @@ The app uses a permanent ngrok URL for webhook development:
 
 1. Start ngrok: `pnpm tunnel`
 2. Start dev server: `pnpm dev`
-3. Update webhooks if needed: `pnpm webhooks:update`
+3. Telnyx webhooks are configured in the Telnyx portal to point to the ngrok URL
 
 ## Database Migrations
 
