@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { QueryProvider } from "@/lib/providers/query-provider";
+import { AuthHashHandler } from "@/components/auth/AuthHashHandler";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -26,6 +27,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <QueryProvider>
+          <AuthHashHandler />
           {children}
           <Toaster position="top-right" richColors closeButton />
         </QueryProvider>

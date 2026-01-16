@@ -1,14 +1,15 @@
 'use client'
 
 import { useAuth } from '@/lib/hooks/useAuth'
+import { useUserRole } from '@/lib/hooks/useUserRole'
 import { Button } from '@/components/ui/button'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { 
-  Loader2, 
-  Phone, 
-  Users, 
+import {
+  Loader2,
+  Phone,
+  Users,
   BarChart3,
   PhoneCall,
   TrendingUp,
@@ -23,12 +24,17 @@ import {
 } from 'lucide-react'
 import { SystemHealthIndicator } from '@/components/system/SystemHealthIndicator'
 import { useDashboardStats, formatRelativeTime, getTrendIndicator } from '@/lib/hooks/useDashboardStats'
+import { useOnboardingProgress } from '@/lib/hooks/useOnboardingProgress'
+import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist'
+import { AgentHome } from '@/components/dashboard/AgentHome'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth()
+  const { isAgent, isLoading: roleLoading } = useUserRole()
   const router = useRouter()
   const { data: dashboardData, isLoading: statsLoading } = useDashboardStats()
+  const { progress: onboardingProgress, updateProgress, isLoading: onboardingLoading } = useOnboardingProgress()
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -36,7 +42,7 @@ export default function DashboardPage() {
     }
   }, [user, authLoading, router])
 
-  if (authLoading) {
+  if (authLoading || roleLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -46,6 +52,11 @@ export default function DashboardPage() {
 
   if (!user) {
     return null
+  }
+
+  // Show Agent-specific dashboard for agents
+  if (isAgent) {
+    return <AgentHome />
   }
 
   const stats = dashboardData?.stats || {
@@ -77,6 +88,15 @@ export default function DashboardPage() {
         </div>
         <SystemHealthIndicator variant="compact" />
       </div>
+
+      {/* Onboarding Checklist */}
+      {!onboardingLoading && (
+        <OnboardingChecklist
+          progress={onboardingProgress}
+          onUpdateProgress={updateProgress}
+          isLoading={onboardingLoading}
+        />
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

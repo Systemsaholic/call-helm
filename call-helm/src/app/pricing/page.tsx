@@ -2,107 +2,67 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { 
-  ArrowRight, 
-  Phone, 
-  Users, 
-  MessageSquare, 
-  Smartphone, 
-  Brain, 
-  Mic, 
-  Zap, 
+import {
+  ArrowRight,
+  Phone,
+  Users,
+  MessageSquare,
+  Smartphone,
+  Brain,
+  Mic,
+  Zap,
   Crown,
   Check,
   X
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@supabase/supabase-js'
 
-const plans = [
-  {
-    name: 'Pro Starter',
-    description: 'Perfect for small teams getting started',
-    price_monthly: 49,
-    price_yearly: 490,
-    badge_text: 'Most Popular',
-    max_phone_numbers: 1,
-    max_agents: 5,
-    max_contacts: 1000,
-    max_call_minutes: 500,
-    max_sms_messages: 500,
-    max_ai_tokens_per_month: 10000,
-    max_transcription_minutes_per_month: 50,
-    max_ai_analysis_per_month: 25,
-    features: {
-      phone_number_management: true,
-      voice_calls: true,
-      sms_messaging: true,
-      call_recording: true,
-      call_transcription: true,
-      ai_analysis: true,
-      sentiment_analysis: true,
-      api_access: true,
-      webhooks: true,
-      white_label: false,
-      priority_support: false,
-    }
-  },
-  {
-    name: 'Professional',
-    description: 'Ideal for growing businesses',
-    price_monthly: 99,
-    price_yearly: 990,
-    max_phone_numbers: 5,
-    max_agents: 25,
-    max_contacts: 10000,
-    max_call_minutes: 2500,
-    max_sms_messages: 2500,
-    max_ai_tokens_per_month: 100000,
-    max_transcription_minutes_per_month: 500,
-    max_ai_analysis_per_month: 250,
-    features: {
-      phone_number_management: true,
-      voice_calls: true,
-      sms_messaging: true,
-      call_recording: true,
-      call_transcription: true,
-      ai_analysis: true,
-      sentiment_analysis: true,
-      api_access: true,
-      webhooks: true,
-      white_label: false,
-      priority_support: true,
-    }
-  },
-  {
-    name: 'Enterprise',
-    description: 'Advanced features for large organizations',
-    price_monthly: 299,
-    price_yearly: 2990,
-    max_phone_numbers: 9999,
-    max_agents: 999999,
-    max_contacts: 999999,
-    max_call_minutes: 999999,
-    max_sms_messages: 999999,
-    max_ai_tokens_per_month: 999999,
-    max_transcription_minutes_per_month: 999999,
-    max_ai_analysis_per_month: 999999,
-    features: {
-      phone_number_management: true,
-      voice_calls: true,
-      sms_messaging: true,
-      call_recording: true,
-      call_transcription: true,
-      ai_analysis: true,
-      sentiment_analysis: true,
-      api_access: true,
-      webhooks: true,
-      white_label: true,
-      priority_support: true,
-    }
+// Helper to get limit values from plan features
+const getPlanLimit = (plan: any, key: string, defaultValue: number = 0): number => {
+  return plan?.features?.[key] ?? defaultValue
+}
+
+// Helper to check boolean feature flags
+const hasPlanFeature = (plan: any, key: string): boolean => {
+  return plan?.features?.[key] === true
+}
+
+// Fetch plans from database (server-side)
+async function getPlans() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
+  const { data: plans, error } = await supabase
+    .from('subscription_plans')
+    .select('*')
+    .eq('is_active', true)
+    .neq('slug', 'free') // Don't show free trial on pricing page
+    .order('display_order')
+
+  if (error) {
+    console.error('Error fetching plans:', error)
+    return []
   }
-]
 
-export default function PricingPage() {
+  return plans || []
+}
+
+export default async function PricingPage() {
+  const plans = await getPlans()
+
+  // Generate FAQ phone number text dynamically
+  const starterPlan = plans.find(p => p.slug === 'starter')
+  const proPlan = plans.find(p => p.slug === 'professional')
+  const enterprisePlan = plans.find(p => p.slug === 'enterprise')
+
+  const starterNumbers = getPlanLimit(starterPlan, 'max_phone_numbers', 1)
+  const proNumbers = getPlanLimit(proPlan, 'max_phone_numbers', 5)
+
+  const phoneNumberFaqText = `Each plan includes a set number of phone numbers. ${starterPlan?.name || 'Pro Starter'} includes ${starterNumbers} number${starterNumbers !== 1 ? 's' : ''}, ${proPlan?.name || 'Professional'} includes ${proNumbers} numbers, and ${enterprisePlan?.name || 'Enterprise'} includes 100+ numbers with fair use policy. Additional numbers are $2.50/month each for ${starterPlan?.name || 'Pro Starter'} and ${proPlan?.name || 'Professional'} plans.`
+
   return (
     <div className="min-h-screen">
       {/* Navigation */}
@@ -142,7 +102,7 @@ export default function PricingPage() {
               Simple, transparent pricing
             </h1>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto mb-8">
-              Choose the perfect plan for your call center needs. Start with a 14-day free trial, 
+              Choose the perfect plan for your call center needs. Start with a 14-day free trial,
               then select the plan that scales with your business.
             </p>
             <div className="flex items-center justify-center gap-2 mb-4">
@@ -166,13 +126,23 @@ export default function PricingPage() {
 
           {/* Pricing Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {plans.map((plan, index) => {
+            {plans.map((plan) => {
               const isPopular = plan.badge_text === 'Most Popular'
-              const savings = Math.round(((plan.price_monthly * 12 - plan.price_yearly) / (plan.price_monthly * 12)) * 100)
-              
+              const priceMonthly = plan.price_monthly || 0
+              const priceYearly = plan.price_annual || plan.price_yearly || (priceMonthly * 10) // fallback
+              const savings = priceMonthly > 0 ? Math.round(((priceMonthly * 12 - priceYearly) / (priceMonthly * 12)) * 100) : 0
+
+              const maxPhoneNumbers = getPlanLimit(plan, 'max_phone_numbers', 0)
+              const maxAgents = getPlanLimit(plan, 'max_agents', 0)
+              const maxCallMinutes = getPlanLimit(plan, 'max_call_minutes', 0)
+              const maxSmsMessages = getPlanLimit(plan, 'max_sms_messages', 0)
+              const maxAiTokens = getPlanLimit(plan, 'max_ai_tokens_per_month', 0)
+              const maxTranscription = getPlanLimit(plan, 'max_transcription_minutes_per_month', 0)
+              const maxAiAnalysis = getPlanLimit(plan, 'max_ai_analysis_per_month', 0)
+
               return (
-                <Card 
-                  key={plan.name}
+                <Card
+                  key={plan.id}
                   className={cn(
                     "relative flex flex-col h-full",
                     isPopular && "border-primary ring-2 ring-primary/20 scale-105"
@@ -186,7 +156,7 @@ export default function PricingPage() {
                     <CardDescription className="min-h-[3.5rem] sm:min-h-[3rem] flex items-start">{plan.description}</CardDescription>
                     <div className="pt-4">
                       <div className="text-4xl font-bold">
-                        ${plan.price_monthly}
+                        ${priceMonthly}
                       </div>
                       <div className="text-sm text-gray-500">
                         per month
@@ -205,58 +175,58 @@ export default function PricingPage() {
                         <li className="flex items-center gap-3 text-sm">
                           <Smartphone className="h-4 w-4 text-blue-500 flex-shrink-0" />
                           <span className="font-medium">
-                            {plan.max_phone_numbers >= 999 
-                              ? '100+ Numbers (fair use)' 
-                              : plan.max_phone_numbers === 1 
-                              ? '1 Number included' 
-                              : `${plan.max_phone_numbers} Numbers included`
+                            {maxPhoneNumbers >= 999
+                              ? '100+ Numbers (fair use)'
+                              : maxPhoneNumbers === 1
+                              ? '1 Number included'
+                              : `${maxPhoneNumbers} Numbers included`
                             }
                           </span>
                         </li>
-                        {plan.max_phone_numbers < 999 && (
+                        {maxPhoneNumbers < 999 && (
                           <li className="flex items-center gap-3 text-xs text-gray-500 pl-7">
                             <span>+$2.50/mo per additional</span>
                           </li>
                         )}
                       </div>
-                      
+
                       {/* Agents */}
                       <li className="flex items-center gap-3 text-sm">
                         <Users className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        <span>{plan.max_agents >= 999999 ? 'Unlimited agents' : `${plan.max_agents} agents`}</span>
+                        <span>{maxAgents >= 999999 ? 'Unlimited agents' : `${maxAgents} agents`}</span>
                       </li>
-                      
+
                       {/* Call Minutes */}
                       <li className="flex items-center gap-3 text-sm">
                         <Phone className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        <span>{plan.max_call_minutes >= 999999 ? 'Unlimited minutes' : `${plan.max_call_minutes.toLocaleString()} minutes/mo`}</span>
+                        <span>{maxCallMinutes >= 999999 ? 'Unlimited minutes' : `${maxCallMinutes.toLocaleString()} minutes/mo`}</span>
                       </li>
-                      
+
                       {/* SMS */}
                       <li className="flex items-center gap-3 text-sm">
                         <MessageSquare className="h-4 w-4 text-green-500 flex-shrink-0" />
-                        <span>{plan.max_sms_messages >= 999999 ? 'Unlimited SMS' : `${plan.max_sms_messages.toLocaleString()} SMS/mo`}</span>
+                        <span>{maxSmsMessages >= 999999 ? 'Unlimited SMS' : `${maxSmsMessages.toLocaleString()} SMS/mo`}</span>
                       </li>
-                      
+
                       {/* AI Services - Fixed height block */}
                       <div className="min-h-[4.5rem]">
                         <li className="flex items-center gap-3 text-sm">
                           <Brain className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                          <span>{plan.max_ai_tokens_per_month >= 999999 ? 'Unlimited AI' : `${plan.max_ai_tokens_per_month.toLocaleString()} AI tokens`}</span>
+                          <span>{maxAiTokens >= 999999 ? 'Unlimited AI' : `${maxAiTokens.toLocaleString()} AI tokens`}</span>
                         </li>
                         <li className="flex items-center gap-3 text-sm">
                           <Mic className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                          <span>{plan.max_transcription_minutes_per_month >= 999999 ? 'Unlimited transcription' : `${plan.max_transcription_minutes_per_month} min transcription`}</span>
+                          <span>{maxTranscription >= 999999 ? 'Unlimited transcription' : `${maxTranscription} min transcription`}</span>
                         </li>
                         <li className="flex items-center gap-3 text-sm">
                           <Zap className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                          <span>{plan.max_ai_analysis_per_month >= 999999 ? 'Unlimited analysis' : `${plan.max_ai_analysis_per_month} analyses`}</span>
+                          <span>{maxAiAnalysis >= 999999 ? 'Unlimited analysis' : `${maxAiAnalysis} analyses`}</span>
                         </li>
                       </div>
-                      
+
                       {/* Advanced Features */}
                       <li className="flex items-center gap-3 text-sm">
-                        {plan.features?.white_label ? (
+                        {hasPlanFeature(plan, 'white_label') ? (
                           <>
                             <Crown className="h-4 w-4 text-amber-500 flex-shrink-0" />
                             <span>White Label</span>
@@ -268,9 +238,9 @@ export default function PricingPage() {
                           </>
                         )}
                       </li>
-                      
+
                       <li className="flex items-center gap-3 text-sm">
-                        {plan.features?.priority_support ? (
+                        {hasPlanFeature(plan, 'priority_support') ? (
                           <>
                             <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
                             <span>Priority Support</span>
@@ -283,10 +253,10 @@ export default function PricingPage() {
                         )}
                       </li>
                     </ul>
-                    {plan.name === 'Enterprise' ? (
+                    {plan.slug === 'enterprise' ? (
                       <Link href="/contact" className="w-full">
-                        <Button 
-                          className="w-full" 
+                        <Button
+                          className="w-full"
                           variant="default"
                           size="lg"
                         >
@@ -296,8 +266,8 @@ export default function PricingPage() {
                       </Link>
                     ) : (
                       <Link href="/auth/signup" className="w-full">
-                        <Button 
-                          className="w-full" 
+                        <Button
+                          className="w-full"
                           variant={isPopular ? "default" : "outline"}
                           size="lg"
                         >
@@ -321,7 +291,7 @@ export default function PricingPage() {
             <h2 className="text-3xl font-bold text-center mb-12">Everything you need to succeed</h2>
             <div className="grid md:grid-cols-2 gap-8">
               <div>
-                <h3 className="text-xl font-semibold mb-4">✨ AI-Powered Features</h3>
+                <h3 className="text-xl font-semibold mb-4">AI-Powered Features</h3>
                 <ul className="space-y-2 text-gray-600">
                   <li>• Automatic call transcription with speaker diarization</li>
                   <li>• Sentiment analysis and mood detection</li>
@@ -331,7 +301,7 @@ export default function PricingPage() {
                 </ul>
               </div>
               <div>
-                <h3 className="text-xl font-semibold mb-4">📞 Communication Tools</h3>
+                <h3 className="text-xl font-semibold mb-4">Communication Tools</h3>
                 <ul className="space-y-2 text-gray-600">
                   <li>• Phone number provisioning and porting</li>
                   <li>• Call forwarding and routing</li>
@@ -341,7 +311,7 @@ export default function PricingPage() {
                 </ul>
               </div>
               <div>
-                <h3 className="text-xl font-semibold mb-4">👥 Team Management</h3>
+                <h3 className="text-xl font-semibold mb-4">Team Management</h3>
                 <ul className="space-y-2 text-gray-600">
                   <li>• Agent performance tracking</li>
                   <li>• Contact and lead management</li>
@@ -351,7 +321,7 @@ export default function PricingPage() {
                 </ul>
               </div>
               <div>
-                <h3 className="text-xl font-semibold mb-4">🔧 Integration & APIs</h3>
+                <h3 className="text-xl font-semibold mb-4">Integration & APIs</h3>
                 <ul className="space-y-2 text-gray-600">
                   <li>• RESTful API with comprehensive documentation</li>
                   <li>• Webhook support for real-time events</li>
@@ -374,31 +344,29 @@ export default function PricingPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">How does the phone number pricing work?</h3>
                 <p className="text-gray-600">
-                  Each plan includes a set number of phone numbers. Pro Starter includes 1 number, 
-                  Professional includes 5 numbers, and Enterprise includes 100+ numbers with fair use policy. 
-                  Additional numbers are $2.50/month each for Pro Starter and Professional plans.
+                  {phoneNumberFaqText}
                 </p>
               </div>
               <div>
                 <h3 className="text-lg font-semibold mb-2">What happens if I exceed my AI usage limits?</h3>
                 <p className="text-gray-600">
-                  We'll notify you when you're approaching your limits. If you exceed them, you can upgrade 
-                  your plan or purchase additional AI credits. Your service won't be interrupted, but 
+                  We'll notify you when you're approaching your limits. If you exceed them, you can upgrade
+                  your plan or purchase additional AI credits. Your service won't be interrupted, but
                   additional usage will be charged based on our overage rates.
                 </p>
               </div>
               <div>
                 <h3 className="text-lg font-semibold mb-2">Can I change plans at any time?</h3>
                 <p className="text-gray-600">
-                  Yes! You can upgrade or downgrade your plan at any time. Upgrades take effect immediately, 
+                  Yes! You can upgrade or downgrade your plan at any time. Upgrades take effect immediately,
                   and downgrades take effect at your next billing cycle. We'll prorate any changes fairly.
                 </p>
               </div>
               <div>
                 <h3 className="text-lg font-semibold mb-2">What's included in the 14-day free trial?</h3>
                 <p className="text-gray-600">
-                  Your free trial includes full access to all features in the Pro Starter plan. 
-                  No credit card required to start. After your trial, you can choose any plan or 
+                  Your free trial includes full access to all features in the {starterPlan?.name || 'Pro Starter'} plan.
+                  No credit card required to start. After your trial, you can choose any plan or
                   cancel at any time.
                 </p>
               </div>
@@ -467,7 +435,7 @@ export default function PricingPage() {
             </div>
           </div>
           <div className="border-t mt-8 pt-8 text-center text-gray-600">
-            <p>&copy; 2025 Call Helm. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Call Helm. All rights reserved.</p>
           </div>
         </div>
       </footer>

@@ -86,7 +86,10 @@ export default function CallListDetailPage() {
               callListId={params.id as string}
               campaignName={callList.name}
             />
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/dashboard/call-lists/${params.id}/edit`)}
+            >
               <Edit className="h-4 w-4 mr-2" />
               Edit
             </Button>
