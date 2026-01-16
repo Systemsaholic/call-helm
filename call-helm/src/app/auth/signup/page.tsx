@@ -93,11 +93,14 @@ export default function SignupPage() {
   const handleGoogleSignup = async () => {
     // Store organization name for after OAuth callback
     localStorage.setItem('pending_org_name', organizationName || 'My Organization')
-    
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/auth/callback?signup=true`,
+        queryParams: {
+          prompt: 'select_account', // Force account picker to appear
+        },
       },
     })
 

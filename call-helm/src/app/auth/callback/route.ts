@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
           getAll() {
             return cookieStore.getAll()
           },
-          setAll(cookiesToSet) {
+          setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
             try {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
@@ -36,22 +36,46 @@ export async function GET(request: Request) {
     )
 
     const { error, data } = await supabase.auth.exchangeCodeForSession(code)
-    
+
+    console.log('Auth callback - code exchanged:', {
+      error: error?.message,
+      hasUser: !!data?.user,
+      isSignup,
+      isInvite,
+      userId: data?.user?.id
+    })
+
     if (!error && data?.user) {
       // For invited users, check if they need to set up their password
       // Invited users won't have app_metadata.provider set to 'email' initially
-      const needsPasswordSetup = isInvite || 
+      const needsPasswordSetup = isInvite ||
         (!data.user.app_metadata?.providers?.includes('email') && data.user.email)
-      
+
       // Check if this is the user's first login
       const isFirstLogin = data.user.created_at === data.user.last_sign_in_at
-      
+
+      // Check if user already has onboarding completed
+      const onboardingCompleted = data.user.user_metadata?.onboarding_completed
+
+      console.log('Auth callback - redirect decision:', {
+        needsPasswordSetup,
+        isFirstLogin,
+        isSignup,
+        onboardingCompleted,
+        created_at: data.user.created_at,
+        last_sign_in_at: data.user.last_sign_in_at,
+        providers: data.user.app_metadata?.providers
+      })
+
       // If this is an invitation or they need password setup, redirect to setup page
-      if (needsPasswordSetup || isFirstLogin || isSignup) {
+      // But skip if onboarding is already completed
+      if ((needsPasswordSetup || isFirstLogin || isSignup) && !onboardingCompleted) {
         // For invited agents, redirect to set up their password/profile
+        console.log('Auth callback - redirecting to setup-account')
         return NextResponse.redirect(`${origin}/auth/setup-account`)
       }
-      
+
+      console.log('Auth callback - redirecting to:', next)
       return NextResponse.redirect(`${origin}${next}`)
     }
   }
