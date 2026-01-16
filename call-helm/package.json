@@ -50,7 +50,7 @@
     "framer-motion": "^12.23.22",
     "immer": "^10.1.1",
     "lucide-react": "^0.539.0",
-    "next": "15.4.6",
+    "next": "16.1.2",
     "openai": "^5.20.3",
     "papaparse": "^5.5.3",
     "react": "19.1.0",
