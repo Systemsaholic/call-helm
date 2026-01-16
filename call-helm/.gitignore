@@ -46,3 +46,33 @@ next-env.d.ts
 /blob-report/
 /playwright/.cache/
 /.auth/
+.env*.local
+
+# development temp files
+.call_count
+.circuit_breaker_history
+.circuit_breaker_state
+.exit_signals
+.last_reset
+.ralph_session
+.ralph_session_history
+.response_analysis
+progress.json
+status.json
+logs/
+
+# temp docs and specs
+@AGENT.md
+@fix_plan.md
+PROMPT.md
+specs/
+docs/*.md
+
+# screenshots
+*.png
+
+# nested build folders
+call-helm/
+
+# supabase temp
+supabase/.temp/
