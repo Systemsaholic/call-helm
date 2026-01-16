@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Update message status in database
-    const updateData: any = {
+    const updateData: Record<string, string> = {
       status: mappedStatus,
       updated_at: new Date().toISOString()
     }

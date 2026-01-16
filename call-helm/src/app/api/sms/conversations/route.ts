@@ -61,7 +61,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Conversation ID required' }, { status: 400 })
     }
 
-    let updateData: any = {}
+    let updateData: Record<string, string | null> = {}
 
     switch (action) {
       case 'claim':

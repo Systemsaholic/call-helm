@@ -25,7 +25,7 @@ export interface CallAttempt {
   recording_transcript?: string
   provider?: string
   provider_call_id?: string
-  provider_metadata?: any
+  provider_metadata?: Record<string, unknown>
   quality_score?: number
   quality_notes?: string
   reviewed_by?: string
@@ -180,7 +180,7 @@ export function useStartCallSession() {
       queryClient.invalidateQueries({ queryKey: callTrackingKeys.sessions() })
       toast.success(`Call session started with ${session.contact_name}`)
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to start call session')
     },
   })
@@ -301,7 +301,7 @@ export function useEndCallSession() {
       queryClient.invalidateQueries({ queryKey: callTrackingKeys.agentCalls(user?.id || '') })
       toast.success('Call recorded successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to record call')
     },
   })
@@ -484,7 +484,7 @@ export function useScheduleCallback() {
       queryClient.invalidateQueries({ queryKey: callTrackingKeys.agentCalls(user?.id || '') })
       toast.success('Callback scheduled successfully')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to schedule callback')
     },
   })

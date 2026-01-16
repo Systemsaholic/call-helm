@@ -4,6 +4,38 @@ import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 import { maskEIN } from '@/lib/security/encryption'
 import { smsLogger } from '@/lib/logger'
 
+interface DatabaseBrand {
+  id: string
+  brand_name: string
+  legal_company_name: string
+  business_type: string
+  industry: string
+  status: 'pending' | 'submitted' | 'approved' | 'rejected' | 'suspended'
+  telnyx_brand_id?: string
+  approval_date?: string
+  campaign_count: number
+  created_at: string
+  ein_tax_id?: string
+  ein_encrypted?: boolean
+}
+
+interface FormattedBrand {
+  id: string
+  brandName: string
+  legalCompanyName: string
+  businessType: string
+  industry: string
+  status: string
+  telnyxBrandId?: string
+  approvalDate?: string
+  campaignCount: number
+  createdAt: string
+  canCreateCampaigns: boolean
+  statusDisplay: string
+  nextSteps: string[]
+  maskedEin?: string
+}
+
 // Get organization's SMS brands
 export async function GET(request: NextRequest) {
   try {
@@ -88,8 +120,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Format response
-    const formattedBrands = brands?.map((brand: any) => {
-      const formattedBrand: any = {
+    const formattedBrands: FormattedBrand[] = brands?.map((brand: DatabaseBrand) => {
+      const formattedBrand: FormattedBrand = {
         id: brand.id,
         brandName: brand.brand_name,
         legalCompanyName: brand.legal_company_name,
@@ -115,11 +147,11 @@ export async function GET(request: NextRequest) {
 
     const summary = {
       total: formattedBrands.length,
-      pending: formattedBrands.filter((b: any) => b.status === 'pending').length,
-      submitted: formattedBrands.filter((b: any) => b.status === 'submitted').length,
-      approved: formattedBrands.filter((b: any) => b.status === 'approved').length,
-      rejected: formattedBrands.filter((b: any) => b.status === 'rejected').length,
-      suspended: formattedBrands.filter((b: any) => b.status === 'suspended').length
+      pending: formattedBrands.filter((b) => b.status === 'pending').length,
+      submitted: formattedBrands.filter((b) => b.status === 'submitted').length,
+      approved: formattedBrands.filter((b) => b.status === 'approved').length,
+      rejected: formattedBrands.filter((b) => b.status === 'rejected').length,
+      suspended: formattedBrands.filter((b) => b.status === 'suspended').length
     }
 
     return NextResponse.json({

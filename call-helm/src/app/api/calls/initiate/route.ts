@@ -159,7 +159,7 @@ export async function POST(req: NextRequest) {
     let externalCallId: string | null = null
     let callControlData: { callControlId: string; callSessionId: string; callLegId: string } | null = null
 
-    let callData: any = {
+    const callData: Record<string, unknown> = {
       organization_id: member.organization_id,
       contact_id: contactId || null,
       direction: "outbound",
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
         initiated_by: user.id,
         provider: 'telnyx',
         initial_status: "initiated"
-      }
+      } as Record<string, unknown>
     }
 
     try {
@@ -200,13 +200,14 @@ export async function POST(req: NextRequest) {
       })
 
       externalCallId = callControlData.callControlId
-      callData.metadata.external_id = callControlData.callControlId
-      callData.metadata.call_session_id = callControlData.callSessionId
-      callData.metadata.call_leg_id = callControlData.callLegId
-    } catch (telnyxError: any) {
+      const metadata = callData.metadata as Record<string, unknown>
+      metadata.external_id = callControlData.callControlId
+      metadata.call_session_id = callControlData.callSessionId
+      metadata.call_leg_id = callControlData.callLegId
+    } catch (telnyxError) {
       voiceLogger.error('Telnyx call initiation error', { error: telnyxError })
       return NextResponse.json({
-        error: `Failed to initiate call: ${telnyxError.message}`
+        error: `Failed to initiate call: ${telnyxError instanceof Error ? telnyxError.message : 'Unknown error'}`
       }, { status: 500 })
     }
 

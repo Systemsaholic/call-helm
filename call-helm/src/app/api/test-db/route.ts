@@ -52,11 +52,11 @@ export async function GET() {
       sampleData: data
     })
     
-  } catch (err: any) {
-    return NextResponse.json({ 
+  } catch (err) {
+    return NextResponse.json({
       error: 'Server error',
-      message: err?.message || 'Unknown error',
-      stack: err?.stack
+      message: err instanceof Error ? err.message : 'Unknown error',
+      stack: err instanceof Error ? err.stack : undefined
     }, { status: 500 })
   }
 }

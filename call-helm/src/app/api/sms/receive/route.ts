@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
       conversation = newConversation
     } else {
       // Update existing conversation
-      const updateData: any = {
+      const updateData: Record<string, string | number | boolean | null> = {
         last_message_at: new Date().toISOString(),
         unread_count: (conversation.unread_count || 0) + 1
       }

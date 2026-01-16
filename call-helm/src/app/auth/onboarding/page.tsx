@@ -81,8 +81,8 @@ export default function OnboardingPage() {
       setTimeout(() => {
         router.push('/dashboard')
       }, 2000)
-    } catch (err: any) {
-      setError(err.message || 'Failed to update account')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update account')
       setIsSubmitting(false)
     }
   }

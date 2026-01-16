@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
     const fromNumber = phoneNumber.number
     
     // Check if contact is opted out
-    let conversationData: any = null
+    let conversationData: { id: string; is_opted_out: boolean } | null = null
     
     if (conversationId) {
       const { data } = await supabase

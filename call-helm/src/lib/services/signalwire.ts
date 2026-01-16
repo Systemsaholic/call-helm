@@ -25,11 +25,20 @@ interface AvailableNumber {
   monthlyPrice: number
 }
 
+interface SignalWireCapabilities {
+  voice?: boolean
+  sms?: boolean
+  SMS?: boolean
+  mms?: boolean
+  MMS?: boolean
+  fax?: boolean
+}
+
 interface SignalWireNumber {
   sid: string
   phoneNumber: string
   friendlyName: string
-  capabilities: any
+  capabilities: SignalWireCapabilities
   status: string
 }
 
@@ -37,7 +46,7 @@ interface PortingRequest {
   id: string
   phoneNumber: string
   status: 'pending' | 'submitted' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
-  statusDetails?: any
+  statusDetails?: string
   requestedPortDate?: string
   actualPortDate?: string
   rejectionReason?: string
@@ -60,6 +69,28 @@ interface Campaign {
   status: 'pending' | 'submitted' | 'approved' | 'rejected' | 'suspended'
   approvalDate?: string
   rejectionReason?: string
+}
+
+// SignalWire API response types
+interface SignalWireAvailableNumber {
+  phone_number: string
+  friendly_name: string
+  locality?: string
+  rate_center?: string
+  region?: string
+  postal_code?: string
+  capabilities?: SignalWireCapabilities
+  monthly_price?: string
+}
+
+interface SignalWireOwnedNumber {
+  sid: string
+  phone_number: string
+  friendly_name: string
+  capabilities?: SignalWireCapabilities
+  status?: string
+  voice_url?: string
+  sms_url?: string
 }
 
 export class SignalWireService {
@@ -160,18 +191,18 @@ export class SignalWireService {
       })
       
       // Transform SignalWire response to our format
-      return (data.available_phone_numbers || []).map((num: any) => {
+      return (data.available_phone_numbers || []).map((num: SignalWireAvailableNumber) => {
         // Use rate_center as the city name when locality is not available
         // Rate center names are typically in uppercase, so we'll format them properly
         let cityName = num.locality || num.rate_center || 'Unknown'
-        
+
         // Format rate center names (convert from UPPERCASE to Title Case)
         if (!num.locality && num.rate_center) {
           cityName = num.rate_center.split(' ')
             .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
             .join(' ')
         }
-        
+
         return {
           phoneNumber: num.phone_number,
           friendlyName: num.friendly_name,
@@ -201,7 +232,7 @@ export class SignalWireService {
   }): Promise<SignalWireNumber> {
     const url = `${this.baseUrl}/IncomingPhoneNumbers.json`
     
-    const body: any = {
+    const body: Record<string, string> = {
       PhoneNumber: phoneNumber,
       FriendlyName: params?.friendlyName || `Platform Number ${phoneNumber}`
     }
@@ -342,7 +373,7 @@ export class SignalWireService {
   }
 
   // List all numbers owned by this account
-  async listOwnedNumbers(): Promise<any[]> {
+  async listOwnedNumbers(): Promise<SignalWireOwnedNumber[]> {
     const url = `${this.baseUrl}/IncomingPhoneNumbers.json`
 
     voiceLogger.debug('Fetching owned numbers', { url })

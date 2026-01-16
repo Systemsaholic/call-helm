@@ -192,9 +192,9 @@ export default function SetupAccountPage() {
 
       // Force a page refresh to get updated user metadata
       window.location.href = '/dashboard'
-    } catch (err: any) {
+    } catch (err) {
       console.error('Setup error:', err)
-      setError(err.message || 'Failed to set up account')
+      setError(err instanceof Error ? err.message : 'Failed to set up account')
     } finally {
       setLoading(false)
     }
