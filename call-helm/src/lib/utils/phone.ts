@@ -151,10 +151,19 @@ export function maskPhoneNumber(phoneNumber: string): string {
  */
 export function getPhoneType(capabilities: { voice?: boolean; sms?: boolean; mms?: boolean }): string {
   const types: string[] = []
-  
+
   if (capabilities.voice) types.push('Voice')
   if (capabilities.sms) types.push('SMS')
   if (capabilities.mms) types.push('MMS')
-  
+
   return types.length > 0 ? types.join(' + ') : 'Unknown'
+}
+
+/**
+ * Normalizes a phone number by removing all non-digit characters
+ * and ensuring E.164 format for US numbers
+ * Alias for toE164 for convenience
+ */
+export function normalizePhoneNumber(phoneNumber: string): string {
+  return toE164(phoneNumber)
 }

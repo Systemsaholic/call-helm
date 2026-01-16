@@ -29,6 +29,9 @@ export interface CallList {
   hours_between_attempts: number
   allow_voicemail: boolean
   require_disposition: boolean
+  script_template?: string
+  keywords?: string[]
+  call_goals?: string[]
   created_at: string
   created_by?: string
   updated_at: string
@@ -388,6 +391,36 @@ export function useAddContactsToCallList() {
   })
 }
 
+// Helper function to send assignment notification emails
+async function sendAssignmentNotifications(
+  callListId: string,
+  agentAssignments: { agentId: string; contactCount: number }[]
+): Promise<void> {
+  try {
+    const response = await fetch('/api/agents/notify-assignment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        callListId,
+        agentAssignments,
+      }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      console.error('Failed to send assignment notifications:', error)
+    } else {
+      const result = await response.json()
+      console.log('Assignment notifications sent:', result)
+    }
+  } catch (error) {
+    // Log but don't throw - notifications are non-critical
+    console.error('Error sending assignment notifications:', error)
+  }
+}
+
 // Assign contacts to agents
 export function useAssignContacts() {
   const { supabase, user } = useAuth()
@@ -398,15 +431,21 @@ export function useAssignContacts() {
       callListId,
       assignments,
       strategy,
+      sendNotifications = true,
     }: {
       callListId: string
       assignments?: { contactId: string; agentId: string }[]
       strategy?: AssignmentStrategy
+      sendNotifications?: boolean
     }) => {
+      // Track assignments for notifications
+      const agentAssignmentCounts: Record<string, number> = {}
+
       if (assignments) {
-        // Manual assignment
+        // Manual assignment - include call_list_id for RLS policy
         const updates = assignments.map(a => ({
           id: a.contactId,
+          call_list_id: callListId,
           assigned_to: a.agentId,
           assigned_at: new Date().toISOString(),
           assignment_method: 'manual',
@@ -418,6 +457,11 @@ export function useAssignContacts() {
           .upsert(updates, { onConflict: 'id' })
 
         if (error) throw error
+
+        // Count assignments per agent for notifications
+        assignments.forEach(a => {
+          agentAssignmentCounts[a.agentId] = (agentAssignmentCounts[a.agentId] || 0) + 1
+        })
       } else if (strategy) {
         // Automated assignment based on strategy
         const { data: contacts, error: fetchError } = await supabase
@@ -431,36 +475,39 @@ export function useAssignContacts() {
           throw new Error('No pending contacts to assign')
         }
 
-        let assignmentMap: Record<string, string[]> = {}
+        // Track full contact info for upsert (need both id and contact_id)
+        let assignmentMap: Record<string, { id: string; contact_id: string }[]> = {}
 
         if (strategy.strategy === 'round_robin' && strategy.agentIds) {
           // Round-robin assignment
           contacts.forEach((contact, index) => {
             const agentId = strategy.agentIds![index % strategy.agentIds!.length]
             if (!assignmentMap[agentId]) assignmentMap[agentId] = []
-            assignmentMap[agentId].push(contact.id)
+            assignmentMap[agentId].push({ id: contact.id, contact_id: contact.contact_id })
           })
         } else if (strategy.strategy === 'load_based' && strategy.agentIds) {
           // Load-based assignment
           const maxPerAgent = strategy.maxContactsPerAgent || Math.ceil(contacts.length / strategy.agentIds.length)
-          
+
           let agentIndex = 0
           contacts.forEach((contact) => {
             const agentId = strategy.agentIds![agentIndex]
             if (!assignmentMap[agentId]) assignmentMap[agentId] = []
-            
-            assignmentMap[agentId].push(contact.id)
-            
+
+            assignmentMap[agentId].push({ id: contact.id, contact_id: contact.contact_id })
+
             if (assignmentMap[agentId].length >= maxPerAgent) {
               agentIndex = (agentIndex + 1) % strategy.agentIds!.length
             }
           })
         }
 
-        // Apply assignments
-        const updates = Object.entries(assignmentMap).flatMap(([agentId, contactIds]) =>
-          contactIds.map(contactId => ({
-            id: contactId,
+        // Apply assignments - include call_list_id and contact_id for RLS policy and upsert
+        const updates = Object.entries(assignmentMap).flatMap(([agentId, contactInfos]) =>
+          contactInfos.map(contactInfo => ({
+            id: contactInfo.id,
+            contact_id: contactInfo.contact_id,
+            call_list_id: callListId,
             assigned_to: agentId,
             assigned_at: new Date().toISOString(),
             assignment_method: strategy.strategy,
@@ -474,16 +521,33 @@ export function useAssignContacts() {
 
         if (error) throw error
 
-        // Send notifications to assigned agents (via real-time subscriptions)
-        // This will be handled by the real-time system
+        // Count assignments per agent for notifications
+        Object.entries(assignmentMap).forEach(([agentId, contactInfos]) => {
+          agentAssignmentCounts[agentId] = contactInfos.length
+        })
       }
 
-      return { success: true }
+      // Return assignment counts for notification sending
+      return {
+        success: true,
+        agentAssignmentCounts,
+        callListId,
+        sendNotifications,
+      }
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: callListKeys.contacts(variables.callListId) })
       queryClient.invalidateQueries({ queryKey: callListKeys.assignments(variables.callListId) })
       toast.success('Contacts assigned successfully')
+
+      // Send email notifications to assigned agents (non-blocking)
+      if (data.sendNotifications && Object.keys(data.agentAssignmentCounts).length > 0) {
+        const agentAssignments = Object.entries(data.agentAssignmentCounts).map(([agentId, contactCount]) => ({
+          agentId,
+          contactCount,
+        }))
+        sendAssignmentNotifications(data.callListId, agentAssignments)
+      }
     },
     onError: (error: any) => {
       toast.error(error.message || 'Failed to assign contacts')

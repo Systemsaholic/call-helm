@@ -39,19 +39,22 @@ export function useProfile() {
         .single()
 
       if (error && error.code === 'PGRST116') {
-        // Profile doesn't exist, create it
-        const { data: newProfile, error: insertError } = await supabase
+        // Profile doesn't exist, create it using upsert to handle race conditions
+        const { data: newProfile, error: upsertError } = await supabase
           .from('user_profiles')
-          .insert({
+          .upsert({
             id: user.id,
             email: user.email,
             full_name: user.user_metadata?.full_name || null,
             organization_id: user.user_metadata?.organization_id || null,
+          }, {
+            onConflict: 'id',
+            ignoreDuplicates: false
           })
           .select()
           .single()
 
-        if (insertError) throw insertError
+        if (upsertError) throw upsertError
         setProfile(newProfile)
       } else if (error) {
         throw error

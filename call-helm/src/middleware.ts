@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -19,7 +19,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
@@ -72,19 +72,22 @@ export async function middleware(request: NextRequest) {
   if (user && request.nextUrl.pathname.startsWith('/auth/')) {
     // Allow access to setup-account page for users who need to complete setup
     if (request.nextUrl.pathname === '/auth/setup-account') {
-      // Check if user needs to complete setup
+      // Check if user needs to complete setup:
+      // 1. Invited users who haven't completed onboarding
+      // 2. New signups who haven't completed onboarding (OAuth or email)
+      // 3. Users without an organization
       const wasInvited = user.user_metadata?.invited === true
       const onboardingNotCompleted = !user.user_metadata?.onboarding_completed
-      const noPasswordSet = !user.app_metadata?.providers?.includes('email')
-      
-      const needsSetup = wasInvited && (onboardingNotCompleted || noPasswordSet)
-      
+      const noOrganization = !user.user_metadata?.organization_id
+
+      const needsSetup = onboardingNotCompleted || noOrganization || wasInvited
+
       if (needsSetup) {
         // Allow access to setup page
         return supabaseResponse
       }
     }
-    
+
     // Redirect all other auth pages to dashboard for authenticated users
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'

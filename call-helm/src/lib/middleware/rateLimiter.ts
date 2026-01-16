@@ -1,5 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { RateLimitError } from '@/lib/errors/handler'
+
+/**
+ * Extract user ID from Supabase JWT token
+ * This decodes the JWT payload without verification (verification is handled by Supabase RLS)
+ * Used for rate limiting purposes only
+ */
+function extractUserIdFromToken(token: string): string | null {
+  try {
+    // JWT format: header.payload.signature
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+
+    // Decode the payload (base64url)
+    const payload = parts[1]
+    // Convert base64url to base64
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    // Add padding if needed
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+
+    // Decode base64 to JSON
+    const decoded = Buffer.from(padded, 'base64').toString('utf-8')
+    const claims = JSON.parse(decoded)
+
+    // Supabase JWTs use 'sub' for the user ID
+    return claims.sub || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Extract organization ID from Supabase JWT app_metadata
+ */
+function extractOrgIdFromToken(token: string): string | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+
+    const payload = parts[1]
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const decoded = Buffer.from(padded, 'base64').toString('utf-8')
+    const claims = JSON.parse(decoded)
+
+    // Check app_metadata for organization_id
+    return claims.app_metadata?.organization_id || null
+  } catch {
+    return null
+  }
+}
 
 interface RateLimitConfig {
   windowMs: number // Time window in milliseconds
@@ -146,13 +195,16 @@ export const rateLimiters = {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 30, // 30 requests per minute per user
     keyGenerator: (req: NextRequest) => {
-      // Extract user ID from auth header or session
+      // Extract user ID from Supabase JWT token
       const authHeader = req.headers.get('authorization')
-      if (authHeader) {
-        // Parse JWT or session to get user ID
-        // This is a placeholder - implement based on your auth method
-        return `user:${authHeader}`
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.slice(7)
+        const userId = extractUserIdFromToken(token)
+        if (userId) {
+          return `user:${userId}`
+        }
       }
+      // Fall back to IP-based rate limiting if no valid token
       return defaultKeyGenerator(req)
     }
   }),
@@ -162,11 +214,21 @@ export const rateLimiters = {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 100, // 100 requests per minute per org
     keyGenerator: (req: NextRequest) => {
-      // Extract org ID from header or session
-      const orgId = req.headers.get('x-organization-id')
-      if (orgId) {
-        return `org:${orgId}`
+      // Try to extract org ID from JWT first (if stored in app_metadata)
+      const authHeader = req.headers.get('authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.slice(7)
+        const orgId = extractOrgIdFromToken(token)
+        if (orgId) {
+          return `org:${orgId}`
+        }
       }
+      // Fall back to x-organization-id header
+      const headerOrgId = req.headers.get('x-organization-id')
+      if (headerOrgId) {
+        return `org:${headerOrgId}`
+      }
+      // Fall back to IP-based rate limiting
       return defaultKeyGenerator(req)
     }
   })

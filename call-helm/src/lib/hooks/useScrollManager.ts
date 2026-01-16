@@ -40,7 +40,7 @@ interface ScrollManagerReturn {
   /**
    * Ref to attach to the scrollable container
    */
-  scrollContainerRef: RefObject<HTMLDivElement>
+  scrollContainerRef: RefObject<HTMLDivElement | null>
 
   /**
    * Whether user is currently at the bottom

@@ -12,6 +12,10 @@ export interface Database {
           price_annual: number
           features: Record<string, any>
           is_active: boolean
+          display_order: number | null
+          stripe_price_id_monthly: string | null
+          stripe_price_id_yearly: string | null
+          stripe_product_id: string | null
           created_at: string
           updated_at: string
         }
