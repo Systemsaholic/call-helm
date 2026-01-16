@@ -41,24 +41,33 @@ export async function POST(request: NextRequest) {
     if (initiatedCalls && initiatedCalls.length > 0) {
       console.log(`Found ${initiatedCalls.length} stuck initiated calls to cleanup`)
       
-      // Update each stuck call
+      // Update each stuck call (preserving existing metadata)
       for (const call of initiatedCalls) {
+        // First get existing metadata
+        const { data: existingCall } = await supabase
+          .from('calls')
+          .select('metadata')
+          .eq('id', call.id)
+          .single()
+
+        const updatedMetadata = {
+          ...existingCall?.metadata,
+          auto_closed: true,
+          cleanup_reason: 'stuck_initiated',
+          cleanup_at: new Date().toISOString(),
+          call_status: 'failed'
+        }
+
         const { error: updateError } = await supabase
           .from('calls')
           .update({
             status: 'failed',
             end_time: new Date().toISOString(),
-            timeout_detected_at: new Date().toISOString(),
-            failure_reason: 'Call stuck in initiated status - webhook timeout',
-            metadata: {
-              auto_closed: true,
-              cleanup_reason: 'stuck_initiated',
-              cleanup_at: new Date().toISOString()
-            }
+            metadata: updatedMetadata
           })
           .eq('id', call.id)
           .is('end_time', null) // Double check it's still orphaned
-        
+
         if (!updateError) {
           cleanedCount++
         } else {
@@ -81,22 +90,31 @@ export async function POST(request: NextRequest) {
       console.log(`Found ${ringingCalls.length} stuck ringing calls to cleanup`)
       
       for (const call of ringingCalls) {
+        // First get existing metadata
+        const { data: existingCall } = await supabase
+          .from('calls')
+          .select('metadata')
+          .eq('id', call.id)
+          .single()
+
+        const updatedMetadata = {
+          ...existingCall?.metadata,
+          auto_closed: true,
+          cleanup_reason: 'stuck_ringing',
+          cleanup_at: new Date().toISOString(),
+          call_status: 'missed'
+        }
+
         const { error: updateError } = await supabase
           .from('calls')
           .update({
             status: 'missed',
             end_time: new Date().toISOString(),
-            timeout_detected_at: new Date().toISOString(),
-            failure_reason: 'Call stuck in ringing/answered status - no completion',
-            metadata: {
-              auto_closed: true,
-              cleanup_reason: 'stuck_ringing',
-              cleanup_at: new Date().toISOString()
-            }
+            metadata: updatedMetadata
           })
           .eq('id', call.id)
           .is('end_time', null)
-        
+
         if (!updateError) {
           cleanedCount++
         }

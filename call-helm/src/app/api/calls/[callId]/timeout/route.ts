@@ -22,18 +22,35 @@ export async function POST(
     const body = await request.json()
     const { timeoutStage, timeoutAt } = body
     
+    // First, get the existing call to preserve metadata
+    const { data: existingCall } = await supabase
+      .from('calls')
+      .select('metadata')
+      .eq('id', callId)
+      .is('end_time', null)
+      .single()
+
+    if (!existingCall) {
+      return NextResponse.json({ error: 'Call not found or already ended' }, { status: 404 })
+    }
+
+    // Merge timeout info with existing metadata (preserving external_id, etc.)
+    const updatedMetadata = {
+      ...existingCall.metadata,
+      timeout_detected: true,
+      timeout_stage: timeoutStage,
+      timeout_at: timeoutAt,
+      failure_reason: `Timeout at ${timeoutStage} stage`,
+      call_status: 'failed' // Also set call_status for consistency
+    }
+
     // Update call with timeout information
     const { data: call, error } = await supabase
       .from('calls')
       .update({
         status: 'failed',
         end_time: timeoutAt || new Date().toISOString(),
-        metadata: {
-          timeout_detected: true,
-          timeout_stage: timeoutStage,
-          timeout_at: timeoutAt,
-          failure_reason: `Timeout at ${timeoutStage} stage`
-        }
+        metadata: updatedMetadata
       })
       .eq('id', callId)
       .is('end_time', null) // Only update if not already ended
