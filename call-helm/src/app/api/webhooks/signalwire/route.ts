@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import crypto from 'crypto'
 
+// DEPRECATED: This route is for legacy SignalWire webhooks
+// New webhooks should use /api/voice/telnyx/webhook
+// This route is kept for backward compatibility during migration
+
 // Verify SignalWire webhook signature using timing-safe comparison
 function verifySignalWireSignature(body: string, signature: string, secret: string): boolean {
   const expectedSignature = crypto.createHmac("sha256", secret).update(body).digest("hex")

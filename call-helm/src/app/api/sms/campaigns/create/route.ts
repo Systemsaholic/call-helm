@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
 // Create a new SMS campaign for 10DLC compliance
 export async function POST(request: NextRequest) {
@@ -63,8 +63,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if SignalWire is configured
-    if (!SignalWireService.isConfigured()) {
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
       return NextResponse.json(
         { error: 'SMS services not configured' },
         { status: 503 }
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     // Verify brand exists and is approved
     const { data: brand } = await supabase
       .from('campaign_registry_brands')
-      .select('id, brand_name, signalwire_brand_id, status')
+      .select('id, brand_name, telnyx_brand_id, status')
       .eq('id', brandId)
       .eq('organization_id', member.organization_id)
       .single()
@@ -93,9 +93,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!brand.signalwire_brand_id) {
+    if (!brand.telnyx_brand_id) {
       return NextResponse.json(
-        { error: 'Brand is not properly registered with SignalWire Campaign Registry' },
+        { error: 'Brand is not properly registered with Telnyx Campaign Registry' },
         { status: 400 }
       )
     }
@@ -156,12 +156,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Submit to SignalWire Campaign Registry
+    // Submit to Telnyx Campaign Registry
     try {
-      console.log(`Creating campaign "${campaignName}" in SignalWire Campaign Registry`)
-      
-      const signalwireCampaign = await signalwireService.createCampaign({
-        brandId: brand.signalwire_brand_id,
+      console.log(`Creating campaign "${campaignName}" in Telnyx Campaign Registry`)
+
+      const telnyxCampaign = await telnyxService.createCampaign({
+        brandId: brand.telnyx_brand_id,
         campaignName,
         useCase,
         useCaseDescription,
@@ -182,16 +182,16 @@ export async function POST(request: NextRequest) {
         affiliateMarketing
       })
 
-      // Update our database with SignalWire's campaign ID
+      // Update our database with Telnyx's campaign ID
       const { data: updatedCampaign, error: updateError } = await supabase
         .from('campaign_registry_campaigns')
         .update({
-          signalwire_campaign_id: signalwireCampaign.id,
-          status: signalwireCampaign.status,
+          telnyx_campaign_id: telnyxCampaign.id,
+          status: telnyxCampaign.status,
           metadata: {
             ...dbCampaign.metadata,
-            signalwire_submitted_at: new Date().toISOString(),
-            signalwire_campaign_id: signalwireCampaign.id
+            telnyx_submitted_at: new Date().toISOString(),
+            telnyx_campaign_id: telnyxCampaign.id
           }
         })
         .eq('id', dbCampaign.id)
@@ -199,11 +199,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (updateError) {
-        console.error('Error updating campaign with SignalWire ID:', updateError)
+        console.error('Error updating campaign with Telnyx ID:', updateError)
         // Don't fail the request since the campaign was created successfully
       }
 
-      console.log(`Successfully created campaign "${campaignName}" with SignalWire ID: ${signalwireCampaign.id}`)
+      console.log(`Successfully created campaign "${campaignName}" with Telnyx ID: ${telnyxCampaign.id}`)
 
       return NextResponse.json({
         success: true,
@@ -214,8 +214,8 @@ export async function POST(request: NextRequest) {
           brandName: brand.brand_name,
           useCase: updatedCampaign?.use_case || dbCampaign.use_case,
           useCaseDescription: updatedCampaign?.use_case_description || dbCampaign.use_case_description,
-          status: updatedCampaign?.status || signalwireCampaign.status,
-          signalwireCampaignId: signalwireCampaign.id,
+          status: updatedCampaign?.status || telnyxCampaign.status,
+          telnyxCampaignId: telnyxCampaign.id,
           monthlyMessageVolume: updatedCampaign?.monthly_message_volume || dbCampaign.monthly_message_volume,
           createdAt: updatedCampaign?.created_at || dbCampaign.created_at,
           estimatedApprovalTime: getEstimatedApprovalTime(useCase),
@@ -227,27 +227,27 @@ export async function POST(request: NextRequest) {
           ]
         }
       })
-    } catch (signalwireError) {
-      console.error('SignalWire campaign creation error:', signalwireError)
-      
+    } catch (telnyxError) {
+      console.error('Telnyx campaign creation error:', telnyxError)
+
       // Update our database to reflect the failure
       await supabase
         .from('campaign_registry_campaigns')
         .update({
           status: 'rejected',
-          rejection_reason: signalwireError instanceof Error ? signalwireError.message : 'Unknown SignalWire error',
+          rejection_reason: telnyxError instanceof Error ? telnyxError.message : 'Unknown Telnyx error',
           metadata: {
             ...dbCampaign.metadata,
-            signalwire_error_at: new Date().toISOString(),
-            signalwire_error: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+            telnyx_error_at: new Date().toISOString(),
+            telnyx_error: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
           }
         })
         .eq('id', dbCampaign.id)
 
       return NextResponse.json(
-        { 
+        {
           error: 'Failed to submit campaign to Campaign Registry. Please check your information and try again.',
-          details: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+          details: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
         },
         { status: 422 }
       )

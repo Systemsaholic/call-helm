@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 import { encryptEIN, isEncryptionConfigured } from '@/lib/security/encryption'
 
 // Create a new SMS brand for 10DLC compliance
@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if SignalWire is configured
-    if (!SignalWireService.isConfigured()) {
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
       return NextResponse.json(
         { error: 'SMS services not configured' },
         { status: 503 }
@@ -124,11 +124,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Submit to SignalWire Campaign Registry
+    // Submit to Telnyx Campaign Registry
     try {
-      console.log(`Creating brand "${brandName}" in SignalWire Campaign Registry`)
-      
-      const signalwireBrand = await signalwireService.createBrand({
+      console.log(`Creating brand "${brandName}" in Telnyx Campaign Registry`)
+
+      const telnyxBrand = await telnyxService.createBrand({
         brandName,
         legalCompanyName,
         einTaxId,
@@ -140,16 +140,16 @@ export async function POST(request: NextRequest) {
         email
       })
 
-      // Update our database with SignalWire's brand ID
+      // Update our database with Telnyx's brand ID
       const { data: updatedBrand, error: updateError } = await supabase
         .from('campaign_registry_brands')
         .update({
-          signalwire_brand_id: signalwireBrand.id,
-          status: signalwireBrand.status,
+          telnyx_brand_id: telnyxBrand.id,
+          status: telnyxBrand.status,
           metadata: {
             ...dbBrand.metadata,
-            signalwire_submitted_at: new Date().toISOString(),
-            signalwire_brand_id: signalwireBrand.id
+            telnyx_submitted_at: new Date().toISOString(),
+            telnyx_brand_id: telnyxBrand.id
           }
         })
         .eq('id', dbBrand.id)
@@ -157,11 +157,11 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (updateError) {
-        console.error('Error updating brand with SignalWire ID:', updateError)
+        console.error('Error updating brand with Telnyx ID:', updateError)
         // Don't fail the request since the brand was created successfully
       }
 
-      console.log(`Successfully created brand "${brandName}" with SignalWire ID: ${signalwireBrand.id}`)
+      console.log(`Successfully created brand "${brandName}" with Telnyx ID: ${telnyxBrand.id}`)
 
       return NextResponse.json({
         success: true,
@@ -171,8 +171,8 @@ export async function POST(request: NextRequest) {
           legalCompanyName: updatedBrand?.legal_company_name || dbBrand.legal_company_name,
           businessType: updatedBrand?.business_type || dbBrand.business_type,
           industry: updatedBrand?.industry || dbBrand.industry,
-          status: updatedBrand?.status || signalwireBrand.status,
-          signalwireBrandId: signalwireBrand.id,
+          status: updatedBrand?.status || telnyxBrand.status,
+          telnyxBrandId: telnyxBrand.id,
           createdAt: updatedBrand?.created_at || dbBrand.created_at,
           estimatedApprovalTime: '3-5 business days',
           nextSteps: [
@@ -183,27 +183,27 @@ export async function POST(request: NextRequest) {
           ]
         }
       })
-    } catch (signalwireError) {
-      console.error('SignalWire brand creation error:', signalwireError)
-      
+    } catch (telnyxError) {
+      console.error('Telnyx brand creation error:', telnyxError)
+
       // Update our database to reflect the failure
       await supabase
         .from('campaign_registry_brands')
         .update({
           status: 'rejected',
-          rejection_reason: signalwireError instanceof Error ? signalwireError.message : 'Unknown SignalWire error',
+          rejection_reason: telnyxError instanceof Error ? telnyxError.message : 'Unknown Telnyx error',
           metadata: {
             ...dbBrand.metadata,
-            signalwire_error_at: new Date().toISOString(),
-            signalwire_error: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+            telnyx_error_at: new Date().toISOString(),
+            telnyx_error: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
           }
         })
         .eq('id', dbBrand.id)
 
       return NextResponse.json(
-        { 
+        {
           error: 'Failed to submit brand to Campaign Registry. Please check your information and try again.',
-          details: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+          details: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
         },
         { status: 422 }
       )

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+// DEPRECATED: SignalWire config endpoint - no longer used
+// Voice services now use Telnyx instead
 export async function GET(request: NextRequest) {
+  console.warn('DEPRECATED: /api/signalwire/config is deprecated. Voice services now use Telnyx.')
   try {
     const supabase = await createClient()
     

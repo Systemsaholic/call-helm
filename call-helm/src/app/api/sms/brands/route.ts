@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 import { maskEIN } from '@/lib/security/encryption'
 
 // Get organization's SMS brands
@@ -39,32 +39,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // If SignalWire is configured, sync status for active brands
-    if (SignalWireService.isConfigured() && brands) {
+    // If Telnyx is configured, sync status for active brands
+    if (TelnyxService.isConfigured() && brands) {
       const updatedBrands = []
-      
+
       for (const brand of brands) {
         let updatedBrand = { ...brand }
-        
-        // Only sync brands that have SignalWire IDs and are not in final states
-        if (brand.signalwire_brand_id && 
+
+        // Only sync brands that have Telnyx IDs and are not in final states
+        if (brand.telnyx_brand_id &&
             ['pending', 'submitted'].includes(brand.status)) {
           try {
-            const signalwireStatus = await signalwireService.getBrandStatus(brand.signalwire_brand_id)
-            
+            const telnyxStatus = await telnyxService.getBrandStatus(brand.telnyx_brand_id)
+
             // Update database if status has changed
-            if (signalwireStatus.status !== brand.status) {
-              const updateData: any = {
-                status: signalwireStatus.status,
+            if (telnyxStatus.status !== brand.status) {
+              const updateData: Record<string, unknown> = {
+                status: telnyxStatus.status,
                 updated_at: new Date().toISOString()
               }
 
-              if (signalwireStatus.approvalDate && !brand.approval_date) {
-                updateData.approval_date = signalwireStatus.approvalDate
+              if (telnyxStatus.approvalDate && !brand.approval_date) {
+                updateData.approval_date = telnyxStatus.approvalDate
               }
 
-              if (signalwireStatus.rejectionReason) {
-                updateData.rejection_reason = signalwireStatus.rejectionReason
+              if (telnyxStatus.rejectionReason) {
+                updateData.rejection_reason = telnyxStatus.rejectionReason
               }
 
               await supabase
@@ -79,10 +79,10 @@ export async function GET(request: NextRequest) {
             // Continue with other brands even if one fails
           }
         }
-        
+
         updatedBrands.push(updatedBrand)
       }
-      
+
       brands.splice(0, brands.length, ...updatedBrands)
     }
 
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
         businessType: brand.business_type,
         industry: brand.industry,
         status: brand.status,
-        signalwireBrandId: brand.signalwire_brand_id,
+        telnyxBrandId: brand.telnyx_brand_id,
         approvalDate: brand.approval_date,
         campaignCount: brand.campaign_count,
         createdAt: brand.created_at,

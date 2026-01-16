@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
 // Submit a number porting request
 export async function POST(request: NextRequest) {
@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if SignalWire is configured
-    if (!SignalWireService.isConfigured()) {
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
       return NextResponse.json(
         { error: 'Voice services not configured' },
         { status: 503 }
@@ -147,34 +147,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Submit to SignalWire (this is where the real porting happens)
+    // Submit to Telnyx (this is where the real porting happens)
     try {
-      console.log(`Submitting porting request to SignalWire for ${phoneNumber}`)
-      
-      const signalwireRequest = await signalwireService.submitPortingRequest({
-        phoneNumber,
+      console.log(`Submitting porting request to Telnyx for ${phoneNumber}`)
+
+      const telnyxRequest = await telnyxService.createPortingOrder({
+        phoneNumbers: [phoneNumber],
+        loaConfiguration: {
+          name: authorizedContactName,
+          email: authorizedContactEmail,
+          phoneNumber: authorizedContactPhone
+        },
+        endUser: {
+          billingAddress,
+          serviceAddress: serviceAddress || billingAddress
+        },
         currentProvider,
         accountNumber,
         pinCode,
-        authorizedContactName,
-        authorizedContactEmail,
-        authorizedContactPhone,
-        billingAddress,
-        serviceAddress,
-        requestedPortDate,
-        organizationId: member.organization_id
+        requestedPortDate
       })
 
-      // Update our database with SignalWire's porting request ID
+      // Update our database with Telnyx's porting request ID
       await supabase
         .from('number_porting_requests')
         .update({
-          signalwire_porting_id: signalwireRequest.id,
+          telnyx_porting_id: telnyxRequest.id,
           status: 'submitted',
           status_details: {
             ...portingRequest.status_details,
-            signalwire_submitted_at: new Date().toISOString(),
-            signalwire_request_id: signalwireRequest.id
+            telnyx_submitted_at: new Date().toISOString(),
+            telnyx_request_id: telnyxRequest.id
           }
         })
         .eq('id', portingRequest.id)
@@ -194,7 +197,7 @@ export async function POST(request: NextRequest) {
               fax: false
             },
             status: 'pending',
-            provider: 'signalwire',
+            provider: 'telnyx',
             acquisition_method: 'ported',
             verification_status: 'pending',
             porting_request_id: portingRequest.id,
@@ -228,38 +231,38 @@ export async function POST(request: NextRequest) {
           id: portingRequest.id,
           phoneNumber: portingRequest.phone_number,
           status: 'submitted',
-          signalwirePortingId: signalwireRequest.id,
+          telnyxPortingId: telnyxRequest.id,
           requestedPortDate: portingRequest.requested_port_date,
           estimatedCompletionTime: '7-10 business days',
           nextSteps: [
-            'SignalWire will review your porting request',
+            'Telnyx will review your porting request',
             'You may be contacted if additional information is needed',
             'You will receive notifications as the porting progresses',
             'The number will be automatically configured once porting completes'
           ]
         }
       })
-    } catch (signalwireError) {
-      console.error('SignalWire porting submission error:', signalwireError)
+    } catch (telnyxError) {
+      console.error('Telnyx porting submission error:', telnyxError)
       
       // Update our database to reflect the failure
       await supabase
         .from('number_porting_requests')
         .update({
           status: 'failed',
-          rejection_reason: signalwireError instanceof Error ? signalwireError.message : 'Unknown SignalWire error',
+          rejection_reason: telnyxError instanceof Error ? telnyxError.message : 'Unknown Telnyx error',
           status_details: {
             ...portingRequest.status_details,
-            signalwire_error_at: new Date().toISOString(),
-            signalwire_error: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+            telnyx_error_at: new Date().toISOString(),
+            telnyx_error: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
           }
         })
         .eq('id', portingRequest.id)
 
       return NextResponse.json(
-        { 
+        {
           error: 'Failed to submit porting request to carrier. Please check your information and try again.',
-          details: signalwireError instanceof Error ? signalwireError.message : 'Unknown error'
+          details: telnyxError instanceof Error ? telnyxError.message : 'Unknown error'
         },
         { status: 422 }
       )

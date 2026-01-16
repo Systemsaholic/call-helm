@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
 // Get porting request status for organization
 export async function GET(request: NextRequest) {
@@ -56,39 +56,39 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // If SignalWire is configured, sync status for active requests
-    if (SignalWireService.isConfigured()) {
+    // If Telnyx is configured, sync status for active requests
+    if (TelnyxService.isConfigured()) {
       const updatedRequests = []
-      
+
       for (const request of portingRequests) {
         let updatedRequest = { ...request }
-        
-        // Only sync active requests that have SignalWire IDs
-        if (request.signalwire_porting_id && 
+
+        // Only sync active requests that have Telnyx IDs
+        if (request.telnyx_porting_id &&
             ['submitted', 'in_progress'].includes(request.status)) {
           try {
-            const signalwireStatus = await signalwireService.getPortingRequestStatus(request.signalwire_porting_id)
-            
+            const telnyxStatus = await telnyxService.getPortingOrderStatus(request.telnyx_porting_id)
+
             // Update database if status has changed
-            if (signalwireStatus.status !== request.status || 
-                JSON.stringify(signalwireStatus.statusDetails) !== JSON.stringify(request.status_details)) {
-              
-              const updateData: any = {
-                status: signalwireStatus.status,
+            if (telnyxStatus.status !== request.status ||
+                JSON.stringify(telnyxStatus.statusDetails) !== JSON.stringify(request.status_details)) {
+
+              const updateData: Record<string, unknown> = {
+                status: telnyxStatus.status,
                 status_details: {
                   ...request.status_details,
-                  signalwire_status: signalwireStatus.statusDetails,
+                  telnyx_status: telnyxStatus.statusDetails,
                   last_sync_at: new Date().toISOString()
                 },
                 updated_at: new Date().toISOString()
               }
 
-              if (signalwireStatus.actualPortDate && !request.actual_port_date) {
-                updateData.actual_port_date = signalwireStatus.actualPortDate
+              if (telnyxStatus.actualPortDate && !request.actual_port_date) {
+                updateData.actual_port_date = telnyxStatus.actualPortDate
               }
 
-              if (signalwireStatus.rejectionReason) {
-                updateData.rejection_reason = signalwireStatus.rejectionReason
+              if (telnyxStatus.rejectionReason) {
+                updateData.rejection_reason = telnyxStatus.rejectionReason
               }
 
               await supabase
@@ -99,13 +99,13 @@ export async function GET(request: NextRequest) {
               updatedRequest = { ...updatedRequest, ...updateData }
 
               // If porting is completed, update the phone number
-              if (signalwireStatus.status === 'completed') {
+              if (telnyxStatus.status === 'completed') {
                 await supabase
                   .from('phone_numbers')
                   .update({
                     status: 'active',
                     porting_status: 'completed',
-                    porting_date: signalwireStatus.actualPortDate || new Date().toISOString(),
+                    porting_date: telnyxStatus.actualPortDate || new Date().toISOString(),
                     verification_status: 'verified',
                     updated_at: new Date().toISOString()
                   })
@@ -117,10 +117,10 @@ export async function GET(request: NextRequest) {
             // Continue with other requests even if one fails
           }
         }
-        
+
         updatedRequests.push(updatedRequest)
       }
-      
+
       portingRequests.splice(0, portingRequests.length, ...updatedRequests)
     }
 
@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
       requestedPortDate: request.requested_port_date,
       actualPortDate: request.actual_port_date,
       rejectionReason: request.rejection_reason,
-      signalwirePortingId: request.signalwire_porting_id,
+      telnyxPortingId: request.telnyx_porting_id,
       createdAt: request.created_at,
       updatedAt: request.updated_at,
       estimatedCompletion: getEstimatedCompletion(request.status, request.created_at),

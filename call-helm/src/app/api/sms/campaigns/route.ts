@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
 // Get organization's SMS campaigns
 export async function GET(request: NextRequest) {
@@ -46,32 +46,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // If SignalWire is configured, sync status for active campaigns
-    if (SignalWireService.isConfigured() && campaigns) {
+    // If Telnyx is configured, sync status for active campaigns
+    if (TelnyxService.isConfigured() && campaigns) {
       const updatedCampaigns = []
-      
+
       for (const campaign of campaigns) {
         let updatedCampaign = { ...campaign }
-        
-        // Only sync campaigns that have SignalWire IDs and are not in final states
-        if (campaign.signalwire_campaign_id && 
+
+        // Only sync campaigns that have Telnyx IDs and are not in final states
+        if (campaign.telnyx_campaign_id &&
             ['pending', 'submitted'].includes(campaign.status)) {
           try {
-            const signalwireStatus = await signalwireService.getCampaignStatus(campaign.signalwire_campaign_id)
-            
+            const telnyxStatus = await telnyxService.getCampaignStatus(campaign.telnyx_campaign_id)
+
             // Update database if status has changed
-            if (signalwireStatus.status !== campaign.status) {
-              const updateData: any = {
-                status: signalwireStatus.status,
+            if (telnyxStatus.status !== campaign.status) {
+              const updateData: Record<string, unknown> = {
+                status: telnyxStatus.status,
                 updated_at: new Date().toISOString()
               }
 
-              if (signalwireStatus.approvalDate && !campaign.approval_date) {
-                updateData.approval_date = signalwireStatus.approvalDate
+              if (telnyxStatus.approvalDate && !campaign.approval_date) {
+                updateData.approval_date = telnyxStatus.approvalDate
               }
 
-              if (signalwireStatus.rejectionReason) {
-                updateData.rejection_reason = signalwireStatus.rejectionReason
+              if (telnyxStatus.rejectionReason) {
+                updateData.rejection_reason = telnyxStatus.rejectionReason
               }
 
               await supabase
@@ -86,10 +86,10 @@ export async function GET(request: NextRequest) {
             // Continue with other campaigns even if one fails
           }
         }
-        
+
         updatedCampaigns.push(updatedCampaign)
       }
-      
+
       campaigns.splice(0, campaigns.length, ...updatedCampaigns)
     }
 
@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
       useCase: campaign.use_case,
       useCaseDescription: campaign.use_case_description,
       status: campaign.status,
-      signalwireCampaignId: campaign.signalwire_campaign_id,
+      telnyxCampaignId: campaign.telnyx_campaign_id,
       approvalDate: campaign.approval_date,
       monthlyMessageVolume: campaign.monthly_message_volume,
       createdAt: campaign.created_at,
