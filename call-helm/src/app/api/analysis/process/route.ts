@@ -4,9 +4,16 @@ import OpenAI from 'openai'
 import { billingService } from '@/lib/services/billing'
 import { trackAIAnalysisUsage } from '@/lib/utils/usageTracking'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-})
+// Lazy initialization to avoid build-time errors
+let _openai: OpenAI | null = null
+function getOpenAI() {
+  if (!_openai) {
+    _openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    })
+  }
+  return _openai
+}
 
 interface CallAnalysis {
   summary: string
@@ -99,7 +106,7 @@ ${callMetadata ? `Call Context:
 Note: The transcript is already separated by speaker (Agent and Customer). Use this to better understand the conversation flow and calculate accurate talk ratios.`
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: 'gpt-4-turbo-preview',
       messages: [
         { role: 'system', content: systemPrompt },

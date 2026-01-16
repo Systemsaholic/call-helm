@@ -84,6 +84,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Format results for 3CX
+    // contactUrl points to Active Call Panel for CTI screen pop integration
     const formattedContacts = contacts?.map(contact => ({
       id: contact.id,
       firstName: contact.first_name || '',
@@ -93,7 +94,8 @@ export async function GET(request: NextRequest) {
       phoneBusiness: contact.phone_number || '',
       phoneMobile: contact.phone_number || '',
       phoneHome: '',
-      contactUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/contacts/${contact.id}`
+      // Use Active Call Panel URL for screen pop - allows agents to add notes/sentiment during call
+      contactUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/active-call/${encodeURIComponent(contact.phone_number || number)}`
     })) || [];
 
     return NextResponse.json({
