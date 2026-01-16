@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService } from '@/lib/services/signalwire'
+import { telnyxService } from '@/lib/services/telnyx'
 import { provisionPhoneNumberSchema } from '@/lib/validations/api.schema'
 import { asyncHandler, ValidationError, AuthenticationError, AuthorizationError } from '@/lib/errors/handler'
 
@@ -53,16 +53,12 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     throw new ValidationError('Application URL not configured. Please set APP_URL or NEXT_PUBLIC_APP_URL environment variable.')
   }
 
-  // Purchase the phone number
-  const voiceUrl = `${appUrl}/api/voice/webhook`
-  const smsUrl = `${appUrl}/api/voice/sms`
-
+  // Purchase the phone number from Telnyx
   let purchasedNumber
   try {
-    purchasedNumber = await signalwireService.purchaseNumber(phoneNumber, {
-      friendlyName: `Business Number - ${organizationId}`,
-      voiceUrl,
-      smsUrl
+    purchasedNumber = await telnyxService.purchaseNumber(phoneNumber, {
+      connectionId: process.env.TELNYX_CONNECTION_ID,
+      messagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID
     })
   } catch (error) {
     console.error('Failed to purchase number:', error)
@@ -80,19 +76,22 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       number: phoneNumber,
       friendly_name: "Platform Business Number",
       capabilities: {
-        voice: true,
-        sms: purchasedNumber.capabilities?.sms || false,
-        mms: purchasedNumber.capabilities?.mms || false
+        voice: purchasedNumber.features?.voice ?? true,
+        sms: purchasedNumber.features?.sms ?? true,
+        mms: purchasedNumber.features?.mms ?? false
       },
       status: "active",
       is_primary: true,
       number_source: "platform",
       forwarding_enabled: true,
       forwarding_destination: forwardingNumber,
-      provider_id: purchasedNumber.sid,
+      provider: "telnyx",
+      provider_id: purchasedNumber.id,
+      telnyx_phone_number_id: purchasedNumber.id,
+      webhook_url: `${appUrl}/api/voice/telnyx/webhook?org=${organizationId}`,
       metadata: {
         purchased_at: new Date().toISOString(),
-        monthly_price: 0
+        monthly_price: 1.00
       }
     })
     .select()
@@ -101,7 +100,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   if (phoneError) {
     // Release purchased number if DB insert fails
     try {
-      await signalwireService.releaseNumber(purchasedNumber.sid)
+      await telnyxService.releaseNumber(purchasedNumber.id)
     } catch (releaseError) {
       console.error("Failed to release number after create failure:", releaseError)
     }
@@ -117,7 +116,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
       forwarding_number: forwardingNumber,
       verification_status: "verified",
       number_type: "platform",
-      platform_number_sid: purchasedNumber.sid,
+      platform_number_id: purchasedNumber.id,
       updated_at: new Date().toISOString()
     })
     .eq("organization_id", organizationId)
@@ -125,7 +124,7 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   if (updateError) {
     // Try to release the number and remove created phone record if update fails
     try {
-      await signalwireService.releaseNumber(purchasedNumber.sid)
+      await telnyxService.releaseNumber(purchasedNumber.id)
       await supabase.from("phone_numbers").delete().eq("id", createdPhone.id)
     } catch (releaseError) {
       console.error("Failed to release number after error:", releaseError)
@@ -134,15 +133,15 @@ export const POST = asyncHandler(async (request: NextRequest) => {
     throw updateError
   }
 
-  // Configure call forwarding
-  await signalwireService.configureForwarding(purchasedNumber.sid, forwardingNumber)
+  // Note: Telnyx call forwarding is handled via the connection's webhook URL
+  // No additional configuration needed for forwarding
 
   return NextResponse.json({
     success: true,
     message: "Phone number provisioned successfully",
     number: {
       phoneNumber: purchasedNumber.phoneNumber,
-      sid: purchasedNumber.sid,
+      id: purchasedNumber.id,
       forwardingNumber
     }
   })

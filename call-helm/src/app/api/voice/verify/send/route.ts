@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService } from '@/lib/services/signalwire'
+import { telnyxService } from '@/lib/services/telnyx'
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,15 +13,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Get request body
-    const { phoneNumber, channel = 'call' } = await request.json()
+    const { phoneNumber, channel = 'sms' } = await request.json()
 
     if (!phoneNumber) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 })
     }
 
-    // Validate channel
-    if (!['sms', 'call'].includes(channel)) {
-      return NextResponse.json({ error: 'Invalid channel. Use "sms" or "call"' }, { status: 400 })
+    // Validate channel (only SMS supported for now with Telnyx)
+    if (!['sms'].includes(channel)) {
+      return NextResponse.json({ error: 'Only SMS verification is currently supported' }, { status: 400 })
     }
 
     // Get user's organization
@@ -62,20 +62,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No pending verification found' }, { status: 400 })
     }
 
-    // Send verification code via the selected channel
-    if (channel === 'sms') {
-      await signalwireService.sendVerificationCode(phoneNumber, verificationCode)
-    } else {
-      // Voice call - works for landlines and mobile
-      await signalwireService.sendVerificationCall(phoneNumber, verificationCode)
-    }
+    // Send verification code via SMS using Telnyx
+    await telnyxService.sendVerificationSMS(phoneNumber, verificationCode)
 
     return NextResponse.json({
       success: true,
-      channel,
-      message: channel === 'sms'
-        ? 'Verification code sent via SMS'
-        : 'Verification call initiated. Please answer the call to receive your code.'
+      channel: 'sms',
+      message: 'Verification code sent via SMS'
     })
   } catch (error) {
     console.error('Error sending verification code:', error)
@@ -103,14 +96,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Phone number is required' }, { status: 400 })
     }
 
-    // Lookup the phone number type
-    const lookup = await signalwireService.lookupPhoneNumber(phoneNumber)
-
+    // For now, default to SMS for all number types
+    // Telnyx phone number lookup can be added later if needed
     return NextResponse.json({
       success: true,
-      ...lookup,
-      // Recommend call for landlines, SMS for mobile, call as default
-      recommendedChannel: lookup.type === 'mobile' ? 'sms' : 'call'
+      phoneNumber,
+      type: 'unknown',
+      carrier: null,
+      // Default to SMS for Telnyx
+      recommendedChannel: 'sms'
     })
   } catch (error) {
     console.error('Error looking up phone number:', error)

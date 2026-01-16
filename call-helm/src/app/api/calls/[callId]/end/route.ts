@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { signalwireService } from '@/lib/services/signalwire'
+import { telnyxService } from '@/lib/services/telnyx'
 
 export async function POST(
   request: NextRequest,
@@ -8,39 +8,39 @@ export async function POST(
 ) {
   try {
     const supabase = await createClient()
-    
+
     // Check authentication
     const {
       data: { user }
     } = await supabase.auth.getUser()
-    
+
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    
+
     // Await params before accessing properties
     const { callId } = await params
-    
+
     // Get the call record to find the external call ID
     const { data: callRecord, error: fetchError } = await supabase
       .from('calls')
       .select('metadata')
       .eq('id', callId)
       .single()
-    
+
     if (fetchError || !callRecord) {
       console.error('Error fetching call:', fetchError)
       return NextResponse.json({ error: 'Call not found' }, { status: 404 })
     }
-    
+
     const externalCallId = callRecord.metadata?.external_id
-    const provider = callRecord.metadata?.provider || 'signalwire'
-    
+    const provider = callRecord.metadata?.provider || 'telnyx'
+
     // End the call with the provider
-    if (externalCallId && provider === 'signalwire') {
+    if (externalCallId && provider === 'telnyx') {
       try {
-        await signalwireService.endCall(externalCallId)
-        console.log('Successfully ended SignalWire call:', externalCallId)
+        await telnyxService.hangupCall(externalCallId)
+        console.log('Successfully ended Telnyx call:', externalCallId)
       } catch (providerError) {
         console.error('Error ending call with provider:', providerError)
         // Continue even if provider fails - we'll still update our database

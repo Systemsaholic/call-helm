@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
 // Purchase a phone number for an organization
 export async function POST(request: NextRequest) {
@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if SignalWire is configured
-    if (!SignalWireService.isConfigured()) {
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
       return NextResponse.json(
         { error: 'Voice services not configured' },
         { status: 503 }
@@ -60,17 +60,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Purchase number from SignalWire
+    // Purchase number from Telnyx
     console.log(`Purchasing number ${phoneNumber} for organization ${member.organization_id}`)
-    
-    const purchasedNumber = await signalwireService.purchaseNumberForOrganization(
-      phoneNumber,
-      member.organization_id,
-      { friendlyName }
-    )
 
-    // Calculate costs (these would typically come from SignalWire pricing or be configurable)
-    const monthlyPrice = 1.50 // Standard SignalWire pricing
+    const purchasedNumber = await telnyxService.purchaseNumber(phoneNumber, {
+      connectionId: process.env.TELNYX_CONNECTION_ID,
+      messagingProfileId: process.env.TELNYX_MESSAGING_PROFILE_ID
+    })
+
+    // Calculate costs (these would typically come from Telnyx pricing or be configurable)
+    const monthlyPrice = 1.00 // Standard Telnyx pricing
     const setupCost = 0.00 // No setup fee for most numbers
     
     // Store in database
@@ -87,35 +86,35 @@ export async function POST(request: NextRequest) {
           fax: false
         },
         status: 'active',
-        provider: 'signalwire',
-        provider_id: purchasedNumber.sid,
-        signalwire_phone_number_sid: purchasedNumber.sid,
+        provider: 'telnyx',
+        provider_id: purchasedNumber.id,
+        telnyx_phone_number_id: purchasedNumber.id,
         acquisition_method: 'platform',
         verification_status: 'verified', // Platform numbers are automatically verified
         webhook_configured: true, // Webhooks are configured during purchase
-        webhook_url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/webhook?org=${member.organization_id}`,
+        webhook_url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/telnyx/webhook?org=${member.organization_id}`,
         monthly_cost: monthlyPrice,
         setup_cost: setupCost,
         billing_start_date: new Date().toISOString(),
         metadata: {
           purchased_at: new Date().toISOString(),
           purchased_by: user.id,
-          signalwire_capabilities: purchasedNumber.capabilities
+          telnyx_features: purchasedNumber.features
         }
       })
       .select()
       .single()
 
     if (dbError) {
-      console.error('Database error after successful SignalWire purchase:', dbError)
-      
-      // Try to release the SignalWire number since we couldn't store it
+      console.error('Database error after successful Telnyx purchase:', dbError)
+
+      // Try to release the Telnyx number since we couldn't store it
       try {
-        await signalwireService.releaseNumber(purchasedNumber.sid)
+        await telnyxService.releaseNumber(purchasedNumber.id)
       } catch (releaseError) {
-        console.error('Failed to release SignalWire number after database error:', releaseError)
+        console.error('Failed to release Telnyx number after database error:', releaseError)
       }
-      
+
       return NextResponse.json(
         { error: 'Failed to store purchased number. Please contact support.' },
         { status: 500 }
@@ -137,24 +136,24 @@ export async function POST(request: NextRequest) {
         webhookConfigured: dbNumber.webhook_configured,
         monthlyCost: dbNumber.monthly_cost,
         setupCost: dbNumber.setup_cost,
-        signalwirePhoneNumberSid: dbNumber.signalwire_phone_number_sid
+        telnyxPhoneNumberId: dbNumber.telnyx_phone_number_id
       }
     })
   } catch (error) {
     console.error('Error purchasing phone number:', error)
-    
+
     // Provide more specific error messages
     let errorMessage = 'Failed to purchase phone number'
     let statusCode = 500
-    
+
     if (error instanceof Error) {
-      if (error.message.includes('no longer available')) {
+      if (error.message.includes('no longer available') || error.message.includes('not found')) {
         errorMessage = 'This phone number is no longer available. Please search for a different number.'
         statusCode = 410
-      } else if (error.message.includes('authentication failed')) {
-        errorMessage = 'SignalWire configuration issue. Please contact support.'
+      } else if (error.message.includes('authentication') || error.message.includes('401')) {
+        errorMessage = 'Telnyx configuration issue. Please contact support.'
         statusCode = 503
-      } else if (error.message.includes('permission')) {
+      } else if (error.message.includes('permission') || error.message.includes('403')) {
         errorMessage = 'Account does not have permission to purchase numbers. Please contact support.'
         statusCode = 503
       } else if (error.message.includes('Invalid phone number')) {
@@ -162,7 +161,7 @@ export async function POST(request: NextRequest) {
         statusCode = 400
       }
     }
-    
+
     return NextResponse.json({ error: errorMessage }, { status: statusCode })
   }
 }

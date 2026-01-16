@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService, SignalWireService } from '@/lib/services/signalwire'
+import { telnyxService, TelnyxService } from '@/lib/services/telnyx'
 
-// Sync existing phone numbers with SignalWire to get missing SIDs
+// Sync existing phone numbers with Telnyx to get missing IDs
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
-    
+
     // Check authentication
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
     }
 
-    // Check if SignalWire is configured
-    if (!SignalWireService.isConfigured()) {
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
       return NextResponse.json(
         { error: 'Voice services not configured' },
         { status: 503 }
@@ -35,9 +35,9 @@ export async function POST(request: NextRequest) {
     // Get organization's phone numbers from database
     const { data: dbNumbers, error: dbError } = await supabase
       .from('phone_numbers')
-      .select('id, number, signalwire_phone_number_sid, organization_id')
+      .select('id, number, telnyx_phone_number_id, organization_id')
       .eq('organization_id', member.organization_id)
-      .is('signalwire_phone_number_sid', null) // Only sync numbers missing SIDs
+      .is('telnyx_phone_number_id', null) // Only sync numbers missing IDs
 
     if (dbError) throw dbError
 
@@ -50,27 +50,28 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Get all phone numbers from SignalWire
-    const signalwireNumbers = await signalwireService.listOwnedNumbers()
+    // Get all phone numbers from Telnyx
+    const telnyxNumbers = await telnyxService.listOwnedNumbers()
 
-    const results = []
-    const errors = []
+    const results: { id: string; number: string; telnyxId: string; status: string }[] = []
+    const errors: { id: string; number: string; error: string }[] = []
 
     for (const dbNumber of dbNumbers) {
       try {
-        // Find matching number in SignalWire (remove formatting for comparison)
+        // Find matching number in Telnyx (remove formatting for comparison)
         const cleanDbNumber = dbNumber.number.replace(/\D/g, '')
-        const matchingSwNumber = signalwireNumbers.find(swNum => {
-          const cleanSwNumber = swNum.phone_number.replace(/\D/g, '')
-          return cleanSwNumber === cleanDbNumber
+        const matchingTelnyxNumber = telnyxNumbers.find(tNum => {
+          const cleanTelnyxNumber = tNum.phoneNumber.replace(/\D/g, '')
+          return cleanTelnyxNumber === cleanDbNumber
         })
 
-        if (matchingSwNumber) {
-          // Update database with SignalWire SID
+        if (matchingTelnyxNumber) {
+          // Update database with Telnyx ID
           await supabase
             .from('phone_numbers')
             .update({
-              signalwire_phone_number_sid: matchingSwNumber.sid,
+              telnyx_phone_number_id: matchingTelnyxNumber.id,
+              provider: 'telnyx',
               updated_at: new Date().toISOString()
             })
             .eq('id', dbNumber.id)
@@ -78,14 +79,14 @@ export async function POST(request: NextRequest) {
           results.push({
             id: dbNumber.id,
             number: dbNumber.number,
-            signalwireSid: matchingSwNumber.sid,
+            telnyxId: matchingTelnyxNumber.id,
             status: 'synced'
           })
         } else {
           errors.push({
             id: dbNumber.id,
             number: dbNumber.number,
-            error: 'Phone number not found in SignalWire account'
+            error: 'Phone number not found in Telnyx account'
           })
         }
       } catch (error) {
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error syncing phone numbers:', error)
     return NextResponse.json(
-      { error: 'Failed to sync phone numbers with SignalWire' },
+      { error: 'Failed to sync phone numbers with Telnyx' },
       { status: 500 }
     )
   }

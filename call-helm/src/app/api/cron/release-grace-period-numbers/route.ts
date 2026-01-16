@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { signalwireService } from '@/lib/services/signalwire'
+import { telnyxService } from '@/lib/services/telnyx'
 
 // Use service role for cron job
 const supabaseAdmin = createClient(
@@ -79,16 +79,17 @@ export async function POST(request: NextRequest) {
     results.checked = expiredNumbers?.length || 0
     console.log('Numbers to release:', results.checked)
 
-    // 4. Release each number via SignalWire
+    // 4. Release each number via Telnyx
     for (const number of expiredNumbers || []) {
       try {
-        console.log(`Releasing number: ${number.phone_number} (SID: ${number.signalwire_sid})`)
+        const telnyxId = number.telnyx_phone_number_id || number.signalwire_sid
+        console.log(`Releasing number: ${number.phone_number} (ID: ${telnyxId})`)
 
-        if (number.signalwire_sid) {
-          await signalwireService.releaseNumber(number.signalwire_sid)
-          console.log(`Successfully released ${number.phone_number} from SignalWire`)
+        if (telnyxId) {
+          await telnyxService.releaseNumber(telnyxId)
+          console.log(`Successfully released ${number.phone_number} from Telnyx`)
         } else {
-          console.log(`No SignalWire SID for ${number.phone_number}, skipping API call`)
+          console.log(`No Telnyx ID for ${number.phone_number}, skipping API call`)
         }
 
         // Update the phone number record to mark as fully released

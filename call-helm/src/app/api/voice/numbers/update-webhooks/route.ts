@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService } from '@/lib/services/signalwire'
 import { asyncHandler, AuthenticationError, AuthorizationError } from '@/lib/errors/handler'
 
+// Note: With Telnyx, webhooks are configured at the connection level, not per-number
+// This endpoint updates the database webhook URL reference
 export const POST = asyncHandler(async (request: NextRequest) => {
   const supabase = await createServerSupabaseClient()
 
@@ -15,11 +16,11 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   }
 
   // Get request body
-  const { numberSid, organizationId } = await request.json()
+  const { numberId, organizationId } = await request.json()
 
-  if (!numberSid) {
+  if (!numberId) {
     return NextResponse.json(
-      { error: 'numberSid is required' },
+      { error: 'numberId is required' },
       { status: 400 }
     )
   }
@@ -39,18 +40,28 @@ export const POST = asyncHandler(async (request: NextRequest) => {
   }
 
   try {
-    // Update webhook URLs with current environment variables
-    await signalwireService.updateWebhookUrls(numberSid)
+    const webhookUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/telnyx/webhook${organizationId ? `?org=${organizationId}` : ''}`
+
+    // Update database with new webhook URL
+    await supabase
+      .from('phone_numbers')
+      .update({
+        webhook_url: webhookUrl,
+        webhook_configured: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', numberId)
 
     return NextResponse.json({
       success: true,
-      message: "Webhook URLs updated successfully",
-      numberSid
+      message: "Webhook URL updated successfully",
+      numberId,
+      webhookUrl
     })
   } catch (error) {
-    console.error('Failed to update webhook URLs:', error)
+    console.error('Failed to update webhook URL:', error)
     return NextResponse.json({
-      error: error instanceof Error ? error.message : 'Failed to update webhook URLs',
+      error: error instanceof Error ? error.message : 'Failed to update webhook URL',
       code: 'UPDATE_WEBHOOKS_FAILED'
     }, { status: 400 })
   }

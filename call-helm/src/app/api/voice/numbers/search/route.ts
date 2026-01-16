@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { signalwireService } from '@/lib/services/signalwire'
+import { telnyxService } from '@/lib/services/telnyx'
 
 // Canadian area codes for auto-detection
 const CANADIAN_AREA_CODES = new Set([
@@ -42,8 +42,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if SignalWire is configured
-    if (!process.env.SIGNALWIRE_PROJECT_ID || !process.env.SIGNALWIRE_API_TOKEN) {
+    // Check if Telnyx is configured
+    if (!process.env.TELNYX_API_KEY) {
       return NextResponse.json(
         { error: 'Voice services not configured' },
         { status: 503 }
@@ -92,10 +92,10 @@ export async function POST(request: NextRequest) {
         
         // Search for numbers in each area code (limit results per area code)
         const numbersPerAreaCode = Math.ceil((locality || 100) / areaCodes.length)
-        const searchPromises = areaCodes.map((ac: any) => 
-          signalwireService.searchAvailableNumbers({
+        const searchPromises = areaCodes.map((ac: any) =>
+          telnyxService.searchAvailableNumbers({
             areaCode: ac.area_code,
-            country,
+            countryCode: country,
             contains,
             limit: numbersPerAreaCode
           })
@@ -122,22 +122,22 @@ export async function POST(request: NextRequest) {
         })
         
         // Fall back to region search
-        numbers = await signalwireService.searchAvailableNumbers({
-          region,
+        numbers = await telnyxService.searchAvailableNumbers({
+          administrativeArea: region,
           contains,
           locality,
-          country
+          countryCode: country
         })
         searchMethod = 'region-fallback'
       }
     } else {
       // Regular search by area code or region
-      numbers = await signalwireService.searchAvailableNumbers({
+      numbers = await telnyxService.searchAvailableNumbers({
         areaCode,
-        region,
+        administrativeArea: region,
         contains,
         locality,
-        country
+        countryCode: country
       })
     }
 
@@ -147,24 +147,24 @@ export async function POST(request: NextRequest) {
     // Enhance results with additional metadata for self-service
     const enhancedNumbers = limitedNumbers.map((number: any) => ({
       ...number,
-      estimatedMonthlyCost: 1.50, // Standard SignalWire pricing
-      estimatedSetupCost: 0.00,
+      estimatedMonthlyCost: number.monthlyPrice || 1.50,
+      estimatedSetupCost: number.upfrontPrice || 0.00,
       available: true,
       capabilities: {
-        voice: true,
-        sms: true,
-        mms: false // Most numbers support MMS but we'll be conservative
+        voice: number.features?.includes('voice') ?? true,
+        sms: number.features?.includes('sms') ?? true,
+        mms: number.features?.includes('mms') ?? false
       }
     }))
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       numbers: enhancedNumbers,
       total: numbers.length,
       searchMethod,
       searchedCity: city || null,
       pricing: {
-        monthlyRate: 1.50,
+        monthlyRate: 1.00, // Telnyx base rate
         setupFee: 0.00,
         currency: 'USD',
         note: 'Prices may vary by number type and region'
