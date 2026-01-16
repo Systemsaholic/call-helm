@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,18 +10,26 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Progress } from '@/components/ui/progress'
 import { formatUSPhone, getAreaCode, validatePhone } from '@/lib/utils/phone'
-import { 
-  Search, 
-  Loader2, 
-  Phone, 
-  MapPin, 
+import { useBilling } from '@/lib/hooks/useBilling'
+import {
+  Search,
+  Loader2,
+  Phone,
+  MapPin,
   DollarSign,
   ShoppingCart,
   CheckCircle,
-  Info
+  Info,
+  ChevronsUpDown,
+  Check,
+  Gift
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 interface AvailableNumber {
   phoneNumber: string
@@ -45,6 +53,7 @@ interface SearchResults {
   numbers: AvailableNumber[]
   total: number
   searchMethod: string
+  searchedCity?: string | null
   pricing: {
     monthlyRate: number
     setupFee: number
@@ -53,41 +62,153 @@ interface SearchResults {
   }
 }
 
+// Area code suggestions by region for when no numbers are found
+const CANADIAN_AREA_CODE_REGIONS: Record<string, { codes: string[], region: string }> = {
+  // Ontario
+  '613': { codes: ['343', '416', '437', '647', '905', '289'], region: 'Ontario' },
+  '416': { codes: ['437', '647', '905', '289', '613', '343'], region: 'Ontario' },
+  '905': { codes: ['289', '416', '437', '647', '613', '343'], region: 'Ontario' },
+  '519': { codes: ['226', '548', '416', '905'], region: 'Ontario' },
+  // Quebec
+  '514': { codes: ['438', '450', '579', '819'], region: 'Quebec' },
+  '418': { codes: ['581', '367', '514', '438'], region: 'Quebec' },
+  // British Columbia
+  '604': { codes: ['778', '236', '672'], region: 'British Columbia' },
+  '250': { codes: ['778', '604', '236'], region: 'British Columbia' },
+  // Alberta
+  '403': { codes: ['587', '825', '780'], region: 'Alberta' },
+  '780': { codes: ['587', '825', '403'], region: 'Alberta' },
+}
+
+const US_AREA_CODE_REGIONS: Record<string, { codes: string[], region: string }> = {
+  // California
+  '415': { codes: ['628', '650', '510', '408', '925'], region: 'California Bay Area' },
+  '650': { codes: ['415', '628', '510', '408'], region: 'California Bay Area' },
+  '213': { codes: ['323', '310', '818', '626', '562'], region: 'Los Angeles' },
+  // New York
+  '212': { codes: ['646', '332', '917', '718', '347'], region: 'New York City' },
+  '718': { codes: ['347', '929', '917', '212', '646'], region: 'New York City' },
+  // Texas
+  '214': { codes: ['469', '972', '817', '682'], region: 'Dallas' },
+  '713': { codes: ['281', '832', '346'], region: 'Houston' },
+}
+
 interface NumberSearchDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onNumberPurchased?: () => void
 }
 
-const US_STATES = [
-  { value: 'AL', label: 'Alabama' }, { value: 'AK', label: 'Alaska' }, { value: 'AZ', label: 'Arizona' },
-  { value: 'AR', label: 'Arkansas' }, { value: 'CA', label: 'California' }, { value: 'CO', label: 'Colorado' },
-  { value: 'CT', label: 'Connecticut' }, { value: 'DE', label: 'Delaware' }, { value: 'FL', label: 'Florida' },
-  { value: 'GA', label: 'Georgia' }, { value: 'HI', label: 'Hawaii' }, { value: 'ID', label: 'Idaho' },
-  { value: 'IL', label: 'Illinois' }, { value: 'IN', label: 'Indiana' }, { value: 'IA', label: 'Iowa' },
-  { value: 'KS', label: 'Kansas' }, { value: 'KY', label: 'Kentucky' }, { value: 'LA', label: 'Louisiana' },
-  { value: 'ME', label: 'Maine' }, { value: 'MD', label: 'Maryland' }, { value: 'MA', label: 'Massachusetts' },
-  { value: 'MI', label: 'Michigan' }, { value: 'MN', label: 'Minnesota' }, { value: 'MS', label: 'Mississippi' },
-  { value: 'MO', label: 'Missouri' }, { value: 'MT', label: 'Montana' }, { value: 'NE', label: 'Nebraska' },
-  { value: 'NV', label: 'Nevada' }, { value: 'NH', label: 'New Hampshire' }, { value: 'NJ', label: 'New Jersey' },
-  { value: 'NM', label: 'New Mexico' }, { value: 'NY', label: 'New York' }, { value: 'NC', label: 'North Carolina' },
-  { value: 'ND', label: 'North Dakota' }, { value: 'OH', label: 'Ohio' }, { value: 'OK', label: 'Oklahoma' },
-  { value: 'OR', label: 'Oregon' }, { value: 'PA', label: 'Pennsylvania' }, { value: 'RI', label: 'Rhode Island' },
-  { value: 'SC', label: 'South Carolina' }, { value: 'SD', label: 'South Dakota' }, { value: 'TN', label: 'Tennessee' },
-  { value: 'TX', label: 'Texas' }, { value: 'UT', label: 'Utah' }, { value: 'VT', label: 'Vermont' },
-  { value: 'VA', label: 'Virginia' }, { value: 'WA', label: 'Washington' }, { value: 'WV', label: 'West Virginia' },
-  { value: 'WI', label: 'Wisconsin' }, { value: 'WY', label: 'Wyoming' }
+// Canadian Provinces
+const CANADIAN_PROVINCES = [
+  { value: 'AB', label: 'Alberta', country: 'CA' },
+  { value: 'BC', label: 'British Columbia', country: 'CA' },
+  { value: 'MB', label: 'Manitoba', country: 'CA' },
+  { value: 'NB', label: 'New Brunswick', country: 'CA' },
+  { value: 'NL', label: 'Newfoundland and Labrador', country: 'CA' },
+  { value: 'NS', label: 'Nova Scotia', country: 'CA' },
+  { value: 'NT', label: 'Northwest Territories', country: 'CA' },
+  { value: 'NU', label: 'Nunavut', country: 'CA' },
+  { value: 'ON', label: 'Ontario', country: 'CA' },
+  { value: 'PE', label: 'Prince Edward Island', country: 'CA' },
+  { value: 'QC', label: 'Quebec', country: 'CA' },
+  { value: 'SK', label: 'Saskatchewan', country: 'CA' },
+  { value: 'YT', label: 'Yukon', country: 'CA' },
 ]
+
+// US States
+const US_STATES = [
+  { value: 'AL', label: 'Alabama', country: 'US' },
+  { value: 'AK', label: 'Alaska', country: 'US' },
+  { value: 'AZ', label: 'Arizona', country: 'US' },
+  { value: 'AR', label: 'Arkansas', country: 'US' },
+  { value: 'CA', label: 'California', country: 'US' },
+  { value: 'CO', label: 'Colorado', country: 'US' },
+  { value: 'CT', label: 'Connecticut', country: 'US' },
+  { value: 'DE', label: 'Delaware', country: 'US' },
+  { value: 'FL', label: 'Florida', country: 'US' },
+  { value: 'GA', label: 'Georgia', country: 'US' },
+  { value: 'HI', label: 'Hawaii', country: 'US' },
+  { value: 'ID', label: 'Idaho', country: 'US' },
+  { value: 'IL', label: 'Illinois', country: 'US' },
+  { value: 'IN', label: 'Indiana', country: 'US' },
+  { value: 'IA', label: 'Iowa', country: 'US' },
+  { value: 'KS', label: 'Kansas', country: 'US' },
+  { value: 'KY', label: 'Kentucky', country: 'US' },
+  { value: 'LA', label: 'Louisiana', country: 'US' },
+  { value: 'ME', label: 'Maine', country: 'US' },
+  { value: 'MD', label: 'Maryland', country: 'US' },
+  { value: 'MA', label: 'Massachusetts', country: 'US' },
+  { value: 'MI', label: 'Michigan', country: 'US' },
+  { value: 'MN', label: 'Minnesota', country: 'US' },
+  { value: 'MS', label: 'Mississippi', country: 'US' },
+  { value: 'MO', label: 'Missouri', country: 'US' },
+  { value: 'MT', label: 'Montana', country: 'US' },
+  { value: 'NE', label: 'Nebraska', country: 'US' },
+  { value: 'NV', label: 'Nevada', country: 'US' },
+  { value: 'NH', label: 'New Hampshire', country: 'US' },
+  { value: 'NJ', label: 'New Jersey', country: 'US' },
+  { value: 'NM', label: 'New Mexico', country: 'US' },
+  { value: 'NY', label: 'New York', country: 'US' },
+  { value: 'NC', label: 'North Carolina', country: 'US' },
+  { value: 'ND', label: 'North Dakota', country: 'US' },
+  { value: 'OH', label: 'Ohio', country: 'US' },
+  { value: 'OK', label: 'Oklahoma', country: 'US' },
+  { value: 'OR', label: 'Oregon', country: 'US' },
+  { value: 'PA', label: 'Pennsylvania', country: 'US' },
+  { value: 'RI', label: 'Rhode Island', country: 'US' },
+  { value: 'SC', label: 'South Carolina', country: 'US' },
+  { value: 'SD', label: 'South Dakota', country: 'US' },
+  { value: 'TN', label: 'Tennessee', country: 'US' },
+  { value: 'TX', label: 'Texas', country: 'US' },
+  { value: 'UT', label: 'Utah', country: 'US' },
+  { value: 'VT', label: 'Vermont', country: 'US' },
+  { value: 'VA', label: 'Virginia', country: 'US' },
+  { value: 'WA', label: 'Washington', country: 'US' },
+  { value: 'WV', label: 'West Virginia', country: 'US' },
+  { value: 'WI', label: 'Wisconsin', country: 'US' },
+  { value: 'WY', label: 'Wyoming', country: 'US' },
+]
+
+// Combined list with country info for the API
+const STATES_AND_PROVINCES = [...CANADIAN_PROVINCES, ...US_STATES]
 
 export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: NumberSearchDialogProps) {
   const [searchType, setSearchType] = useState<'areaCode' | 'city'>('areaCode')
   const [areaCode, setAreaCode] = useState('')
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
+  const [regionSearch, setRegionSearch] = useState('')
+  const [regionPopoverOpen, setRegionPopoverOpen] = useState(false)
   const [contains, setContains] = useState('')
   const [searching, setSearching] = useState(false)
   const [purchasing, setPurchasing] = useState('')
   const [results, setResults] = useState<SearchResults | null>(null)
+
+  // Get billing/plan information
+  const { limits, isLoading: billingLoading } = useBilling()
+
+  // Calculate included numbers remaining in plan
+  const currentPhoneNumbers = limits?.current_phone_numbers ?? 0
+  const maxPhoneNumbers = limits?.max_phone_numbers ?? 0
+  const includedNumbersRemaining = Math.max(0, maxPhoneNumbers - currentPhoneNumbers)
+  const hasIncludedNumbers = includedNumbersRemaining > 0
+  const usagePercentage = maxPhoneNumbers > 0
+    ? Math.min(100, (currentPhoneNumbers / maxPhoneNumbers) * 100)
+    : 0
+
+  // Filter states/provinces based on search
+  const filteredRegions = useMemo(() => {
+    if (!regionSearch) return STATES_AND_PROVINCES
+    const search = regionSearch.toLowerCase()
+    return STATES_AND_PROVINCES.filter(
+      region => region.label.toLowerCase().includes(search) ||
+                region.value.toLowerCase().includes(search)
+    )
+  }, [regionSearch])
+
+  // Get selected region details
+  const selectedRegion = STATES_AND_PROVINCES.find(r => r.value === state)
 
   const handleAreaCodeChange = (value: string) => {
     // Only allow digits, limit to 3 characters
@@ -95,15 +216,17 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
     setAreaCode(cleaned)
   }
 
-  const searchNumbers = async () => {
-    if (searchType === 'areaCode' && !areaCode) {
+  const searchNumbers = async (overrideAreaCode?: string) => {
+    const searchAreaCode = String(overrideAreaCode || areaCode || '')
+
+    if (searchType === 'areaCode' && !searchAreaCode) {
       toast.error('Please enter an area code')
       return
     }
-    
+
     // Validate area code format
     if (searchType === 'areaCode') {
-      const cleaned = areaCode.replace(/\D/g, '')
+      const cleaned = searchAreaCode.replace(/\D/g, '')
       if (cleaned.length !== 3) {
         toast.error('Area code must be exactly 3 digits')
         return
@@ -114,30 +237,43 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
         return
       }
     }
-    
-    if (searchType === 'city' && (!city || !state)) {
-      toast.error('Please enter both city and state')
+
+    if (searchType === 'city' && !state) {
+      toast.error('Please select a state or province')
       return
+    }
+
+    // Update the displayed area code if using an override
+    if (overrideAreaCode) {
+      setAreaCode(overrideAreaCode)
     }
 
     try {
       setSearching(true)
       setResults(null)
 
-      const searchParams = new URLSearchParams()
-      
+      const searchBody: Record<string, string> = {}
+
       if (searchType === 'areaCode') {
-        searchParams.append('areaCode', areaCode)
+        searchBody.areaCode = searchAreaCode
       } else {
-        searchParams.append('city', city)
-        searchParams.append('region', state)
-      }
-      
-      if (contains) {
-        searchParams.append('contains', contains)
+        searchBody.city = city
+        searchBody.region = state
+        // Pass country based on selected region
+        if (selectedRegion) {
+          searchBody.country = selectedRegion.country
+        }
       }
 
-      const response = await fetch(`/api/voice/numbers/search?${searchParams}`)
+      if (contains) {
+        searchBody.contains = contains
+      }
+
+      const response = await fetch('/api/voice/numbers/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(searchBody)
+      })
       const data = await response.json()
 
       if (!data.success) {
@@ -232,7 +368,7 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="areaCode">By Area Code</SelectItem>
-                    <SelectItem value="city">By City & State</SelectItem>
+                    <SelectItem value="city">By State / Province</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -242,7 +378,7 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
                   <Label htmlFor="areaCode">Area Code</Label>
                   <Input
                     id="areaCode"
-                    placeholder="e.g., 415, 212, 713"
+                    placeholder="e.g., 415, 212, 613"
                     value={areaCode}
                     onChange={(e) => handleAreaCodeChange(e.target.value)}
                     maxLength={3}
@@ -251,28 +387,123 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
+                    <Label htmlFor="city">City (Optional)</Label>
                     <Input
                       id="city"
-                      placeholder="e.g., San Francisco"
+                      placeholder="e.g., Toronto, Ottawa"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
-                    <Select value={state} onValueChange={setState}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {US_STATES.map((state) => (
-                          <SelectItem key={state.value} value={state.value}>
-                            {state.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="state">State / Province</Label>
+                    <Popover open={regionPopoverOpen} onOpenChange={setRegionPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={regionPopoverOpen}
+                          className="w-full justify-between font-normal"
+                        >
+                          {selectedRegion ? (
+                            <span>
+                              {selectedRegion.label}
+                              <span className="ml-1 text-muted-foreground text-xs">
+                                ({selectedRegion.country})
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">Select state/province...</span>
+                          )}
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-0" align="start">
+                        <div className="p-2 border-b">
+                          <Input
+                            placeholder="Search states/provinces..."
+                            value={regionSearch}
+                            onChange={(e) => setRegionSearch(e.target.value)}
+                            className="h-8"
+                          />
+                        </div>
+                        <ScrollArea className="h-[280px]">
+                          <div className="p-1">
+                            {/* Canadian Provinces */}
+                            {filteredRegions.some(r => r.country === 'CA') && (
+                              <>
+                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                                  Canadian Provinces
+                                </div>
+                                {filteredRegions
+                                  .filter(r => r.country === 'CA')
+                                  .map((region) => (
+                                    <Button
+                                      key={region.value}
+                                      variant="ghost"
+                                      className={cn(
+                                        "w-full justify-start font-normal",
+                                        state === region.value && "bg-accent"
+                                      )}
+                                      onClick={() => {
+                                        setState(region.value)
+                                        setRegionPopoverOpen(false)
+                                        setRegionSearch('')
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          state === region.value ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      {region.label}
+                                    </Button>
+                                  ))}
+                              </>
+                            )}
+                            {/* US States */}
+                            {filteredRegions.some(r => r.country === 'US') && (
+                              <>
+                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 mt-1">
+                                  US States
+                                </div>
+                                {filteredRegions
+                                  .filter(r => r.country === 'US')
+                                  .map((region) => (
+                                    <Button
+                                      key={region.value}
+                                      variant="ghost"
+                                      className={cn(
+                                        "w-full justify-start font-normal",
+                                        state === region.value && "bg-accent"
+                                      )}
+                                      onClick={() => {
+                                        setState(region.value)
+                                        setRegionPopoverOpen(false)
+                                        setRegionSearch('')
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          state === region.value ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      {region.label}
+                                    </Button>
+                                  ))}
+                              </>
+                            )}
+                            {filteredRegions.length === 0 && (
+                              <div className="py-6 text-center text-sm text-muted-foreground">
+                                No results found.
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
               )}
@@ -288,7 +519,7 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
               </div>
 
               <Button
-                onClick={searchNumbers}
+                onClick={() => searchNumbers()}
                 disabled={searching}
                 className="w-full"
               >
@@ -303,16 +534,53 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
 
             {/* Pricing Info */}
             <div className="space-y-4">
+              {/* Plan Usage Card */}
+              {maxPhoneNumbers > 0 && (
+                <Card>
+                  <CardContent className="p-4">
+                    <h3 className="font-medium mb-3 flex items-center gap-2">
+                      <Phone className="w-4 h-4" />
+                      Your Plan Usage
+                    </h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span>Phone Numbers</span>
+                        <span className="font-medium">
+                          {currentPhoneNumbers} of {maxPhoneNumbers} used
+                        </span>
+                      </div>
+                      <Progress value={usagePercentage} className="h-2" />
+                      {hasIncludedNumbers ? (
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                          <Gift className="w-4 h-4" />
+                          <span>
+                            <strong>{includedNumbersRemaining}</strong> number{includedNumbersRemaining !== 1 ? 's' : ''} included in your plan
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">
+                          All included numbers used. Additional numbers are $1.50/month each.
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardContent className="p-4">
                   <h3 className="font-medium mb-3 flex items-center gap-2">
                     <DollarSign className="w-4 h-4" />
-                    Pricing Information
+                    Pricing for This Number
                   </h3>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Monthly Rate:</span>
-                      <span className="font-medium">$1.50/month</span>
+                      {hasIncludedNumbers ? (
+                        <span className="font-medium text-green-600">Included in plan</span>
+                      ) : (
+                        <span className="font-medium">$1.50/month</span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span>Setup Fee:</span>
@@ -321,14 +589,20 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
                     <Separator className="my-2" />
                     <div className="flex justify-between font-medium">
                       <span>Total Monthly:</span>
-                      <span>$1.50</span>
+                      {hasIncludedNumbers ? (
+                        <span className="text-green-600">$0.00</span>
+                      ) : (
+                        <span>$1.50</span>
+                      )}
                     </div>
                   </div>
-                  
+
                   <Alert className="mt-3">
                     <Info className="h-4 w-4" />
                     <AlertDescription className="text-xs">
-                      Numbers include voice and SMS capabilities with automatic webhook configuration.
+                      {hasIncludedNumbers
+                        ? 'This number is included in your subscription at no extra cost.'
+                        : 'Numbers include voice and SMS capabilities with automatic webhook configuration.'}
                     </AlertDescription>
                   </Alert>
                 </CardContent>
@@ -380,20 +654,30 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
                         </div>
                         
                         <div className="text-right">
-                          <div className="text-sm font-medium">
-                            ${number.estimatedMonthlyCost.toFixed(2)}/month
-                          </div>
+                          {hasIncludedNumbers ? (
+                            <div className="text-sm font-medium text-green-600 flex items-center gap-1 justify-end">
+                              <Gift className="w-3 h-3" />
+                              Included
+                            </div>
+                          ) : (
+                            <div className="text-sm font-medium">
+                              ${number.estimatedMonthlyCost.toFixed(2)}/month
+                            </div>
+                          )}
                           <Button
                             size="sm"
                             onClick={() => purchaseNumber(number.phoneNumber, number.friendlyName)}
                             disabled={purchasing === number.phoneNumber}
+                            className="mt-1"
                           >
                             {purchasing === number.phoneNumber ? (
                               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : hasIncludedNumbers ? (
+                              <CheckCircle className="w-4 h-4 mr-2" />
                             ) : (
                               <ShoppingCart className="w-4 h-4 mr-2" />
                             )}
-                            Purchase
+                            {hasIncludedNumbers ? 'Add Number' : 'Purchase'}
                           </Button>
                         </div>
                       </div>
@@ -405,10 +689,63 @@ export function NumberSearchDialog({ open, onOpenChange, onNumberPurchased }: Nu
           )}
 
           {results && results.numbers.length === 0 && (
-            <div className="text-center py-8">
-              <Phone className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Numbers Available</h3>
-              <p className="text-gray-600">Try different search criteria or check back later.</p>
+            <div className="py-6">
+              <div className="text-center mb-6">
+                <Phone className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Numbers Available</h3>
+                <p className="text-gray-600 mb-4">
+                  {searchType === 'areaCode'
+                    ? `No phone numbers are currently available in the ${areaCode} area code.`
+                    : `No phone numbers are currently available in ${city}, ${state}.`}
+                </p>
+              </div>
+
+              {/* Alternative area code suggestions */}
+              {searchType === 'areaCode' && areaCode && (() => {
+                const canadianSuggestions = CANADIAN_AREA_CODE_REGIONS[areaCode]
+                const usSuggestions = US_AREA_CODE_REGIONS[areaCode]
+                const suggestions = canadianSuggestions || usSuggestions
+
+                if (suggestions) {
+                  return (
+                    <Card className="mb-4">
+                      <CardContent className="p-4">
+                        <h4 className="font-medium mb-2 flex items-center gap-2">
+                          <MapPin className="w-4 h-4" />
+                          Try nearby area codes in {suggestions.region}
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {suggestions.codes.slice(0, 5).map(code => (
+                            <Button
+                              key={code}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => searchNumbers(code)}
+                              disabled={searching}
+                            >
+                              {code}
+                            </Button>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                }
+                return null
+              })()}
+
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Tips for finding numbers:</strong>
+                  <ul className="mt-2 text-sm space-y-1 list-disc list-inside">
+                    <li>Try a different area code in the same region</li>
+                    <li>Phone number availability changes frequently - check back later</li>
+                    <li>Some area codes have limited inventory due to high demand</li>
+                    <li>Consider using a nearby area code that covers the same geographic area</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
             </div>
           )}
         </div>

@@ -25,7 +25,10 @@ import {
   Webhook,
   Edit,
   Save,
-  X
+  X,
+  Lock,
+  Timer,
+  Zap
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/lib/hooks/useAuth'
@@ -33,6 +36,7 @@ import { useBilling } from '@/lib/hooks/useBilling'
 import { validatePhone } from '@/lib/utils/phone'
 import { NumberSearchDialog } from './NumberSearchDialog'
 import { NumberPortingDialog } from './NumberPortingDialog'
+import { NumberVerification } from './NumberVerification'
 import { SMSBrandManagement } from './SMSBrandManagement'
 import { SMSCampaignManagement } from './SMSCampaignManagement'
 
@@ -45,7 +49,9 @@ interface PhoneNumber {
     sms: boolean
     mms: boolean
   }
-  status: 'active' | 'pending' | 'inactive'
+  status: 'active' | 'pending' | 'inactive' | 'grace_period' | 'released'
+  numberType: 'purchased' | 'ported' | 'trial' | 'verified_caller_id'
+  numberSource: 'platform' | 'verified' | 'imported'
   acquisitionMethod: 'platform' | 'ported' | 'verified'
   verificationStatus: 'pending' | 'verified' | 'failed'
   portingStatus?: string
@@ -56,6 +62,7 @@ interface PhoneNumber {
   isPrimary: boolean
   forwardingEnabled?: boolean
   forwardingDestination?: string
+  gracePeriodEndsAt?: string
 }
 
 interface WebhookStatus {
@@ -68,6 +75,11 @@ interface WebhookStatus {
 export function PhoneNumberManagement() {
   const { supabase } = useAuth()
   const { limits } = useBilling()
+
+  // Trial users can only authenticate/verify existing numbers they own
+  // Paid users can port numbers or purchase new ones from the platform
+  const isPaidSubscription = limits?.subscription_status === 'active' || limits?.subscription_status === 'past_due'
+  const [verifyDialogOpen, setVerifyDialogOpen] = useState(false)
   const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([])
   const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -106,6 +118,8 @@ export function PhoneNumberManagement() {
           friendly_name,
           capabilities,
           status,
+          number_type,
+          number_source,
           acquisition_method,
           verification_status,
           porting_status,
@@ -116,32 +130,43 @@ export function PhoneNumberManagement() {
           forwarding_enabled,
           forwarding_destination,
           monthly_cost,
-          setup_cost
+          setup_cost,
+          grace_period_ends_at
         `)
         .eq('organization_id', member.organization_id)
+        .neq('status', 'released') // Don't show released numbers
         .order('is_primary', { ascending: false })
         .order('created_at', { ascending: false })
 
       if (error) throw error
 
       // Transform data to match interface
-      const transformedData: PhoneNumber[] = (data || []).map(row => ({
-        id: row.id,
-        number: row.number,
-        friendlyName: row.friendly_name || row.number,
-        capabilities: row.capabilities || { voice: true, sms: true, mms: false },
-        status: row.status === 'active' ? 'active' : 'inactive',
-        acquisitionMethod: row.acquisition_method || 'platform',
-        verificationStatus: row.verification_status || 'verified',
-        portingStatus: row.porting_status,
-        webhookConfigured: row.webhook_configured || false,
-        monthlyCost: row.monthly_cost || 1.50,
-        setupCost: row.setup_cost || 0,
-        campaignCount: 0, // Will need to fetch separately if needed
-        isPrimary: row.is_primary || false,
-        forwardingEnabled: row.forwarding_enabled || false,
-        forwardingDestination: row.forwarding_destination
-      }))
+      const transformedData: PhoneNumber[] = (data || []).map(row => {
+        // Verified/imported numbers (user-owned) have no platform fee
+        const isUserOwned = row.number_source === 'verified' || row.number_source === 'imported'
+        const monthlyCost = isUserOwned ? 0 : (row.monthly_cost ?? 1.50)
+
+        return {
+          id: row.id,
+          number: row.number,
+          friendlyName: row.friendly_name || row.number,
+          capabilities: row.capabilities || { voice: true, sms: true, mms: false },
+          status: row.status as PhoneNumber['status'],
+          numberType: row.number_type || 'purchased',
+          numberSource: row.number_source || 'platform',
+          acquisitionMethod: row.acquisition_method || 'platform',
+          verificationStatus: row.verification_status || 'verified',
+          portingStatus: row.porting_status,
+          webhookConfigured: row.webhook_configured || false,
+          monthlyCost,
+          setupCost: row.setup_cost || 0,
+          campaignCount: 0, // Will need to fetch separately if needed
+          isPrimary: row.is_primary || false,
+          forwardingEnabled: row.forwarding_enabled || false,
+          forwardingDestination: row.forwarding_destination,
+          gracePeriodEndsAt: row.grace_period_ends_at
+        }
+      })
 
       setPhoneNumbers(transformedData)
     } catch (error) {
@@ -256,7 +281,31 @@ export function PhoneNumberManagement() {
     }
   }
 
+  // Helper function to calculate days remaining until grace period ends
+  const getDaysRemaining = (gracePeriodEndsAt: string): number => {
+    const endDate = new Date(gracePeriodEndsAt)
+    const now = new Date()
+    const diffTime = endDate.getTime() - now.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return Math.max(0, diffDays)
+  }
+
   const getStatusBadge = (phoneNumber: PhoneNumber) => {
+    // Grace period status - highest priority
+    if (phoneNumber.status === 'grace_period') {
+      const daysRemaining = phoneNumber.gracePeriodEndsAt
+        ? getDaysRemaining(phoneNumber.gracePeriodEndsAt)
+        : 0
+      return (
+        <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+          <Timer className="w-3 h-3 mr-1" />
+          {daysRemaining <= 7
+            ? `${daysRemaining} days left`
+            : 'Grace Period'}
+        </Badge>
+      )
+    }
+
     if (phoneNumber.status === 'pending') {
       return (
         <Badge variant="outline" className="text-yellow-600 border-yellow-300">
@@ -265,8 +314,8 @@ export function PhoneNumberManagement() {
         </Badge>
       )
     }
-    
-    if (phoneNumber.verificationStatus === 'verified') {
+
+    if (phoneNumber.status === 'active' && phoneNumber.verificationStatus === 'verified') {
       return (
         <Badge className="bg-green-100 text-green-700 border-green-300">
           <CheckCircle className="w-3 h-3 mr-1" />
@@ -283,6 +332,33 @@ export function PhoneNumberManagement() {
     )
   }
 
+  const getNumberTypeBadge = (numberType: PhoneNumber['numberType']) => {
+    switch (numberType) {
+      case 'trial':
+        return (
+          <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
+            <Zap className="w-3 h-3 mr-1" />
+            Trial
+          </Badge>
+        )
+      case 'verified_caller_id':
+        return (
+          <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs">
+            <Shield className="w-3 h-3 mr-1" />
+            Caller ID Only
+          </Badge>
+        )
+      case 'ported':
+        return (
+          <Badge variant="outline" className="text-green-600 border-green-300 text-xs">
+            Ported
+          </Badge>
+        )
+      default:
+        return null
+    }
+  }
+
   const getCapabilityBadges = (capabilities: PhoneNumber['capabilities']) => {
     const badges = []
     if (capabilities.voice) badges.push('Voice')
@@ -291,7 +367,18 @@ export function PhoneNumberManagement() {
     return badges
   }
 
-  const totalMonthlyCost = phoneNumbers.reduce((sum, number) => sum + (number.monthlyCost || 0), 0)
+  // Calculate billable phone numbers and costs
+  const platformNumbers = phoneNumbers.filter(n => n.numberSource === 'platform')
+  const userOwnedNumbers = phoneNumbers.filter(n => n.numberSource === 'verified' || n.numberSource === 'imported')
+  const includedInPlan = limits?.max_phone_numbers || 0
+  const billableCount = Math.max(0, platformNumbers.length - includedInPlan)
+  const totalMonthlyCost = billableCount * 1.50 // Only charge for numbers beyond plan limit
+
+  // Helper to check if a specific platform number is billable
+  const isNumberBillable = (number: PhoneNumber, index: number): boolean => {
+    if (number.numberSource !== 'platform') return false
+    return index >= includedInPlan
+  }
 
   const handleEditForwarding = (phoneNumberId: string, currentDestination: string) => {
     setEditingForwarding(phoneNumberId)
@@ -389,7 +476,18 @@ export function PhoneNumberManagement() {
               <span className="text-sm font-medium">Monthly Cost</span>
             </div>
             <div className="text-2xl font-bold mt-1">
-              ${totalMonthlyCost.toFixed(2)}
+              {totalMonthlyCost > 0 ? `$${totalMonthlyCost.toFixed(2)}` : '$0.00'}
+            </div>
+            <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+              {includedInPlan > 0 && platformNumbers.length > 0 && (
+                <div>{Math.min(platformNumbers.length, includedInPlan)} number(s) included in plan</div>
+              )}
+              {billableCount > 0 && (
+                <div>{billableCount} additional @ $1.50/mo</div>
+              )}
+              {userOwnedNumbers.length > 0 && (
+                <div>{userOwnedNumbers.length} your own number(s)</div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -431,29 +529,7 @@ export function PhoneNumberManagement() {
         </Alert>
       )}
 
-      {/* Webhook Configuration Alert */}
-      {webhookStatus && webhookStatus.needsConfiguration > 0 && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>
-              {webhookStatus.needsConfiguration} numbers need webhook configuration to receive calls and messages.
-            </span>
-            <Button
-              onClick={configureAllWebhooks}
-              disabled={configuring}
-              size="sm"
-            >
-              {configuring ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Settings className="w-4 h-4 mr-2" />
-              )}
-              Configure All
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Webhook configuration is now automatic - no user-facing alert needed */}
 
       {/* Main Content Tabs */}
       <Tabs defaultValue="numbers" className="space-y-6">
@@ -486,28 +562,93 @@ export function PhoneNumberManagement() {
                 </CardDescription>
               </div>
               <div className="flex gap-2">
+                {/* Verify Number - Available to all users */}
                 <Button
                   variant="outline"
-                  onClick={() => setPortingDialogOpen(true)}
+                  onClick={() => setVerifyDialogOpen(true)}
                 >
-                  <ArrowRight className="w-4 h-4 mr-2" />
-                  Port Number
+                  <Shield className="w-4 h-4 mr-2" />
+                  Verify Number
                 </Button>
-                <Button
-                  onClick={() => setSearchDialogOpen(true)}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Get New Number
-                </Button>
+                {/* Port Number - Paid users only */}
+                {isPaidSubscription ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setPortingDialogOpen(true)}
+                  >
+                    <ArrowRight className="w-4 h-4 mr-2" />
+                    Port Number
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    disabled
+                    className="cursor-not-allowed"
+                    title="Upgrade to a paid plan to port numbers"
+                  >
+                    <Lock className="w-4 h-4 mr-2" />
+                    Port Number
+                  </Button>
+                )}
+                {/* Get New Number - Paid users only */}
+                {isPaidSubscription ? (
+                  <Button
+                    onClick={() => setSearchDialogOpen(true)}
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Get New Number
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    disabled
+                    className="cursor-not-allowed"
+                    title="Upgrade to a paid plan to purchase new numbers"
+                  >
+                    <Lock className="w-4 h-4 mr-2" />
+                    Get New Number
+                  </Button>
+                )}
               </div>
             </CardHeader>
             <CardContent>
+              {/* Grace Period Warning Alert */}
+              {phoneNumbers.some(n => n.status === 'grace_period') && (
+                <Alert className="mb-4 border-amber-300 bg-amber-50">
+                  <Timer className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="flex items-center justify-between">
+                    <div className="text-amber-800">
+                      <span className="font-medium">Trial ended - </span>
+                      {(() => {
+                        const gracePeriodNumbers = phoneNumbers.filter(n => n.status === 'grace_period')
+                        const minDays = Math.min(...gracePeriodNumbers.map(n =>
+                          n.gracePeriodEndsAt ? getDaysRemaining(n.gracePeriodEndsAt) : 30
+                        ))
+                        return (
+                          <span>
+                            Your {gracePeriodNumbers.length > 1 ? 'numbers are' : 'number is'} reserved for {minDays} more days.
+                            Outbound calls and SMS are disabled. Upgrade to keep {gracePeriodNumbers.length > 1 ? 'your numbers' : 'your number'} and restore full functionality.
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="ml-4 bg-amber-600 hover:bg-amber-700"
+                      onClick={() => window.location.href = '/dashboard/billing'}
+                    >
+                      Upgrade Now
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Show overage warning if applicable */}
               {limits?.max_phone_numbers && limits.max_phone_numbers < 999 && phoneNumbers.length > limits.max_phone_numbers && (
                 <Alert className="mb-4 border-amber-200 bg-amber-50">
                   <AlertTriangle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-800">
-                    You have {phoneNumbers.length - limits.max_phone_numbers} additional number{phoneNumbers.length - limits.max_phone_numbers > 1 ? 's' : ''} beyond your plan's included {limits.max_phone_numbers}. 
+                    You have {phoneNumbers.length - limits.max_phone_numbers} additional number{phoneNumbers.length - limits.max_phone_numbers > 1 ? 's' : ''} beyond your plan's included {limits.max_phone_numbers}.
                     These will be billed at $2.50/month each. Consider upgrading your plan for more included numbers.
                   </AlertDescription>
                 </Alert>
@@ -518,16 +659,41 @@ export function PhoneNumberManagement() {
                   <div className="text-center py-12">
                     <Phone className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No phone numbers yet</h3>
-                    <p className="text-gray-600 mb-4">Get started by purchasing a new number or porting an existing one.</p>
-                    <div className="flex justify-center gap-3">
-                      <Button onClick={() => setSearchDialogOpen(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Get New Number
+                    <p className="text-gray-600 mb-4">
+                      {isPaidSubscription
+                        ? 'Get started by purchasing a new number, porting an existing one, or verifying a number you own.'
+                        : 'Get started by verifying a phone number you own to enable SMS capabilities.'}
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {/* Verify Number - Always available */}
+                      <Button onClick={() => setVerifyDialogOpen(true)}>
+                        <Shield className="w-4 h-4 mr-2" />
+                        Verify Your Number
                       </Button>
-                      <Button variant="outline" onClick={() => setPortingDialogOpen(true)}>
-                        <ArrowRight className="w-4 h-4 mr-2" />
-                        Port Existing Number
-                      </Button>
+                      {/* Paid features */}
+                      {isPaidSubscription ? (
+                        <>
+                          <Button variant="outline" onClick={() => setPortingDialogOpen(true)}>
+                            <ArrowRight className="w-4 h-4 mr-2" />
+                            Port Existing Number
+                          </Button>
+                          <Button variant="outline" onClick={() => setSearchDialogOpen(true)}>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Get New Number
+                          </Button>
+                        </>
+                      ) : (
+                        <div className="w-full mt-4 p-4 bg-gray-50 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-2">
+                            <Lock className="w-4 h-4 inline mr-1" />
+                            Upgrade to a paid plan to unlock:
+                          </p>
+                          <ul className="text-sm text-gray-500 space-y-1">
+                            <li>• Port your existing business numbers</li>
+                            <li>• Purchase new phone numbers from our platform</li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -537,12 +703,13 @@ export function PhoneNumberManagement() {
                         <div className="flex items-center gap-4">
                           <Phone className="h-8 w-8 text-gray-600" />
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h3 className="font-medium">{number.number}</h3>
                               {number.isPrimary && (
                                 <Badge className="bg-blue-100 text-blue-700">Primary</Badge>
                               )}
                               {getStatusBadge(number)}
+                              {getNumberTypeBadge(number.numberType)}
                             </div>
                             <p className="text-sm text-gray-600">{number.friendlyName}</p>
                             <div className="flex items-center gap-2 mt-1">
@@ -602,11 +769,24 @@ export function PhoneNumberManagement() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-medium">${number.monthlyCost}/month</div>
+                          {number.numberSource === 'platform' ? (
+                            // Platform numbers: check if within plan limit
+                            platformNumbers.indexOf(number) < includedInPlan ? (
+                              <div className="text-sm font-medium text-green-600">Included</div>
+                            ) : (
+                              <div className="text-sm font-medium">$1.50/month</div>
+                            )
+                          ) : (
+                            <div className="text-sm font-medium text-green-600">Your Number</div>
+                          )}
                           <div className="text-xs text-gray-600">
-                            {number.acquisitionMethod === 'platform' && 'Platform Number'}
-                            {number.acquisitionMethod === 'ported' && 'Ported Number'}
-                            {number.acquisitionMethod === 'verified' && 'Verified Number'}
+                            {number.numberSource === 'platform' && (
+                              platformNumbers.indexOf(number) < includedInPlan
+                                ? 'In your plan'
+                                : 'Additional number'
+                            )}
+                            {number.numberSource === 'verified' && 'Verified Business Line'}
+                            {number.numberSource === 'imported' && 'Imported Number'}
                           </div>
                           {(number.campaignCount || 0) > 0 && (
                             <div className="text-xs text-blue-600 mt-1">
@@ -629,22 +809,32 @@ export function PhoneNumberManagement() {
                         </div>
                       )}
                       
-                      {!number.webhookConfigured && number.acquisitionMethod !== 'verified' && (
-                        <div className="mt-3 p-3 bg-yellow-50 rounded-md">
+{/* Webhook configuration is now automatic - no user-facing warning needed */}
+
+                      {/* Grace Period Warning for individual number */}
+                      {number.status === 'grace_period' && number.gracePeriodEndsAt && (
+                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-md">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                              <span className="text-sm text-yellow-800">
-                                Webhooks not configured - calls and messages may not work
-                              </span>
+                              <Timer className="w-4 h-4 text-amber-600" />
+                              <div className="text-sm text-amber-800">
+                                <span className="font-medium">Receive-only mode</span>
+                                <span className="text-amber-700">
+                                  {' '}— This number will be released on{' '}
+                                  {new Date(number.gracePeriodEndsAt).toLocaleDateString('en-US', {
+                                    month: 'long',
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                              </div>
                             </div>
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => configureAllWebhooks()}
-                              disabled={configuring}
+                              className="bg-amber-600 hover:bg-amber-700"
+                              onClick={() => window.location.href = '/dashboard/billing'}
                             >
-                              Configure
+                              Keep Number
                             </Button>
                           </div>
                         </div>
@@ -672,7 +862,7 @@ export function PhoneNumberManagement() {
           <Card>
             <CardHeader>
               <CardTitle>Phone Number Settings</CardTitle>
-              <CardDescription>Configure global settings for your phone numbers</CardDescription>
+              <CardDescription>Configuration for your phone numbers</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -682,23 +872,14 @@ export function PhoneNumberManagement() {
                     All phone numbers are automatically configured with secure webhooks and proper routing for your organization.
                   </AlertDescription>
                 </Alert>
-                
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-medium">Webhook Configuration</h4>
-                    <p className="text-sm text-gray-600">Ensure all numbers can receive calls and messages</p>
-                  </div>
-                  <Button
-                    onClick={configureAllWebhooks}
-                    disabled={configuring || !webhookStatus?.needsConfiguration}
-                  >
-                    {configuring ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Settings className="w-4 h-4 mr-2" />
-                    )}
-                    Configure All Webhooks
-                  </Button>
+
+                <div className="text-sm text-gray-600">
+                  <p>Your phone numbers are ready to use. Key features:</p>
+                  <ul className="list-disc list-inside mt-2 space-y-1">
+                    <li>Secure webhook endpoints for calls and SMS</li>
+                    <li>Automatic routing to your organization</li>
+                    <li>Real-time message delivery</li>
+                  </ul>
                 </div>
               </div>
             </CardContent>
@@ -712,12 +893,38 @@ export function PhoneNumberManagement() {
         onOpenChange={setSearchDialogOpen}
         onNumberPurchased={fetchPhoneNumbers}
       />
-      
+
       <NumberPortingDialog
         open={portingDialogOpen}
         onOpenChange={setPortingDialogOpen}
         onPortingSubmitted={fetchPhoneNumbers}
       />
+
+      {/* Number Verification Dialog */}
+      <Dialog open={verifyDialogOpen} onOpenChange={setVerifyDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Verify Your Phone Number</DialogTitle>
+            <DialogDescription>
+              Verify a phone number you own to enable SMS capabilities on your trial account.
+            </DialogDescription>
+          </DialogHeader>
+          <NumberVerification
+            onComplete={async () => {
+              setVerifyDialogOpen(false)
+              await fetchPhoneNumbers()
+              // Auto-configure webhooks in the background
+              try {
+                await fetch('/api/voice/numbers/configure-webhooks')
+              } catch (e) {
+                console.error('Failed to auto-configure webhooks:', e)
+              }
+              toast.success('Phone number verified! You can now send and receive SMS.')
+            }}
+            onBack={() => setVerifyDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
