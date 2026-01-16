@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useBilling } from '@/lib/hooks/useBilling'
 import { useStripe } from '@/lib/hooks/useStripe'
+import { useStripePrices } from '@/lib/hooks/useStripePrices'
 import { useConfirmation } from '@/lib/hooks/useConfirmation'
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog'
 import { EnterpriseContactDialog } from './EnterpriseContactDialog'
@@ -33,8 +34,102 @@ import {
   Mic,
   ExternalLink,
   Loader2,
+  DollarSign,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// Helper to get limit values from plan - check direct columns first, then features JSONB
+const getPlanLimit = (plan: any, key: string, defaultValue: number = 0): number => {
+  // Check direct column first (e.g., plan.max_agents)
+  if (plan?.[key] !== undefined && plan?.[key] !== null) {
+    return plan[key]
+  }
+  // Fallback to features JSONB
+  return plan?.features?.[key] ?? defaultValue
+}
+
+// Helper to check boolean feature flags
+const hasPlanFeature = (plan: any, key: string): boolean => {
+  // Check has_* columns first (e.g., has_white_label, has_api_access)
+  const hasKey = `has_${key}`
+  if (plan?.[hasKey] !== undefined) {
+    return !!plan[hasKey]
+  }
+  // Then check direct column
+  if (plan?.[key] !== undefined) {
+    return !!plan[key]
+  }
+  // Finally check features JSONB
+  return !!plan?.features?.[key]
+}
+
+// Overage pricing (must match Stripe metered prices)
+const OVERAGE_PRICES = {
+  phone_numbers: { price: 2.50, unit: 'number', label: 'Phone Numbers' },
+  agents: { price: 15.00, unit: 'agent', label: 'Agents' },
+  call_minutes: { price: 0.025, unit: 'minute', label: 'Call Minutes' },
+  sms_messages: { price: 0.02, unit: 'message', label: 'SMS Messages' },
+  ai_tokens: { price: 0.00015, unit: 'token', label: 'AI Tokens' },
+  transcription_minutes: { price: 0.003, unit: 'minute', label: 'Transcription' },
+  ai_analysis: { price: 0.05, unit: 'analysis', label: 'AI Analysis' },
+}
+
+// Calculate overage for a resource
+interface OverageItem {
+  key: string
+  label: string
+  used: number
+  limit: number
+  overage: number
+  price: number
+  cost: number
+  unit: string
+}
+
+const calculateOverages = (limits: any): OverageItem[] => {
+  if (!limits) return []
+
+  const overages: OverageItem[] = []
+
+  // Check each resource for overage (skip unlimited limits >= 999999)
+  const resources = [
+    { key: 'agents', used: limits.current_agents, limit: limits.max_agents },
+    { key: 'phone_numbers', used: limits.current_phone_numbers, limit: limits.max_phone_numbers },
+    { key: 'call_minutes', used: limits.used_call_minutes, limit: limits.max_call_minutes },
+    { key: 'sms_messages', used: limits.used_sms_messages, limit: limits.max_sms_messages },
+    { key: 'ai_tokens', used: limits.used_ai_tokens, limit: limits.max_ai_tokens_per_month },
+    { key: 'transcription_minutes', used: limits.used_transcription_minutes, limit: limits.max_transcription_minutes_per_month },
+    { key: 'ai_analysis', used: limits.used_ai_analysis, limit: limits.max_ai_analysis_per_month },
+  ]
+
+  for (const resource of resources) {
+    const pricing = OVERAGE_PRICES[resource.key as keyof typeof OVERAGE_PRICES]
+    if (!pricing) continue
+
+    const used = resource.used || 0
+    const limit = resource.limit || 0
+
+    // Skip unlimited resources
+    if (limit >= 999999) continue
+
+    const overage = Math.max(0, used - limit)
+    if (overage > 0) {
+      overages.push({
+        key: resource.key,
+        label: pricing.label,
+        used,
+        limit,
+        overage,
+        price: pricing.price,
+        cost: overage * pricing.price,
+        unit: pricing.unit,
+      })
+    }
+  }
+
+  return overages
+}
 
 export function BillingDashboard() {
   const {
@@ -49,6 +144,7 @@ export function BillingDashboard() {
   } = useBilling()
 
   const { createCheckout, openBillingPortal, isCheckoutLoading, isPortalLoading } = useStripe()
+  const { byPlan: stripePrices, isLoading: stripePricesLoading, formatPrice } = useStripePrices()
   const searchParams = useSearchParams()
 
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
@@ -66,7 +162,7 @@ export function BillingDashboard() {
     }
   }, [searchParams, refetchLimits])
 
-  if (isLoading) {
+  if (isLoading || stripePricesLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="h-8 w-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -84,7 +180,11 @@ export function BillingDashboard() {
 
   // Handle plan change - now uses real Stripe checkout
   const handlePlanChange = (plan: any, isDowngrade: boolean) => {
-    const price = billingPeriod === 'monthly' ? plan.price_monthly : plan.price_annual
+    // Use Stripe prices as source of truth, fallback to database prices
+    const planStripePricing = stripePrices[plan.slug]
+    const price = billingPeriod === 'monthly'
+      ? (planStripePricing?.monthly ?? plan.price_monthly)
+      : (planStripePricing?.yearly ?? plan.price_annual)
     const period = billingPeriod === 'monthly' ? 'month' : 'year'
 
     setSelectedPlan(plan)
@@ -106,7 +206,7 @@ export function BillingDashboard() {
 
     confirmation.showConfirmation({
       title: `${isDowngrade ? 'Downgrade' : 'Upgrade'} to ${plan.name}`,
-      description: `You are about to ${isDowngrade ? 'downgrade' : 'upgrade'} your subscription to ${plan.name} for $${price} per ${period}. ${
+      description: `You are about to ${isDowngrade ? 'downgrade' : 'upgrade'} your subscription to ${plan.name} for $${price} USD per ${period}. ${
           isDowngrade
             ? 'Some features may become unavailable.'
             : 'You will gain access to additional features.'
@@ -357,17 +457,23 @@ export function BillingDashboard() {
                   }
                 </span>
               </div>
-              {currentPlan?.price_monthly && currentPlan.price_monthly > 0 && (
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4 text-gray-500" />
-                  <span className="text-sm text-gray-600">
-                    ${billingPeriod === 'monthly'
-                      ? `${currentPlan.price_monthly}/mo`
-                      : `${currentPlan.price_annual}/yr`
-                    }
-                  </span>
-                </div>
-              )}
+              {(() => {
+                const currentStripePricing = currentPlan?.slug ? stripePrices[currentPlan.slug] : null
+                const currentPrice = billingPeriod === 'monthly'
+                  ? (currentStripePricing?.monthly ?? currentPlan?.price_monthly)
+                  : (currentStripePricing?.yearly ?? currentPlan?.price_annual)
+
+                if (!currentPrice || currentPrice === 0) return null
+
+                return (
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="h-4 w-4 text-gray-500" />
+                    <span className="text-sm text-gray-600">
+                      ${currentPrice}{billingPeriod === 'monthly' ? '/mo' : '/yr'} USD
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex items-center gap-2">
               {/* Manage Subscription button for paid subscribers */}
@@ -405,6 +511,91 @@ export function BillingDashboard() {
         </CardContent>
       </Card>
 
+      {/* Overage Charges Section */}
+      {(() => {
+        const overages = calculateOverages(limits)
+        const totalOverageCost = overages.reduce((sum, o) => sum + o.cost, 0)
+
+        if (overages.length === 0) return null
+
+        return (
+          <Card className="border-amber-200 bg-amber-50/50">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  <CardTitle className="text-amber-900">Estimated Overage Charges</CardTitle>
+                </div>
+                <Badge variant="outline" className="text-amber-700 border-amber-300 text-lg px-3 py-1">
+                  ${totalOverageCost.toFixed(2)}
+                </Badge>
+              </div>
+              <CardDescription className="text-amber-700">
+                You've exceeded your plan limits. These charges will be added to your next invoice.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {overages.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-200"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-100 rounded-lg">
+                        {item.key === 'agents' && <Users className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'phone_numbers' && <Smartphone className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'call_minutes' && <Phone className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'sms_messages' && <MessageSquare className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'ai_tokens' && <Brain className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'transcription_minutes' && <Mic className="h-4 w-4 text-amber-600" />}
+                        {item.key === 'ai_analysis' && <Zap className="h-4 w-4 text-amber-600" />}
+                      </div>
+                      <div>
+                        <p className="font-medium text-gray-900">{item.label}</p>
+                        <p className="text-sm text-gray-500">
+                          {item.used.toLocaleString()} used / {item.limit.toLocaleString()} included
+                          <span className="text-amber-600 ml-2">
+                            (+{item.overage.toLocaleString()} over)
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-amber-700">
+                        ${item.cost.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        ${item.price.toFixed(item.price < 0.01 ? 5 : 2)}/{item.unit}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-amber-200 flex items-center justify-between">
+                <p className="text-sm text-amber-700">
+                  <DollarSign className="h-4 w-4 inline mr-1" />
+                  Overages are billed automatically at the end of your billing period
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                  onClick={() => {
+                    const plansSection = document.querySelector('[data-section="available-plans"]')
+                    plansSection?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                >
+                  Upgrade to avoid overages
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
       {/* Available Plans */}
       <div data-section="available-plans">
         <div className="flex items-center justify-between mb-4">
@@ -436,8 +627,19 @@ export function BillingDashboard() {
             const isCurrentPlan = plan.slug === limits?.plan_slug
             const currentPlanIndex = plans.findIndex(p => p.slug === limits?.plan_slug)
             const isDowngrade = currentPlanIndex > index
-            const price = billingPeriod === 'monthly' ? plan.price_monthly : plan.price_annual
-            const savings = billingPeriod === 'yearly' ? calculateSavings(plan.price_monthly || 0, plan.price_annual || 0) : 0
+
+            // Use Stripe prices as source of truth, fallback to database prices
+            const planStripePricing = stripePrices[plan.slug]
+            const monthlyPrice = planStripePricing?.monthly ?? plan.price_monthly ?? 0
+            const yearlyPrice = planStripePricing?.yearly ?? plan.price_annual ?? 0
+            const price = billingPeriod === 'monthly' ? monthlyPrice : yearlyPrice
+
+            // Calculate savings from Stripe prices or fallback
+            const savings = billingPeriod === 'yearly' && planStripePricing?.savingsPercentage != null
+              ? planStripePricing.savingsPercentage
+              : billingPeriod === 'yearly'
+              ? calculateSavings(monthlyPrice, yearlyPrice)
+              : 0
             
             return (
               <Card 
@@ -453,26 +655,27 @@ export function BillingDashboard() {
                 <CardHeader className="pb-4">
                   <CardTitle className="text-xl">{plan.name}</CardTitle>
                   <CardDescription className="min-h-[3rem] sm:min-h-[2.5rem] flex items-start">{plan.description}</CardDescription>
-                  <div className="pt-4 min-h-[5rem]">
+                  <div className="pt-4 min-h-[6.5rem]">
                     {price === 0 ? (
                       <div>
                         <div className="text-3xl font-bold">Free</div>
-                        <div className="text-sm text-gray-500 h-5">&nbsp;</div>
+                        <div className="text-sm text-gray-500 min-h-[1.25rem]">&nbsp;</div>
                       </div>
                     ) : (
                       <>
                         <div className="text-3xl font-bold">
                           ${billingPeriod === 'monthly' ? price : Math.round(price / 12)}
+                          <span className="text-base font-normal text-gray-500 ml-2">USD</span>
                         </div>
-                        <div className="text-sm text-gray-500 h-5">
+                        <div className="text-sm text-gray-500 min-h-[1.25rem]">
                           per {billingPeriod === 'monthly' ? 'month' : 'month, billed yearly'}
                         </div>
                       </>
                     )}
                     {savings > 0 ? (
-                      <Badge variant="secondary" className="mt-2">Save {savings}%</Badge>
+                      <Badge variant="secondary" className="mt-1">Save {savings}%</Badge>
                     ) : (
-                      <div className="h-7">&nbsp;</div>
+                      <div className="h-6">&nbsp;</div>
                     )}
                   </div>
                 </CardHeader>
@@ -483,15 +686,15 @@ export function BillingDashboard() {
                       <li className="flex items-center gap-2 text-sm">
                         <Smartphone className="h-4 w-4 text-blue-500 flex-shrink-0" />
                         <span className="font-medium">
-                          {(plan.max_phone_numbers || 0) >= 999
+                          {getPlanLimit(plan, 'max_phone_numbers') >= 999
                             ? '100+ Numbers (fair use)'
-                            : (plan.max_phone_numbers || 0) === 1
+                            : getPlanLimit(plan, 'max_phone_numbers') === 1
                             ? '1 Number included'
-                            : `${plan.max_phone_numbers || 0} Numbers included`
+                            : `${getPlanLimit(plan, 'max_phone_numbers')} Numbers included`
                           }
                         </span>
                       </li>
-                      {(plan.max_phone_numbers || 0) < 999 && (
+                      {getPlanLimit(plan, 'max_phone_numbers') < 999 && (
                         <li className="flex items-center gap-2 text-xs text-gray-500 pl-6 mt-1">
                           <span>+$2.50/mo per additional</span>
                         </li>
@@ -501,21 +704,21 @@ export function BillingDashboard() {
                     {/* Agents */}
                     <li className="flex items-center gap-2 text-sm">
                       <Users className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{(plan.max_agents || 0) >= 999999 ? 'Unlimited agents' : `${plan.max_agents || 0} agents`}</span>
+                      <span>{getPlanLimit(plan, 'max_agents') >= 999999 ? 'Unlimited agents' : `${getPlanLimit(plan, 'max_agents')} agents`}</span>
                     </li>
 
                     {/* Call Minutes */}
                     <li className="flex items-center gap-2 text-sm">
                       <Phone className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{(plan.max_call_minutes || 0) >= 999999 ? 'Unlimited minutes' : `${(plan.max_call_minutes || 0).toLocaleString()} min/mo`}</span>
+                      <span>{getPlanLimit(plan, 'max_call_minutes') >= 999999 ? 'Unlimited minutes' : `${getPlanLimit(plan, 'max_call_minutes').toLocaleString()} min/mo`}</span>
                     </li>
 
                     {/* SMS Messages */}
                     <li className="flex items-center gap-2 text-sm">
-                      {(plan.max_sms_messages || 0) > 0 ? (
+                      {getPlanLimit(plan, 'max_sms_messages') > 0 ? (
                         <>
                           <MessageSquare className="h-4 w-4 text-green-500 flex-shrink-0" />
-                          <span>{(plan.max_sms_messages || 0) >= 999999 ? 'Unlimited SMS' : `${(plan.max_sms_messages || 0).toLocaleString()} SMS/mo`}</span>
+                          <span>{getPlanLimit(plan, 'max_sms_messages') >= 999999 ? 'Unlimited SMS' : `${getPlanLimit(plan, 'max_sms_messages').toLocaleString()} SMS/mo`}</span>
                         </>
                       ) : (
                         <>
@@ -527,19 +730,19 @@ export function BillingDashboard() {
 
                     {/* AI Services - Fixed height block */}
                     <div className="min-h-[4.5rem]">
-                      {(plan.max_ai_tokens_per_month || 0) > 0 ? (
+                      {getPlanLimit(plan, 'max_ai_tokens_per_month') > 0 ? (
                         <>
                           <li className="flex items-center gap-2 text-sm">
                             <Brain className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                            <span>{(plan.max_ai_tokens_per_month || 0) >= 999999 ? 'Unlimited AI' : `${(plan.max_ai_tokens_per_month || 0).toLocaleString()} AI tokens`}</span>
+                            <span>{getPlanLimit(plan, 'max_ai_tokens_per_month') >= 999999 ? 'Unlimited AI' : `${getPlanLimit(plan, 'max_ai_tokens_per_month').toLocaleString()} AI tokens`}</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm">
                             <Mic className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                            <span>{(plan.max_transcription_minutes_per_month || 0) >= 999999 ? 'Unlimited transcription' : `${(plan.max_transcription_minutes_per_month || 0)} min transcription`}</span>
+                            <span>{getPlanLimit(plan, 'max_transcription_minutes_per_month') >= 999999 ? 'Unlimited transcription' : `${getPlanLimit(plan, 'max_transcription_minutes_per_month')} min transcription`}</span>
                           </li>
                           <li className="flex items-center gap-2 text-sm">
                             <Zap className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                            <span>{(plan.max_ai_analysis_per_month || 0) >= 999999 ? 'Unlimited analysis' : `${(plan.max_ai_analysis_per_month || 0)} analyses`}</span>
+                            <span>{getPlanLimit(plan, 'max_ai_analysis_per_month') >= 999999 ? 'Unlimited analysis' : `${getPlanLimit(plan, 'max_ai_analysis_per_month')} analyses`}</span>
                           </li>
                         </>
                       ) : (
@@ -553,12 +756,12 @@ export function BillingDashboard() {
                     {/* Contacts */}
                     <li className="flex items-center gap-2 text-sm">
                       <Users className="h-4 w-4 text-green-500 flex-shrink-0" />
-                      <span>{(plan.max_contacts || 0) >= 999999 ? 'Unlimited contacts' : `${(plan.max_contacts || 0).toLocaleString()} contacts`}</span>
+                      <span>{getPlanLimit(plan, 'max_contacts') >= 999999 ? 'Unlimited contacts' : `${getPlanLimit(plan, 'max_contacts').toLocaleString()} contacts`}</span>
                     </li>
                     
                     {/* Advanced Features */}
                     <li className="flex items-center gap-2 text-sm">
-                      {plan.features?.white_label ? (
+                      {hasPlanFeature(plan, 'white_label') ? (
                         <>
                           <Crown className="h-4 w-4 text-amber-500 flex-shrink-0" />
                           <span>White Label</span>
@@ -648,7 +851,7 @@ export function BillingDashboard() {
                     <td className="py-3 px-4 text-sm font-medium">{feature.label}</td>
                     {plans?.map(plan => (
                       <td key={plan.id} className="text-center py-3 px-4">
-                        {plan.features?.[feature.key] !== false ? (
+                        {hasPlanFeature(plan, feature.key) ? (
                           <Check className="h-5 w-5 text-green-500 mx-auto" />
                         ) : (
                           <X className="h-5 w-5 text-gray-300 mx-auto" />
@@ -676,7 +879,7 @@ export function BillingDashboard() {
                     <td className="py-3 px-4 text-sm font-medium">{feature.label}</td>
                     {plans?.map(plan => (
                       <td key={plan.id} className="text-center py-3 px-4">
-                        {(plan.features?.max_ai_tokens_per_month || 0) > 0 || plan.slug === 'enterprise' ? (
+                        {getPlanLimit(plan, 'max_ai_tokens_per_month') > 0 || plan.slug === 'enterprise' ? (
                           <Check className="h-5 w-5 text-green-500 mx-auto" />
                         ) : (
                           <X className="h-5 w-5 text-gray-300 mx-auto" />
@@ -703,7 +906,7 @@ export function BillingDashboard() {
                     <td className="py-3 px-4 text-sm font-medium">{feature.label}</td>
                     {plans?.map(plan => (
                       <td key={plan.id} className="text-center py-3 px-4">
-                        {plan.features?.[feature.key] || (feature.key === 'api_access' || feature.key === 'webhooks') ? (
+                        {hasPlanFeature(plan, feature.key) ? (
                           <Check className="h-5 w-5 text-green-500 mx-auto" />
                         ) : (
                           <X className="h-5 w-5 text-gray-300 mx-auto" />
@@ -729,8 +932,8 @@ export function BillingDashboard() {
                     <td className="py-3 px-4 text-sm font-medium">{feature.label}</td>
                     {plans?.map(plan => (
                       <td key={plan.id} className="text-center py-3 px-4">
-                        {feature.key === 'email_support' || 
-                         (feature.key === 'priority_support' && plan.features?.priority_support) ||
+                        {feature.key === 'email_support' ||
+                         (feature.key === 'priority_support' && hasPlanFeature(plan, 'priority_support')) ||
                          (feature.key === 'dedicated_account_manager' && plan.slug === 'enterprise') ||
                          (feature.key === 'sla' && plan.slug === 'enterprise') ? (
                           <Check className="h-5 w-5 text-green-500 mx-auto" />
@@ -752,10 +955,10 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Phone Numbers Included</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_phone_numbers || 0) >= 999
+                      {getPlanLimit(plan, 'max_phone_numbers') >= 999
                         ? '100+'
-                        : plan.max_phone_numbers || 0}
-                      {(plan.max_phone_numbers || 0) < 999 && (plan.max_phone_numbers || 0) > 0 && (
+                        : getPlanLimit(plan, 'max_phone_numbers')}
+                      {getPlanLimit(plan, 'max_phone_numbers') < 999 && getPlanLimit(plan, 'max_phone_numbers') > 0 && (
                         <span className="block text-xs text-gray-500 font-normal">
                           +$2.50/mo each extra
                         </span>
@@ -767,9 +970,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Agents/Users</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_agents || 0) >= 999999
+                      {getPlanLimit(plan, 'max_agents') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_agents || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_agents').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -777,9 +980,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Call Minutes/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_call_minutes || 0) >= 999999
+                      {getPlanLimit(plan, 'max_call_minutes') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_call_minutes || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_call_minutes').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -787,9 +990,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">SMS Messages/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_sms_messages || 0) >= 999999
+                      {getPlanLimit(plan, 'max_sms_messages') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_sms_messages || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_sms_messages').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -797,9 +1000,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Contacts</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_contacts || 0) >= 999999
+                      {getPlanLimit(plan, 'max_contacts') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_contacts || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_contacts').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -807,11 +1010,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">AI Tokens/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_ai_tokens_per_month || 0) === 0
+                      {getPlanLimit(plan, 'max_ai_tokens_per_month') === 0
                         ? '—'
-                        : (plan.max_ai_tokens_per_month || 0) >= 999999
+                        : getPlanLimit(plan, 'max_ai_tokens_per_month') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_ai_tokens_per_month || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_ai_tokens_per_month').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -819,11 +1022,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Transcription Minutes/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_transcription_minutes_per_month || 0) === 0
+                      {getPlanLimit(plan, 'max_transcription_minutes_per_month') === 0
                         ? '—'
-                        : (plan.max_transcription_minutes_per_month || 0) >= 999999
+                        : getPlanLimit(plan, 'max_transcription_minutes_per_month') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_transcription_minutes_per_month || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_transcription_minutes_per_month').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -831,11 +1034,11 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">AI Analyses/Month</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_ai_analysis_per_month || 0) === 0
+                      {getPlanLimit(plan, 'max_ai_analysis_per_month') === 0
                         ? '—'
-                        : (plan.max_ai_analysis_per_month || 0) >= 999999
+                        : getPlanLimit(plan, 'max_ai_analysis_per_month') >= 999999
                         ? 'Unlimited'
-                        : (plan.max_ai_analysis_per_month || 0).toLocaleString()}
+                        : getPlanLimit(plan, 'max_ai_analysis_per_month').toLocaleString()}
                     </td>
                   ))}
                 </tr>
@@ -843,9 +1046,9 @@ export function BillingDashboard() {
                   <td className="py-3 px-4 text-sm font-medium">Storage</td>
                   {plans?.map(plan => (
                     <td key={plan.id} className="text-center py-3 px-4 text-sm font-medium">
-                      {(plan.max_storage_gb || 0) >= 999
+                      {getPlanLimit(plan, 'max_storage_gb') >= 999
                         ? 'Unlimited'
-                        : `${plan.max_storage_gb || 10} GB`}
+                        : `${getPlanLimit(plan, 'max_storage_gb', 10)} GB`}
                     </td>
                   ))}
                 </tr>

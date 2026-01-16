@@ -30,7 +30,7 @@ export function useBilling() {
   const { data: plans, isLoading: plansLoading } = useQuery({
     queryKey: ['subscription-plans'],
     queryFn: () => billingService.getPlans(),
-    staleTime: 1000 * 60 * 60, // Cache for 1 hour
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes (reduced from 1 hour for faster updates)
   })
 
   // Get organization limits and usage

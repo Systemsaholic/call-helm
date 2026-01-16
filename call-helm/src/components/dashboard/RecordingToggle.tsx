@@ -52,7 +52,12 @@ export function RecordingToggle() {
         .single()
       
       if (error) {
-        console.error('Error fetching org recording settings:', error)
+        // PGRST116 = no rows, 42P01 = table doesn't exist - both are expected if settings not configured
+        // Empty error object {} also indicates table doesn't exist
+        const errorCode = error?.code
+        if (errorCode && errorCode !== 'PGRST116' && errorCode !== '42P01') {
+          console.error('Error fetching org recording settings:', error)
+        }
         return null
       }
       
