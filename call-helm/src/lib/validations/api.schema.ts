@@ -18,7 +18,7 @@ export const initiateCallSchema = z.object({
   phoneNumber: phoneNumberSchema,
   callListId: uuidSchema.optional(),
   scriptId: uuidSchema.optional(),
-  provider: z.enum(['twilio', 'signalwire', 'mock']).default('twilio')
+  provider: z.enum(['twilio', 'telnyx', 'mock']).default('telnyx')
 })
 
 // Agent invitation schema

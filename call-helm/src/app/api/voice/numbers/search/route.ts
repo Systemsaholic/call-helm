@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Limit results to 100 to show more options (SignalWire can return up to 200)
+    // Limit results to 100 to show more options
     const limitedNumbers = numbers.slice(0, 100)
 
     // Enhance results with additional metadata for self-service

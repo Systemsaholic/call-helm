@@ -20,21 +20,19 @@ async function transcribeWithAssemblyAI(
   }
 
   try {
-    // For SignalWire URLs, we need to fetch the audio and upload it to AssemblyAI
+    // For Telnyx URLs, we need to fetch the audio and upload it to AssemblyAI
     // since the ngrok URL might not be accessible externally
     let audioUrlForAssembly = audioUrl
-    
-    if (audioUrl.includes('signalwire.com')) {
-      console.log('Fetching audio from SignalWire for AssemblyAI upload...')
-      
-      // Fetch the audio with SignalWire authentication
-      const swProjectId = process.env.SIGNALWIRE_PROJECT_ID
-      const swApiToken = process.env.SIGNALWIRE_API_TOKEN
+
+    if (audioUrl.includes('telnyx.com') || audioUrl.includes('telnyx')) {
+      console.log('Fetching audio from Telnyx for AssemblyAI upload...')
+
+      // Fetch the audio with Telnyx authentication
+      const telnyxApiKey = process.env.TELNYX_API_KEY
       const headers: HeadersInit = {}
-      
-      if (swProjectId && swApiToken) {
-        const auth = Buffer.from(`${swProjectId}:${swApiToken}`).toString('base64')
-        headers['Authorization'] = `Basic ${auth}`
+
+      if (telnyxApiKey) {
+        headers['Authorization'] = `Bearer ${telnyxApiKey}`
       }
       
       const audioResponse = await fetch(audioUrl, { 
