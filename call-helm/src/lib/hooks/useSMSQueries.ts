@@ -122,7 +122,7 @@ export function useConversations(filters?: ConversationFilters) {
         if (unreadData) {
           unreadData.forEach(msg => {
             // Check if this message has been read by the current user
-            const hasBeenRead = msg.message_read_status?.some((rs: any) => rs.user_id === user?.id)
+            const hasBeenRead = msg.message_read_status?.some((rs: { user_id: string }) => rs.user_id === user?.id)
             
             if (!hasBeenRead) {
               unreadCounts[msg.conversation_id] = (unreadCounts[msg.conversation_id] || 0) + 1
@@ -485,7 +485,7 @@ export function useArchiveConversation() {
       queryClient.invalidateQueries({ queryKey: smsKeys.conversations() })
       toast.success('Conversation archived')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to archive conversation')
     },
   })
@@ -517,7 +517,7 @@ export function useDeleteConversation() {
       queryClient.invalidateQueries({ queryKey: smsKeys.conversations() })
       toast.success('Conversation deleted')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to delete conversation')
     },
   })
@@ -542,7 +542,7 @@ export function useClaimConversation() {
       queryClient.invalidateQueries({ queryKey: smsKeys.conversations() })
       toast.success('Conversation claimed')
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to claim conversation')
     },
   })
@@ -619,7 +619,7 @@ export function useAddReaction() {
         queryKey: smsKeys.conversationReactions(variables.conversationId)
       })
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to add reaction')
     },
   })
@@ -652,7 +652,7 @@ export function useRemoveReaction() {
         queryKey: smsKeys.conversationReactions(variables.conversationId)
       })
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to remove reaction')
     },
   })

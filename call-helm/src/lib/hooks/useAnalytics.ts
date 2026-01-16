@@ -2,6 +2,40 @@ import { useQuery } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
 import { subDays, format, startOfDay, endOfDay } from 'date-fns'
 
+// Database types for analytics queries
+interface CallRecord {
+  id: string
+  organization_id: string
+  agent_id?: string
+  start_time: string
+  end_time?: string
+  duration?: number
+  status: 'initiated' | 'ringing' | 'answered' | 'voicemail' | 'no_answer' | 'busy' | 'failed' | 'completed'
+  disposition?: string
+}
+
+interface CallListContact {
+  id: string
+  call_list_id: string
+  status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'skipped'
+  final_disposition?: string
+}
+
+interface CallList {
+  id: string
+  name: string
+  organization_id: string
+  call_list_contacts?: CallListContact[]
+}
+
+interface OrganizationMember {
+  user_id: string
+  email: string
+  full_name?: string
+  role: 'admin' | 'agent' | 'owner'
+  is_active: boolean
+}
+
 export interface AnalyticsFilters {
   dateRange: string
   campaign?: string
@@ -135,12 +169,12 @@ export function useOrganizationAnalytics(filters: AnalyticsFilters) {
         sum + (list.call_list_contacts?.length || 0), 0
       ) || 0
       
-      const assignedContacts = callLists?.reduce((sum, list) => 
-        sum + (list.call_list_contacts?.filter((c: any) => c.status === 'assigned').length || 0), 0
+      const assignedContacts = callLists?.reduce((sum, list) =>
+        sum + ((list as CallList).call_list_contacts?.filter((c) => c.status === 'assigned').length || 0), 0
       ) || 0
-      
-      const completedContacts = callLists?.reduce((sum, list) => 
-        sum + (list.call_list_contacts?.filter((c: any) => c.status === 'completed').length || 0), 0
+
+      const completedContacts = callLists?.reduce((sum, list) =>
+        sum + ((list as CallList).call_list_contacts?.filter((c) => c.status === 'completed').length || 0), 0
       ) || 0
 
       const conversionFunnel = [
@@ -177,12 +211,15 @@ export function useOrganizationAnalytics(filters: AnalyticsFilters) {
       }).filter(a => a.totalCalls > 0) || []
 
       // Campaign performance
-      const campaignPerformance = callLists?.map(list => ({
-        name: list.name,
-        contacts: list.call_list_contacts?.length || 0,
-        completed: list.call_list_contacts?.filter((c: any) => c.status === 'completed').length || 0,
-        successful: list.call_list_contacts?.filter((c: any) => c.final_disposition === 'sale_made' || c.final_disposition === 'appointment_set').length || 0
-      })).filter(c => c.contacts > 0) || []
+      const campaignPerformance = callLists?.map(list => {
+        const typedList = list as CallList
+        return {
+          name: typedList.name,
+          contacts: typedList.call_list_contacts?.length || 0,
+          completed: typedList.call_list_contacts?.filter((c) => c.status === 'completed').length || 0,
+          successful: typedList.call_list_contacts?.filter((c) => c.final_disposition === 'sale_made' || c.final_disposition === 'appointment_set').length || 0
+        }
+      }).filter(c => c.contacts > 0) || []
 
       // Success metrics over time
       const successMetrics = generateSuccessMetrics(calls || [], startDate, endDate)
@@ -209,7 +246,7 @@ export function useOrganizationAnalytics(filters: AnalyticsFilters) {
 }
 
 // Helper functions
-function generateCallVolumeTrend(calls: any[], startDate: Date, endDate: Date) {
+function generateCallVolumeTrend(calls: CallRecord[], startDate: Date, endDate: Date) {
   const trend: { date: string; calls: number }[] = []
   const current = new Date(startDate)
   
@@ -233,7 +270,7 @@ function generateCallVolumeTrend(calls: any[], startDate: Date, endDate: Date) {
   return trend
 }
 
-function generateHourlyDistribution(calls: any[]) {
+function generateHourlyDistribution(calls: CallRecord[]) {
   const hours = Array.from({ length: 24 }, (_, i) => ({
     hour: `${i}:00`,
     calls: 0
@@ -247,7 +284,7 @@ function generateHourlyDistribution(calls: any[]) {
   return hours.filter(h => h.calls > 0)
 }
 
-function generateSuccessMetrics(calls: any[], startDate: Date, endDate: Date) {
+function generateSuccessMetrics(calls: CallRecord[], startDate: Date, endDate: Date) {
   const metrics: { date: string; conversionRate: number; answerRate: number }[] = []
   const current = new Date(startDate)
   

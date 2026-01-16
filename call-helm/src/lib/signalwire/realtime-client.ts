@@ -1,6 +1,54 @@
 import { SignalWire } from '@signalwire/realtime-api'
-import type { Messaging, PubSub } from '@signalwire/realtime-api'
 import { EventEmitter } from 'events'
+
+// SignalWire client types
+// Using Awaited<ReturnType> for the main client, but looser types for sub-clients
+// since the actual API usage doesn't match library's strict TypeScript definitions
+type SignalWireClient = Awaited<ReturnType<typeof SignalWire>>
+
+// Messaging client interface based on actual usage
+interface MessagingClientInterface {
+  listen: (options: {
+    topics: string[]
+    onMessageReceived: (message: SignalWireMessage) => void
+    onMessageUpdated: (message: SignalWireMessage) => void
+  }) => Promise<() => Promise<void>>
+  send: (options: {
+    topic?: string
+    from: string
+    to: string
+    body: string
+    media?: string[]
+  }) => Promise<unknown>
+}
+
+// PubSub client interface based on actual usage
+interface PubSubClientInterface {
+  listen: (options: {
+    channels: string[]
+    onMessageReceived: (message: PubSubMessage) => void
+  }) => Promise<() => Promise<void>>
+  publish: (options: {
+    channel: string
+    content: unknown
+  }) => Promise<unknown>
+}
+
+// SignalWire message types for callbacks
+interface SignalWireMessage {
+  id?: string
+  context?: string
+  from: string
+  to: string
+  body: string
+  media?: string[]
+  status?: string
+}
+
+interface PubSubMessage {
+  channel: string
+  content: TypingEvent | PresenceEvent | unknown
+}
 
 export interface TypingEvent {
   conversationId: string
@@ -32,9 +80,9 @@ export interface IncomingMessageEvent {
 
 class SignalWireRealtimeClient extends EventEmitter {
   private static instance: SignalWireRealtimeClient | null = null
-  private client: any = null
-  private messagingClient: any | null = null
-  private pubSubClient: any | null = null
+  private client: SignalWireClient | null = null
+  private messagingClient: MessagingClientInterface | null = null
+  private pubSubClient: PubSubClientInterface | null = null
   private isConnected: boolean = false
   private reconnectAttempts: number = 0
   private maxReconnectAttempts: number = 10
@@ -67,7 +115,7 @@ class SignalWireRealtimeClient extends EventEmitter {
       this.client = await SignalWire({
         project: projectId,
         token: token
-      } as any)
+      })
 
       // Get messaging client
       this.messagingClient = this.client.messaging
@@ -103,9 +151,9 @@ class SignalWireRealtimeClient extends EventEmitter {
       // Listen for incoming messages
       await this.messagingClient.listen({
         topics: ['office'],
-        onMessageReceived: (message: any) => {
+        onMessageReceived: (message: SignalWireMessage) => {
           console.log('Message received:', message)
-          
+
           const incomingMessage: IncomingMessageEvent = {
             id: message.id || `temp-${Date.now()}`,
             conversationId: message.context || 'default',
@@ -115,18 +163,18 @@ class SignalWireRealtimeClient extends EventEmitter {
             media: message.media,
             timestamp: new Date().toISOString()
           }
-          
+
           this.emit('message.received', incomingMessage)
         },
-        onMessageUpdated: (message: any) => {
+        onMessageUpdated: (message: SignalWireMessage) => {
           console.log('Message updated:', message)
-          
+
           const statusEvent: MessageStatusEvent = {
-            messageId: message.id,
-            status: this.mapSignalWireStatus(message.status),
+            messageId: message.id || '',
+            status: this.mapSignalWireStatus(message.status || ''),
             timestamp: new Date().toISOString()
           }
-          
+
           this.emit('message.status', statusEvent)
         }
       })
@@ -143,14 +191,14 @@ class SignalWireRealtimeClient extends EventEmitter {
       // Subscribe to typing indicators channel
       await this.pubSubClient.listen({
         channels: ['typing-indicators', 'presence'],
-        onMessageReceived: (message: any) => {
+        onMessageReceived: (message: PubSubMessage) => {
           console.log('PubSub message received:', message)
-          
+
           if (message.channel === 'typing-indicators') {
-            const typingEvent: TypingEvent = message.content
+            const typingEvent = message.content as TypingEvent
             this.emit('typing', typingEvent)
           } else if (message.channel === 'presence') {
-            const presenceEvent: PresenceEvent = message.content
+            const presenceEvent = message.content as PresenceEvent
             this.emit('presence', presenceEvent)
           }
         }
@@ -161,7 +209,7 @@ class SignalWireRealtimeClient extends EventEmitter {
     }
   }
 
-  public async sendMessage(to: string, from: string, body: string, conversationId?: string, mediaUrls?: string[]): Promise<any> {
+  public async sendMessage(to: string, from: string, body: string, _conversationId?: string, mediaUrls?: string[]): Promise<unknown> {
     if (!this.messagingClient) {
       throw new Error('SignalWire Realtime not connected')
     }
@@ -260,7 +308,7 @@ class SignalWireRealtimeClient extends EventEmitter {
         this.pubSubClient.publish({
           channel: 'heartbeat',
           content: { timestamp: Date.now() }
-        }).catch((error: any) => {
+        }).catch((error: unknown) => {
           console.error('Heartbeat failed:', error)
           this.handleConnectionError()
         })

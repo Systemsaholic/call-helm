@@ -35,7 +35,7 @@ export interface VoiceIntegration {
   voicemail_enabled: boolean
   webhook_url: string
   status_callback_url: string
-  settings: any
+  settings: Record<string, unknown>
   last_verified_at: string
 }
 
@@ -65,9 +65,9 @@ export function usePhoneNumbers() {
 
       const data = await response.json()
       setPhoneNumbers(data.phoneNumbers || [])
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching phone numbers:', err)
-      setError(err.message)
+      setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -118,9 +118,9 @@ export function usePhoneNumbers() {
       await fetchPhoneNumbers()
       toast.success('Phone number added successfully')
       return data.phoneNumber
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error adding phone number:', err)
-      toast.error(err.message || 'Failed to add phone number')
+      toast.error(err instanceof Error ? err.message : 'Failed to add phone number')
       throw err
     }
   }
@@ -142,9 +142,9 @@ export function usePhoneNumbers() {
       await fetchPhoneNumbers()
       toast.success('Phone number updated successfully')
       return data.phoneNumber
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error updating phone number:', err)
-      toast.error(err.message || 'Failed to update phone number')
+      toast.error(err instanceof Error ? err.message : 'Failed to update phone number')
       throw err
     }
   }
@@ -162,9 +162,9 @@ export function usePhoneNumbers() {
 
       await fetchPhoneNumbers()
       toast.success('Phone number removed successfully')
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting phone number:', err)
-      toast.error(err.message || 'Failed to remove phone number')
+      toast.error(err instanceof Error ? err.message : 'Failed to remove phone number')
       throw err
     }
   }
@@ -194,9 +194,9 @@ export function usePhoneNumbers() {
       await fetchVoiceIntegration()
       toast.success('Voice integration configured successfully')
       return data
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error configuring voice integration:', err)
-      toast.error(err.message || 'Failed to configure voice integration')
+      toast.error(err instanceof Error ? err.message : 'Failed to configure voice integration')
       throw err
     }
   }

@@ -2,6 +2,75 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { apiLogger } from '@/lib/logger'
 
+// AssemblyAI types
+interface Utterance {
+  speaker: string
+  text: string
+  start: number
+  end: number
+  confidence?: number
+  words?: Array<{
+    text: string
+    start: number
+    end: number
+    confidence: number
+  }>
+}
+
+interface SentimentResult {
+  text: string
+  sentiment: 'POSITIVE' | 'NEGATIVE' | 'NEUTRAL'
+  confidence: number
+  speaker?: string
+  start?: number
+  end?: number
+}
+
+interface Entity {
+  entity_type: string
+  text: string
+  start?: number
+  end?: number
+}
+
+interface IabCategoriesResult {
+  summary: Record<string, number>
+  results: Array<{
+    text: string
+    labels: Array<{
+      label: string
+      confidence: number
+    }>
+  }>
+}
+
+interface AutoHighlightsResult {
+  results: Array<{
+    text: string
+    count: number
+    rank: number
+    timestamps: Array<{
+      start: number
+      end: number
+    }>
+  }>
+}
+
+interface EntityMap {
+  people: string[]
+  organizations: string[]
+  locations: string[]
+  products: string[]
+  dates: string[]
+  money_amounts: string[]
+}
+
+interface BasicMetrics {
+  callMetrics: EnhancedAnalysis['call_metrics']
+  sentimentAnalysis: EnhancedAnalysis['sentiment_analysis']
+  topicsAndEntities: EnhancedAnalysis['topics_and_entities']
+}
+
 interface AssemblyAIAnalysis {
   summary?: string
   sentiment_analysis_results?: Array<{
@@ -179,7 +248,7 @@ interface EnhancedAnalysis {
 }
 
 // Analyze utterances for conversation metrics
-function analyzeConversationMetrics(utterances: any[], duration: number): EnhancedAnalysis['call_metrics'] {
+function analyzeConversationMetrics(utterances: Utterance[], duration: number): EnhancedAnalysis['call_metrics'] {
   let agentWords = 0
   let customerWords = 0
   let agentTime = 0
@@ -243,7 +312,7 @@ function analyzeConversationMetrics(utterances: any[], duration: number): Enhanc
 }
 
 // Analyze sentiment progression and overall sentiment
-function analyzeSentiment(sentimentResults: any[]): EnhancedAnalysis['sentiment_analysis'] {
+function analyzeSentiment(sentimentResults: SentimentResult[]): EnhancedAnalysis['sentiment_analysis'] {
   if (!sentimentResults || sentimentResults.length === 0) {
     return {
       overall_sentiment: 'neutral',
@@ -264,7 +333,7 @@ function analyzeSentiment(sentimentResults: any[]): EnhancedAnalysis['sentiment_
   const agentSentiments = sentimentResults.filter(r => r.speaker === 'A')
   const customerSentiments = sentimentResults.filter(r => r.speaker === 'B')
   
-  const calculateScore = (sentiments: any[]) => {
+  const calculateScore = (sentiments: SentimentResult[]) => {
     if (sentiments.length === 0) return 0
     const sum = sentiments.reduce((acc, s) => {
       const weight = s.confidence || 1
@@ -314,11 +383,11 @@ function analyzeSentiment(sentimentResults: any[]): EnhancedAnalysis['sentiment_
 
 // Extract entities and topics
 function extractTopicsAndEntities(
-  entities: any[], 
-  iabCategories: any, 
-  autoHighlights: any
+  entities: Entity[],
+  iabCategories: IabCategoriesResult | undefined,
+  autoHighlights: AutoHighlightsResult | undefined
 ): EnhancedAnalysis['topics_and_entities'] {
-  const entityMap: any = {
+  const entityMap: EntityMap = {
     people: [],
     organizations: [],
     locations: [],
@@ -368,10 +437,10 @@ function extractTopicsAndEntities(
   // Process topics from IAB categories
   const mainTopics: Array<{ topic: string; confidence: number; mentions: number }> = []
   if (iabCategories?.summary) {
-    Object.entries(iabCategories.summary).forEach(([topic, confidence]: [string, any]) => {
+    Object.entries(iabCategories.summary).forEach(([topic, confidence]) => {
       mainTopics.push({
         topic: topic.replace(/_/g, ' ').toLowerCase(),
-        confidence: confidence as number,
+        confidence,
         mentions: 1
       })
     })
@@ -380,7 +449,7 @@ function extractTopicsAndEntities(
   // Process keywords from auto highlights
   const keywords: Array<{ word: string; frequency: number; importance: number }> = []
   if (autoHighlights?.results) {
-    autoHighlights.results.forEach((highlight: any) => {
+    autoHighlights.results.forEach((highlight) => {
       keywords.push({
         word: highlight.text,
         frequency: highlight.count,
@@ -390,7 +459,7 @@ function extractTopicsAndEntities(
   }
   
   // Remove duplicates from entity arrays
-  Object.keys(entityMap).forEach(key => {
+  (Object.keys(entityMap) as Array<keyof EntityMap>).forEach(key => {
     entityMap[key] = [...new Set(entityMap[key])]
   })
   
@@ -405,7 +474,7 @@ function extractTopicsAndEntities(
 async function performAdvancedAnalysis(
   transcription: string,
   assemblyData: AssemblyAIAnalysis,
-  basicMetrics: any
+  _basicMetrics: BasicMetrics
 ): Promise<Partial<EnhancedAnalysis>> {
   const openaiApiKey = process.env.OPENAI_API_KEY
   if (!openaiApiKey) {
@@ -566,7 +635,7 @@ export async function POST(request: NextRequest) {
     
     // If we have a transcript ID, fetch the full AssemblyAI data
     let assemblyData: AssemblyAIAnalysis = {}
-    let utterances: any[] = []
+    let utterances: Utterance[] = []
     
     if (transcriptId) {
       const assemblyApiKey = process.env.ASSEMBLYAI_API_KEY || 'f16d9ecd7fbd4a108f305b303d940954'
@@ -610,10 +679,10 @@ export async function POST(request: NextRequest) {
     
     // Check compliance
     const compliance: EnhancedAnalysis['compliance'] = {
-      pii_detected: (assemblyData.entities || []).some((e: any) => 
+      pii_detected: (assemblyData.entities || []).some((e) =>
         ['ssn', 'credit_card', 'phone_number', 'email'].includes(e.entity_type.toLowerCase())
       ),
-      pci_detected: (assemblyData.entities || []).some((e: any) => 
+      pci_detected: (assemblyData.entities || []).some((e) =>
         e.entity_type.toLowerCase() === 'credit_card'
       ),
       sensitive_topics: assemblyData.content_safety_labels?.summary 
