@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest } from 'next/server'
 import { AuthorizationError } from '@/lib/errors/handler'
+import { webhookLogger } from '@/lib/logger'
 
 interface WebhookConfig {
   secret: string
@@ -34,7 +35,7 @@ export function verifyWebhookSignature(
     
     return crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
   } catch (error) {
-    console.error('Error verifying webhook signature:', error)
+    webhookLogger.error('Error verifying webhook signature', { error })
     return false
   }
 }
@@ -97,7 +98,7 @@ export function createWebhookVerifier(config: WebhookConfig) {
     const signature = req.headers.get(config.headerName || 'x-webhook-signature')
     
     if (!signature) {
-      console.warn('Webhook signature missing')
+      webhookLogger.warn('Webhook signature missing')
       return false
     }
     
@@ -113,7 +114,7 @@ export function createWebhookVerifier(config: WebhookConfig) {
     )
     
     if (!isValid) {
-      console.warn('Invalid webhook signature')
+      webhookLogger.warn('Invalid webhook signature')
     }
     
     return isValid
@@ -166,7 +167,7 @@ export function verifyTimestampedWebhook(
   
   // Validate timestamp
   if (!validateWebhookTimestamp(timestamp, tolerance)) {
-    console.warn('Webhook timestamp outside tolerance window')
+    webhookLogger.warn('Webhook timestamp outside tolerance window')
     return false
   }
   
@@ -183,7 +184,7 @@ export function verifyWebhookIP(
   allowedIPs: string[]
 ): boolean {
   if (!clientIP) {
-    console.warn('Client IP not available')
+    webhookLogger.warn('Client IP not available for webhook verification')
     return false
   }
   
@@ -258,8 +259,8 @@ export function logWebhookRequest(
   }
   
   if (isValid) {
-    console.log('[Webhook]', log)
+    webhookLogger.info('Webhook request received', log)
   } else {
-    console.error('[Webhook Security]', log, { payload })
+    webhookLogger.error('Webhook security validation failed', { ...log, payload })
   }
 }

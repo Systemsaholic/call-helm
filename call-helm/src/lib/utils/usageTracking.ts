@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { billingLogger } from '@/lib/logger'
 
 export interface UsageTrackingParams {
   organizationId: string
@@ -46,7 +47,7 @@ export async function trackUsage(params: UsageTrackingParams): Promise<void> {
         metadata: params.metadata || {}
       })
   } catch (error) {
-    console.error('Error tracking usage:', error)
+    billingLogger.error('Error tracking usage', { error })
     // Don't throw - usage tracking failures shouldn't break the main functionality
   }
 }
@@ -124,7 +125,7 @@ export async function checkUsageQuota(
       overage: Math.max(0, newTotal - actualLimit)
     }
   } catch (error) {
-    console.error('Error checking usage quota:', error)
+    billingLogger.error('Error checking usage quota', { error, organizationId, resourceType, requestedAmount })
     return { allowed: false, currentUsage: 0, limit: 0, overage: requestedAmount }
   }
 }

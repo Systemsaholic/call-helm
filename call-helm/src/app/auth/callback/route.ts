@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import { authLogger } from '@/lib/logger'
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
 
     const { error, data } = await supabase.auth.exchangeCodeForSession(code)
 
-    console.log('Auth callback - code exchanged:', {
+    authLogger.info('Auth callback - code exchanged', {
       error: error?.message,
       hasUser: !!data?.user,
       isSignup,
@@ -57,7 +58,7 @@ export async function GET(request: Request) {
       // Check if user already has onboarding completed
       const onboardingCompleted = data.user.user_metadata?.onboarding_completed
 
-      console.log('Auth callback - redirect decision:', {
+      authLogger.debug('Auth callback - redirect decision', {
         needsPasswordSetup,
         isFirstLogin,
         isSignup,
@@ -71,11 +72,11 @@ export async function GET(request: Request) {
       // But skip if onboarding is already completed
       if ((needsPasswordSetup || isFirstLogin || isSignup) && !onboardingCompleted) {
         // For invited agents, redirect to set up their password/profile
-        console.log('Auth callback - redirecting to setup-account')
+        authLogger.info('Auth callback - redirecting to setup-account')
         return NextResponse.redirect(`${origin}/auth/setup-account`)
       }
 
-      console.log('Auth callback - redirecting to:', next)
+      authLogger.info('Auth callback - redirecting to', { next })
       return NextResponse.redirect(`${origin}${next}`)
     }
   }

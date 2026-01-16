@@ -11,6 +11,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+import { apiLogger } from '@/lib/logger'
 
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16 // 16 bytes for GCM
@@ -119,7 +120,7 @@ export function encryptEIN(ein: string): string | null {
   }
 
   if (!isEncryptionConfigured()) {
-    console.warn('DATA_ENCRYPTION_KEY not configured - EIN will be stored unencrypted')
+    apiLogger.warn('DATA_ENCRYPTION_KEY not configured - EIN will be stored unencrypted')
     return null
   }
 

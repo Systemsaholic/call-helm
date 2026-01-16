@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { voiceLogger } from '@/lib/logger'
 
 // This service handles all SignalWire interactions server-side
 // Users never see or interact with SignalWire directly
@@ -68,10 +69,11 @@ export class SignalWireService {
 
   constructor() {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`DEBUG: Constructor values:`)
-      console.log(`- SIGNALWIRE_SPACE_URL: ${SIGNALWIRE_SPACE_URL}`)
-      console.log(`- SIGNALWIRE_PROJECT_ID: ${SIGNALWIRE_PROJECT_ID}`)
-      console.log(`- SIGNALWIRE_API_TOKEN: ${SIGNALWIRE_API_TOKEN ? 'SET' : 'NOT SET'}`)
+      voiceLogger.debug('SignalWire constructor initialized', {
+        spaceUrl: SIGNALWIRE_SPACE_URL,
+        projectId: SIGNALWIRE_PROJECT_ID,
+        hasApiToken: !!SIGNALWIRE_API_TOKEN
+      })
     }
 
     this.baseUrl = `https://${SIGNALWIRE_SPACE_URL}/api/laml/2010-04-01/Accounts/${SIGNALWIRE_PROJECT_ID}`
@@ -79,8 +81,10 @@ export class SignalWireService {
     this.auth = Buffer.from(`${SIGNALWIRE_PROJECT_ID}:${SIGNALWIRE_API_TOKEN}`).toString('base64')
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`DEBUG: Constructed baseUrl: ${this.baseUrl}`)
-      console.log(`DEBUG: Constructed campaignRegistryUrl: ${this.campaignRegistryUrl}`)
+      voiceLogger.debug('SignalWire URLs constructed', {
+        baseUrl: this.baseUrl,
+        campaignRegistryUrl: this.campaignRegistryUrl
+      })
     }
   }
 
@@ -136,8 +140,8 @@ export class SignalWireService {
     const url = `${this.baseUrl}/AvailablePhoneNumbers/${country}/Local.json?${queryParams}`
 
     try {
-      console.log(`SignalWire search URL: ${url}`)
-      
+      voiceLogger.debug('SignalWire search URL', { url })
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Basic ${this.auth}`,
@@ -150,12 +154,10 @@ export class SignalWireService {
       }
 
       const data = await response.json()
-      console.log(`SignalWire returned ${data.available_phone_numbers?.length || 0} local numbers`)
-      
-      // Debug: Log sample data to see what SignalWire returns
-      if (data.available_phone_numbers?.length > 0) {
-        console.log('Sample SignalWire number data:', JSON.stringify(data.available_phone_numbers[0], null, 2))
-      }
+      voiceLogger.debug('SignalWire search results', {
+        count: data.available_phone_numbers?.length || 0,
+        sample: data.available_phone_numbers?.[0] ? { phoneNumber: data.available_phone_numbers[0].phone_number } : null
+      })
       
       // Transform SignalWire response to our format
       return (data.available_phone_numbers || []).map((num: any) => {
@@ -186,7 +188,7 @@ export class SignalWireService {
         }
       })
     } catch (error) {
-      console.error('SignalWire searchAvailableNumbers error:', error)
+      voiceLogger.error('SignalWire searchAvailableNumbers error', { error })
       throw new Error('Failed to search available numbers')
     }
   }
@@ -232,7 +234,7 @@ export class SignalWireService {
 
       if (!response.ok) {
         const error = await response.text()
-        console.error('SignalWire purchase error:', error)
+        voiceLogger.error('SignalWire purchase error', { error, status: response.status })
         
         // Parse common errors for better user messages
         if (response.status === 400) {
@@ -258,7 +260,7 @@ export class SignalWireService {
         status: 'active'
       }
     } catch (error) {
-      console.error('SignalWire purchaseNumber error:', error)
+      voiceLogger.error('SignalWire purchaseNumber error', { error, phoneNumber })
       throw new Error('Failed to purchase phone number')
     }
   }
@@ -288,7 +290,7 @@ export class SignalWireService {
         throw new Error(`Failed to configure forwarding: ${response.statusText}`)
       }
     } catch (error) {
-      console.error('SignalWire configureForwarding error:', error)
+      voiceLogger.error('SignalWire configureForwarding error', { error, numberSid, forwardTo })
       throw new Error('Failed to configure call forwarding')
     }
   }
@@ -328,16 +330,13 @@ export class SignalWireService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('SignalWire API Error:', errorText)
+        voiceLogger.error('SignalWire API error updating webhooks', { errorText, status: response.status })
         throw new Error(`Failed to update webhook URLs: ${response.statusText} - ${errorText}`)
       }
-      
-      console.log(`Successfully updated webhook URLs for ${numberSid}:`)
-      console.log(`- Voice URL: ${voiceUrl}`)
-      console.log(`- SMS URL: ${smsUrl}`)
-      console.log(`- Status Callback: ${statusCallback}`)
+
+      voiceLogger.info('Successfully updated webhook URLs', { numberSid, voiceUrl, smsUrl, statusCallback })
     } catch (error) {
-      console.error('SignalWire updateWebhookUrls error:', error)
+      voiceLogger.error('SignalWire updateWebhookUrls error', { error, numberSid })
       throw new Error('Failed to update webhook URLs')
     }
   }
@@ -345,10 +344,9 @@ export class SignalWireService {
   // List all numbers owned by this account
   async listOwnedNumbers(): Promise<any[]> {
     const url = `${this.baseUrl}/IncomingPhoneNumbers.json`
-    
-    console.log(`DEBUG: Attempting to fetch from URL: ${url}`)
-    console.log(`DEBUG: Base URL: ${this.baseUrl}`)
-    
+
+    voiceLogger.debug('Fetching owned numbers', { url })
+
     try {
       const response = await fetch(url, {
         headers: {
@@ -356,18 +354,18 @@ export class SignalWireService {
         }
       })
 
-      console.log(`DEBUG: Response status: ${response.status} ${response.statusText}`)
+      voiceLogger.debug('listOwnedNumbers response', { status: response.status })
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error(`DEBUG: Error response body: ${errorText}`)
+        voiceLogger.error('listOwnedNumbers error response', { errorText, status: response.status })
         throw new Error(`Failed to list numbers: ${response.statusText}`)
       }
 
       const data = await response.json()
       return data.incoming_phone_numbers || []
     } catch (error) {
-      console.error('SignalWire listOwnedNumbers error:', error)
+      voiceLogger.error('SignalWire listOwnedNumbers error', { error })
       throw new Error('Failed to list phone numbers')
     }
   }
@@ -388,7 +386,7 @@ export class SignalWireService {
         throw new Error(`Failed to release number: ${response.statusText}`)
       }
     } catch (error) {
-      console.error('SignalWire releaseNumber error:', error)
+      voiceLogger.error('SignalWire releaseNumber error', { error, numberSid })
       throw new Error('Failed to release phone number')
     }
   }
@@ -419,7 +417,7 @@ export class SignalWireService {
         throw new Error(`Failed to send verification: ${response.statusText}`)
       }
     } catch (error) {
-      console.error('SignalWire sendVerificationCode error:', error)
+      voiceLogger.error('SignalWire sendVerificationCode error', { error })
       throw new Error('Failed to send verification code')
     }
   }
@@ -456,14 +454,14 @@ export class SignalWireService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('SignalWire verification call failed:', errorText)
+        voiceLogger.error('SignalWire verification call failed', { errorText, status: response.status })
         throw new Error(`Failed to initiate verification call: ${response.statusText}`)
       }
 
       const data = await response.json()
-      console.log('Verification call initiated:', data.sid)
+      voiceLogger.info('Verification call initiated', { callSid: data.sid })
     } catch (error) {
-      console.error('SignalWire sendVerificationCall error:', error)
+      voiceLogger.error('SignalWire sendVerificationCall error', { error })
       throw new Error('Failed to initiate verification call')
     }
   }
@@ -512,7 +510,7 @@ export class SignalWireService {
         valid: data.valid !== false
       }
     } catch (error) {
-      console.error('SignalWire lookupPhoneNumber error:', error)
+      voiceLogger.error('SignalWire lookupPhoneNumber error', { error, phoneNumber })
       // Return unknown if lookup fails
       return { type: 'unknown', valid: true }
     }
@@ -538,17 +536,17 @@ export class SignalWireService {
 
       if (!response.ok) {
         const error = await response.text()
-        console.error('SignalWire API Error Response:', error)
+        voiceLogger.error('SignalWire endCall API error', { error, status: response.status, callSid })
         throw new Error(`SignalWire API Error: ${response.status} - ${error}`)
       }
 
-      console.log(`Successfully ended call ${callSid}`)
+      voiceLogger.info('Successfully ended call', { callSid })
     } catch (error) {
-      console.error('SignalWire endCall error:', error)
+      voiceLogger.error('SignalWire endCall error', { error, callSid })
       throw error
     }
   }
-  
+
   // Make an outbound call with custom parameters
   async initiateCallWithParams(params: {
     from: string
@@ -558,19 +556,18 @@ export class SignalWireService {
     params?: Record<string, string>
   }): Promise<string> {
     const url = `${this.baseUrl}/Calls.json`
-    
-    console.log('[SignalWire] initiateCallWithParams called with:', params)
-    
+
+    voiceLogger.debug('initiateCallWithParams called', { from: params.from, to: params.to })
+
     // Use APP_URL first (server-side), fallback to NEXT_PUBLIC_APP_URL
     const baseUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL
-    
+
     // Build TwiML URL with custom parameters
     const urlParams = new URLSearchParams(params.params || {})
     const twimlUrl = `${baseUrl}/api/voice/twiml?${urlParams.toString()}`
     const statusUrl = `${baseUrl}/api/voice/status`
-    
-    console.log('[SignalWire] TwiML URL:', twimlUrl)
-    console.log('[SignalWire] Status URL:', statusUrl)
+
+    voiceLogger.debug('SignalWire call URLs', { twimlUrl, statusUrl })
     
     try {
       // SignalWire expects form-encoded data for Call creation
@@ -599,14 +596,14 @@ export class SignalWireService {
 
       if (!response.ok) {
         const error = await response.text()
-        console.error('SignalWire API Error Response:', error)
+        voiceLogger.error('SignalWire initiateCallWithParams API error', { error, status: response.status })
         throw new Error(`SignalWire API Error: ${response.status} - ${error}`)
       }
 
       const data = await response.json()
       return data.sid // Return call SID for tracking
     } catch (error) {
-      console.error('SignalWire initiateCallWithParams error:', error)
+      voiceLogger.error('SignalWire initiateCallWithParams error', { error })
       throw error // Throw the original error for better debugging
     }
   }
@@ -652,14 +649,14 @@ export class SignalWireService {
 
       if (!response.ok) {
         const error = await response.text()
-        console.error('SignalWire API Error Response:', error)
+        voiceLogger.error('SignalWire initiateCall API error', { error, status: response.status })
         throw new Error(`SignalWire API Error: ${response.status} - ${error}`)
       }
 
       const data = await response.json()
       return data.sid // Return call SID for tracking
     } catch (error) {
-      console.error('SignalWire initiateCall error:', error)
+      voiceLogger.error('SignalWire initiateCall error', { error })
       throw error // Throw the original error for better debugging
     }
   }
@@ -687,7 +684,7 @@ export class SignalWireService {
 
       return null
     } catch (error) {
-      console.error('SignalWire getCallRecording error:', error)
+      voiceLogger.error('SignalWire getCallRecording error', { error, callSid })
       return null
     }
   }
@@ -817,11 +814,11 @@ export class SignalWireService {
         actualPortDate: data.actual_port_date
       }
     } catch (error) {
-      console.error('SignalWire submitPortingRequest error:', error)
+      voiceLogger.error('SignalWire submitPortingRequest error', { error })
       throw new Error('Failed to submit porting request')
     }
   }
-  
+
   // Get porting request status
   async getPortingRequestStatus(portingRequestId: string): Promise<PortingRequest> {
     const url = `${this.baseUrl}/PortingRequests/${portingRequestId}.json`
@@ -848,7 +845,7 @@ export class SignalWireService {
         rejectionReason: data.rejection_reason
       }
     } catch (error) {
-      console.error('SignalWire getPortingRequestStatus error:', error)
+      voiceLogger.error('SignalWire getPortingRequestStatus error', { error, portingRequestId })
       throw new Error('Failed to get porting request status')
     }
   }
@@ -916,11 +913,11 @@ export class SignalWireService {
         status: data.brand_registration_status?.toLowerCase() || 'pending'
       }
     } catch (error) {
-      console.error('SignalWire createBrand error:', error)
+      voiceLogger.error('SignalWire createBrand error', { error })
       throw new Error('Failed to create brand')
     }
   }
-  
+
   // Create a campaign for 10DLC compliance
   async createCampaign(params: {
     brandId: string
@@ -989,11 +986,11 @@ export class SignalWireService {
         status: data.campaign_status?.toLowerCase() || 'pending'
       }
     } catch (error) {
-      console.error('SignalWire createCampaign error:', error)
+      voiceLogger.error('SignalWire createCampaign error', { error })
       throw new Error('Failed to create campaign')
     }
   }
-  
+
   // Get brand status
   async getBrandStatus(brandId: string): Promise<Brand> {
     const url = `${this.campaignRegistryUrl}/brands/${brandId}`
@@ -1019,11 +1016,11 @@ export class SignalWireService {
         rejectionReason: data.rejection_reason
       }
     } catch (error) {
-      console.error('SignalWire getBrandStatus error:', error)
+      voiceLogger.error('SignalWire getBrandStatus error', { error, brandId })
       throw new Error('Failed to get brand status')
     }
   }
-  
+
   // Get campaign status
   async getCampaignStatus(campaignId: string): Promise<Campaign> {
     const url = `${this.campaignRegistryUrl}/campaigns/${campaignId}`
@@ -1050,7 +1047,7 @@ export class SignalWireService {
         rejectionReason: data.rejection_reason
       }
     } catch (error) {
-      console.error('SignalWire getCampaignStatus error:', error)
+      voiceLogger.error('SignalWire getCampaignStatus error', { error, campaignId })
       throw new Error('Failed to get campaign status')
     }
   }

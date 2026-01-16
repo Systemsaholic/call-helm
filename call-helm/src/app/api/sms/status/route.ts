@@ -1,42 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { smsLogger } from '@/lib/logger'
 
 // SignalWire SMS status webhook handler
 export async function POST(request: NextRequest) {
   try {
-    console.log('=== SMS STATUS WEBHOOK ===')
-    
+    smsLogger.info('SMS status webhook received')
+
     // Parse form-encoded data from SignalWire
     const formData = await request.formData()
-    const data: any = {}
+    const data: Record<string, unknown> = {}
     formData.forEach((value, key) => {
       data[key] = value
     })
-    
-    console.log('SMS Status Update:', {
-      messageSid: data.MessageSid,
-      messageStatus: data.MessageStatus,
-      to: data.To,
-      from: data.From,
-      errorCode: data.ErrorCode,
-      errorMessage: data.ErrorMessage
+
+    smsLogger.debug('SMS status update', {
+      data: { messageSid: data.MessageSid, messageStatus: data.MessageStatus, to: data.To, from: data.From, errorCode: data.ErrorCode }
     })
     
-    const messageSid = data.MessageSid
-    const messageStatus = data.MessageStatus
-    const errorCode = data.ErrorCode
-    const errorMessage = data.ErrorMessage
-    
+    const messageSid = data.MessageSid as string | undefined
+    const messageStatus = data.MessageStatus as string | undefined
+    const errorCode = data.ErrorCode as string | undefined
+    const errorMessage = data.ErrorMessage as string | undefined
+
     if (!messageSid || !messageStatus) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
-    
+
     // Use service role client to bypass RLS
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
-    
+
     // Map SignalWire status to our status
     let mappedStatus = messageStatus.toLowerCase()
     if (mappedStatus === 'sent') {
@@ -74,11 +70,11 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (updateError) {
-      console.error('Error updating message status:', updateError)
+      smsLogger.error('Error updating message status', { error: updateError })
       return NextResponse.json({ error: 'Failed to update status' }, { status: 500 })
     }
 
-    console.log(`SMS ${messageSid} status updated to ${mappedStatus}`)
+    smsLogger.debug('SMS status updated', { data: { messageSid, status: mappedStatus } })
 
     // Sync status to broadcast recipient if this message is part of a broadcast
     if (messageRecord?.id && (mappedStatus === 'delivered' || mappedStatus === 'failed')) {
@@ -119,7 +115,9 @@ export async function POST(request: NextRequest) {
             })
             .eq('id', recipient.broadcast_id)
 
-          console.log(`Broadcast ${recipient.broadcast_id} counters updated: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}`)
+          smsLogger.debug('Broadcast counters updated', {
+            data: { broadcastId: recipient.broadcast_id, sentCount, deliveredCount, failedCount }
+          })
         }
       }
     }
@@ -128,7 +126,7 @@ export async function POST(request: NextRequest) {
     return new Response(null, { status: 204 })
     
   } catch (error) {
-    console.error('SMS status webhook error:', error)
+    smsLogger.error('SMS status webhook error', { error })
     return NextResponse.json({ 
       error: 'Internal server error',
       details: error instanceof Error ? error.message : 'Unknown error'

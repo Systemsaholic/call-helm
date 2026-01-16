@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { apiLogger } from '@/lib/logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -34,7 +35,7 @@ export async function generateThreeCXApiKey(organizationId: string): Promise<str
     });
 
   if (error) {
-    console.error('Error generating 3CX API key:', error);
+    apiLogger.error('Error generating 3CX API key', { error, organizationId });
     throw new Error('Failed to generate API key');
   }
 
@@ -77,7 +78,7 @@ export async function getThreeCXIntegration(organizationId: string) {
     .single();
 
   if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-    console.error('Error fetching 3CX integration:', error);
+    apiLogger.error('Error fetching 3CX integration', { error, organizationId });
     throw new Error('Failed to fetch integration');
   }
 
@@ -105,7 +106,7 @@ export async function updateThreeCXIntegration(
     .single();
 
   if (error) {
-    console.error('Error updating 3CX integration:', error);
+    apiLogger.error('Error updating 3CX integration', { error, organizationId });
     throw new Error('Failed to update integration');
   }
 
@@ -129,7 +130,7 @@ export async function getAgentByExtension(
     .single();
 
   if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching agent mapping:', error);
+    apiLogger.error('Error fetching agent mapping', { error, organizationId, extension });
   }
 
   return data;
@@ -163,7 +164,7 @@ export async function upsertAgentMapping(
     .single();
 
   if (error) {
-    console.error('Error upserting agent mapping:', error);
+    apiLogger.error('Error upserting agent mapping', { error, organizationId, extension });
     throw new Error('Failed to update agent mapping');
   }
 
@@ -194,7 +195,7 @@ export async function logThreeCXEvent(eventData: {
     .insert(eventData);
 
   if (error) {
-    console.error('Error logging 3CX event:', error);
+    apiLogger.error('Error logging 3CX event', { error, eventType: eventData.event_type });
     // Don't throw - logging failures shouldn't break the main flow
   }
 }
@@ -215,7 +216,7 @@ export async function getThreeCXStats(organizationId: string, days: number = 30)
     .gte('created_at', since.toISOString());
 
   if (error) {
-    console.error('Error fetching 3CX stats:', error);
+    apiLogger.error('Error fetching 3CX stats', { error, organizationId, days });
     return {
       total_events: 0,
       lookups: 0,

@@ -1,4 +1,5 @@
 import Stripe from 'stripe'
+import { billingLogger } from '@/lib/logger'
 
 // Server-side Stripe instance
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -134,9 +135,9 @@ export async function addMeteredItemsToSubscription(subscriptionId: string): Pro
           type: 'overage',
         },
       })
-      console.log(`Added metered item for ${resourceType} to subscription ${subscriptionId}`)
+      billingLogger.info('Added metered item to subscription', { resourceType, subscriptionId })
     } catch (error) {
-      console.error(`Failed to add metered item for ${resourceType}:`, error)
+      billingLogger.error('Failed to add metered item', { resourceType, subscriptionId, error })
     }
   }
 }
@@ -193,7 +194,7 @@ export async function reportOverageUsage(
 
   const subscriptionItemId = await getSubscriptionItemId(subscriptionId, resourceType)
   if (!subscriptionItemId) {
-    console.warn(`No subscription item found for ${resourceType} on subscription ${subscriptionId}`)
+    billingLogger.warn('No subscription item found for metered billing', { resourceType, subscriptionId })
     return null
   }
 
@@ -227,7 +228,7 @@ export async function getSubscriptionBillingPeriod(subscriptionId: string): Prom
       end: new Date(subscription.current_period_end * 1000),
     }
   } catch (error) {
-    console.error('Failed to get subscription billing period:', error)
+    billingLogger.error('Failed to get subscription billing period', { subscriptionId, error })
     return null
   }
 }
