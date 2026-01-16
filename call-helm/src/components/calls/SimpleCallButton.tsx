@@ -105,7 +105,7 @@ export function SimpleCallButton({
           contactId,
           callListId,
           scriptId,
-          provider: 'signalwire'
+          provider: 'telnyx'
         }),
       })
 

@@ -41,10 +41,10 @@ export async function GET() {
     }
   }
 
-  // 3. SignalWire connectivity check (basic)
-  checks.signalwire = {
-    status: process.env.SIGNALWIRE_API_TOKEN ? 'configured' : 'unconfigured',
-    message: process.env.SIGNALWIRE_API_TOKEN ? 'API token present' : 'API token missing',
+  // 3. Telnyx connectivity check (basic)
+  checks.telnyx = {
+    status: process.env.TELNYX_API_KEY ? 'configured' : 'unconfigured',
+    message: process.env.TELNYX_API_KEY ? 'API key present' : 'API key missing',
   }
 
   // 4. OpenAI check
@@ -63,7 +63,7 @@ export async function GET() {
   const isHealthy =
     checks.environment.status === 'healthy' &&
     checks.database.status === 'healthy' &&
-    checks.signalwire.status === 'configured' &&
+    checks.telnyx.status === 'configured' &&
     checks.openai.status === 'configured'
 
   const responseTime = Date.now() - startTime

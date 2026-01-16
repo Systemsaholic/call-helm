@@ -69,7 +69,7 @@ interface WebhookStatus {
   total: number
   configured: number
   needsConfiguration: number
-  missingSignalWireSid: number
+  missingTelnyxId: number
 }
 
 export function PhoneNumberManagement() {
@@ -217,19 +217,19 @@ export function PhoneNumberManagement() {
         }
         if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
           console.error('Webhook configuration errors:', data.errors)
-          const missingSignalWireErrors = data.errors.filter((e: any) => 
-            e.error && e.error.includes('not found or not configured with SignalWire')
+          const missingTelnyxErrors = data.errors.filter((e: unknown) =>
+            (e as { error?: string }).error && (e as { error: string }).error.includes('not found or not configured with Telnyx')
           )
-          
-          if (missingSignalWireErrors.length > 0) {
-            toast.error(`${missingSignalWireErrors.length} numbers are missing SignalWire integration. They need to be purchased or re-synchronized with SignalWire.`)
+
+          if (missingTelnyxErrors.length > 0) {
+            toast.error(`${missingTelnyxErrors.length} numbers are missing Telnyx integration. They need to be purchased or re-synchronized with Telnyx.`)
           } else {
             toast.warning(`${data.failed} numbers had configuration errors`)
           }
         }
-        
+
         if (data.successful === 0 && data.errors && data.errors.length > 0) {
-          toast.error('No webhooks were configured. Check that numbers are properly integrated with SignalWire.')
+          toast.error('No webhooks were configured. Check that numbers are properly integrated with Telnyx.')
         }
         
         await fetchPhoneNumbers()
@@ -245,10 +245,10 @@ export function PhoneNumberManagement() {
     }
   }
 
-  const syncWithSignalWire = async () => {
+  const syncWithTelnyx = async () => {
     try {
       setSyncing(true)
-      
+
       const response = await fetch('/api/voice/numbers/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -258,24 +258,24 @@ export function PhoneNumberManagement() {
 
       if (data.success) {
         if (data.successful > 0) {
-          toast.success(`Synchronized ${data.successful} phone numbers with SignalWire`)
+          toast.success(`Synchronized ${data.successful} phone numbers with Telnyx`)
         } else {
           toast.info(data.message || 'No phone numbers needed synchronization')
         }
-        
+
         if (data.errors.length > 0) {
           console.error('Sync errors:', data.errors)
           toast.warning(`${data.failed} numbers could not be synchronized`)
         }
-        
+
         await fetchPhoneNumbers()
         await fetchWebhookStatus()
       } else {
         throw new Error(data.error)
       }
     } catch (error) {
-      console.error('Error syncing with SignalWire:', error)
-      toast.error('Failed to sync with SignalWire')
+      console.error('Error syncing with Telnyx:', error)
+      toast.error('Failed to sync with Telnyx')
     } finally {
       setSyncing(false)
     }
@@ -505,16 +505,16 @@ export function PhoneNumberManagement() {
         </Card>
       </div>
 
-      {/* SignalWire Sync Alert */}
-      {webhookStatus && webhookStatus.missingSignalWireSid > 0 && (
+      {/* Telnyx Sync Alert */}
+      {webhookStatus && webhookStatus.missingTelnyxId > 0 && (
         <Alert>
           <Webhook className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
             <span>
-              {webhookStatus.missingSignalWireSid} numbers need to be synchronized with SignalWire before webhooks can be configured.
+              {webhookStatus.missingTelnyxId} numbers need to be synchronized with Telnyx before webhooks can be configured.
             </span>
             <Button
-              onClick={syncWithSignalWire}
+              onClick={syncWithTelnyx}
               disabled={syncing}
               size="sm"
             >
@@ -523,7 +523,7 @@ export function PhoneNumberManagement() {
               ) : (
                 <ArrowRight className="w-4 h-4 mr-2" />
               )}
-              Sync with SignalWire
+              Sync with Telnyx
             </Button>
           </AlertDescription>
         </Alert>

@@ -32,7 +32,7 @@ interface SMSCampaign {
   useCase: string
   useCaseDescription: string
   status: 'pending' | 'submitted' | 'approved' | 'rejected' | 'suspended'
-  signalwireCampaignId?: string
+  telnyxCampaignId?: string
   approvalDate?: string
   monthlyMessageVolume: number
   createdAt: string

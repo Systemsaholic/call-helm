@@ -15,10 +15,10 @@ const ENV_VARS: EnvConfig[] = [
   { name: 'NEXT_PUBLIC_SUPABASE_ANON_KEY', required: true, description: 'Supabase anonymous key' },
   { name: 'SUPABASE_SERVICE_ROLE_KEY', required: true, description: 'Supabase service role key' },
 
-  // SignalWire (Critical for calling/SMS)
-  { name: 'SIGNALWIRE_SPACE_URL', required: true, description: 'SignalWire space URL' },
-  { name: 'SIGNALWIRE_PROJECT_ID', required: true, description: 'SignalWire project ID' },
-  { name: 'SIGNALWIRE_API_TOKEN', required: true, description: 'SignalWire API token' },
+  // Telnyx (Critical for calling/SMS)
+  { name: 'TELNYX_API_KEY', required: true, description: 'Telnyx API key' },
+  { name: 'TELNYX_CONNECTION_ID', required: true, description: 'Telnyx connection ID for voice' },
+  { name: 'TELNYX_MESSAGING_PROFILE_ID', required: true, description: 'Telnyx messaging profile ID for SMS' },
 
   // OpenAI (Required for AI features)
   { name: 'OPENAI_API_KEY', required: true, description: 'OpenAI API key for analysis' },
@@ -30,7 +30,7 @@ const ENV_VARS: EnvConfig[] = [
   { name: 'NEXT_PUBLIC_APP_URL', required: true, description: 'Application URL for webhooks' },
 
   // Optional but recommended
-  { name: 'SIGNALWIRE_CAMPAIGN_REGISTRY_API', required: false, description: 'SignalWire campaign registry API' },
+  { name: 'TELNYX_PUBLIC_KEY', required: false, description: 'Telnyx public key for webhook verification' },
 ]
 
 interface ValidationResult {

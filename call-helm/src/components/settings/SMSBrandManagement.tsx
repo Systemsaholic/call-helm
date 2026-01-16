@@ -29,7 +29,7 @@ interface SMSBrand {
   businessType: string
   industry: string
   status: 'pending' | 'submitted' | 'approved' | 'rejected' | 'suspended'
-  signalwireBrandId?: string
+  telnyxBrandId?: string
   approvalDate?: string
   campaignCount: number
   createdAt: string

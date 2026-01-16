@@ -72,7 +72,7 @@ export function ClickToCallButton({
           contactId,
           callListId,
           scriptId,
-          provider: 'signalwire' // Use SignalWire as default
+          provider: 'telnyx' // Use Telnyx as provider
         }),
       })
 
