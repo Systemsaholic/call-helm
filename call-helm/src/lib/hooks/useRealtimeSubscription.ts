@@ -246,3 +246,115 @@ export function useConversationUpdatesSubscription(
 export function useRealtimeStatus() {
   return realtimeService.getStatus()
 }
+
+/**
+ * Subscribe to contact assignment changes for the current agent
+ * Used by AgentCallDashboard to get real-time queue updates
+ *
+ * @param memberId - Organization member ID of the agent
+ * @param onAssignmentChange - Callback when assignments change
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useRealtimeContactAssignments(
+  memberId: string | null | undefined,
+  onAssignmentChange: PostgresChangeCallback,
+  enabled: boolean = true
+) {
+  useEffect(() => {
+    if (!enabled || !memberId) return
+
+    console.log(`📋 Subscribing to contact assignments for agent: ${memberId}`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `contact-assignments-${memberId}`,
+      {
+        event: '*', // INSERT, UPDATE, DELETE
+        schema: 'public',
+        table: 'call_list_contacts',
+        filter: `assigned_to=eq.${memberId}`
+      },
+      onAssignmentChange
+    )
+
+    return () => {
+      console.log(`📋 Unsubscribing from contact assignments for agent: ${memberId}`)
+      unsubscribe()
+    }
+  }, [memberId, onAssignmentChange, enabled])
+}
+
+/**
+ * Subscribe to call status changes
+ *
+ * @param organizationId - Organization to filter calls for
+ * @param onCallChange - Callback when call changes occur
+ * @param enabled - Whether subscription is active (default: true)
+ */
+export function useCallSubscription(
+  organizationId: string | null | undefined,
+  onCallChange: PostgresChangeCallback,
+  enabled: boolean = true
+) {
+  useEffect(() => {
+    if (!enabled || !organizationId) return
+
+    console.log(`📞 Subscribing to calls for org: ${organizationId}`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `calls-${organizationId}`,
+      {
+        event: '*',
+        schema: 'public',
+        table: 'calls',
+        filter: `organization_id=eq.${organizationId}`
+      },
+      onCallChange
+    )
+
+    return () => {
+      console.log(`📞 Unsubscribing from calls for org: ${organizationId}`)
+      unsubscribe()
+    }
+  }, [organizationId, onCallChange, enabled])
+}
+
+/**
+ * Generic hook for subscribing to any table changes
+ *
+ * @param tableName - The table to subscribe to
+ * @param onPayload - Callback when changes occur
+ * @param options - Optional filter and event type options
+ */
+export function useRealtimeSubscription(
+  tableName: string,
+  onPayload: PostgresChangeCallback,
+  options?: {
+    event?: 'INSERT' | 'UPDATE' | 'DELETE' | '*'
+    filter?: string
+    enabled?: boolean
+  }
+) {
+  const { event = '*', filter, enabled = true } = options || {}
+
+  useEffect(() => {
+    if (!enabled) return
+
+    console.log(`🔔 Subscribing to ${tableName} changes`)
+
+    const unsubscribe = realtimeService.subscribeToTable(
+      `generic-${tableName}`,
+      {
+        event,
+        schema: 'public',
+        table: tableName,
+        filter
+      },
+      onPayload
+    )
+
+    return () => {
+      console.log(`🔔 Unsubscribing from ${tableName} changes`)
+      unsubscribe()
+    }
+  }, [tableName, onPayload, event, filter, enabled])
+}

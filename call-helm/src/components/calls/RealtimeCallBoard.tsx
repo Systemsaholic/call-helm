@@ -3,12 +3,15 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeSubscription } from '@/lib/hooks/useRealtimeSubscription'
+import { useUserRole } from '@/lib/hooks/useUserRole'
+import { useAgentQueue } from '@/lib/hooks/useAgentAssignments'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Progress } from '@/components/ui/progress'
 import { CallHistory } from './CallHistory'
+import Link from 'next/link'
 import {
   Phone,
   PhoneOff,
@@ -30,7 +33,11 @@ import {
   Mic,
   MicOff,
   Volume2,
-  RefreshCw
+  RefreshCw,
+  User,
+  Building2,
+  ListTodo,
+  ArrowRight
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { SystemHealthIndicator } from '@/components/system/SystemHealthIndicator'
@@ -73,6 +80,8 @@ interface CallStats {
 
 export function RealtimeCallBoard() {
   const supabase = createClient()
+  const { isAgent, memberId: userMemberId } = useUserRole()
+  const { data: queueData, isLoading: queueLoading, refetch: refetchQueue } = useAgentQueue()
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([])
   const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
   const [callStats, setCallStats] = useState<CallStats>({
@@ -87,6 +96,7 @@ export function RealtimeCallBoard() {
   const [refreshing, setRefreshing] = useState(false)
   const [selectedView, setSelectedView] = useState<'grid' | 'list'>('grid')
   const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [memberId, setMemberId] = useState<string | null>(null)
   const [subscriptionStatus, setSubscriptionStatus] = useState<string>('CONNECTING')
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
@@ -104,7 +114,7 @@ export function RealtimeCallBoard() {
       console.log('👤 User found:', user.id)
       const { data: member } = await supabase
         .from('organization_members')
-        .select('organization_id')
+        .select('id, organization_id')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .single()
@@ -113,6 +123,7 @@ export function RealtimeCallBoard() {
       if (member?.organization_id) {
         console.log('✅ Setting organizationId:', member.organization_id)
         setOrganizationId(member.organization_id)
+        setMemberId(member.id)
         // Don't call loadCallBoard here, it will be called in the useEffect below
       } else {
         console.log('❌ No organization found for user')
@@ -266,15 +277,22 @@ export function RealtimeCallBoard() {
 
   const loadCallBoard = async (silent = false) => {
     if (!silent) setLoading(true)
-    
+
     try {
       // Load active calls - only get calls that haven't ended
-      const { data: callsData, error: callsError } = await supabase
+      let query = supabase
         .from('calls')
         .select('*')
         .eq('organization_id', organizationId) // Filter by organization
         .is('end_time', null) // Only get calls without an end time
         .order('start_time', { ascending: false })
+
+      // For agents, only show their own calls
+      if (isAgent && memberId) {
+        query = query.eq('member_id', memberId)
+      }
+
+      const { data: callsData, error: callsError } = await query
       
       if (callsError) {
         console.error('Error loading active calls:', callsError)
@@ -611,15 +629,26 @@ export function RealtimeCallBoard() {
     )
   }
 
+  // Helper to get initials from name
+  const getInitials = (name: string | null | undefined) => {
+    if (!name) return '?'
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  }
+
+  // Pending contacts from agent queue
+  const pendingContacts = queueData?.contacts || []
+
   return (
-    <div className="space-y-6">
-      {/* System Health Status */}
-      <div className="flex justify-end">
-        <SystemHealthIndicator variant="compact" />
-      </div>
-      
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Left Column - Active Calls, Agent Status, Recent Calls */}
+      <div className="lg:col-span-2 space-y-6">
+        {/* System Health Status */}
+        <div className="flex justify-end">
+          <SystemHealthIndicator variant="compact" />
+        </div>
+
+        {/* Stats Overview */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Calls</CardDescription>
@@ -827,61 +856,209 @@ export function RealtimeCallBoard() {
         </CardContent>
       </Card>
 
-      {/* Agent Status Grid */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Agent Status</CardTitle>
-          <CardDescription>
-            {agentStatuses.filter(a => a.status !== 'offline').length} of {agentStatuses.length} agents online
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {agentStatuses.map((agent) => (
-              <div key={agent.id} className="flex items-center gap-3 p-3 border rounded-lg">
-                <Avatar>
-                  <AvatarFallback>
-                    {agent.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{agent.name}</p>
-                  <div className="flex items-center gap-2">
-                    <div className={`h-2 w-2 rounded-full ${getStatusColor(agent.status)}`} />
-                    <span className="text-xs text-muted-foreground capitalize">
-                      {agent.status.replace('-', ' ')}
-                    </span>
+        {/* Agent Status Grid */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Agent Status</CardTitle>
+            <CardDescription>
+              {agentStatuses.filter(a => a.status !== 'offline').length} of {agentStatuses.length} agents online
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {agentStatuses.map((agent) => (
+                <div key={agent.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                  <Avatar>
+                    <AvatarFallback>
+                      {agent.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{agent.name}</p>
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full ${getStatusColor(agent.status)}`} />
+                      <span className="text-xs text-muted-foreground capitalize">
+                        {agent.status.replace('-', ' ')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">
+                      {agent.calls_today} {agent.calls_today === 1 ? 'call' : 'calls'} today
+                    </p>
+                    {agent.avg_call_time > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Avg: {formatDuration(Math.floor(agent.avg_call_time))}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {formatDistanceToNow(new Date(agent.last_activity), { addSuffix: true })}
+                    </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">
-                    {agent.calls_today} {agent.calls_today === 1 ? 'call' : 'calls'} today
-                  </p>
-                  {agent.avg_call_time > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      Avg: {formatDuration(Math.floor(agent.avg_call_time))}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(agent.last_activity), { addSuffix: true })}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Recent Call History */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Calls</CardTitle>
-          <CardDescription>Last 10 completed calls</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CallHistory limit={10} />
-        </CardContent>
-      </Card>
+        {/* Recent Call History */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Calls</CardTitle>
+            <CardDescription>Last 10 completed calls</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CallHistory limit={10} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Right Column - Pending Contacts Queue */}
+      <div className="space-y-6">
+        <Card className="sticky top-6">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <ListTodo className="h-5 w-5" />
+                  My Call Queue
+                </CardTitle>
+                <CardDescription>
+                  {pendingContacts.length} contact{pendingContacts.length !== 1 ? 's' : ''} to call
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => refetchQueue()}
+                disabled={queueLoading}
+              >
+                {queueLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {queueLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              </div>
+            ) : pendingContacts.length === 0 ? (
+              <div className="text-center py-8">
+                <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                <p className="text-sm font-medium text-gray-900">All caught up!</p>
+                <p className="text-xs text-muted-foreground">No pending contacts to call</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto">
+                {pendingContacts.map((contact, index) => (
+                  <div
+                    key={contact.call_list_contact_id}
+                    className="flex items-center gap-3 p-3 border rounded-lg hover:bg-gray-50 transition-colors group"
+                  >
+                    <div className="flex-shrink-0">
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-primary/10 text-primary text-sm">
+                          {getInitials(contact.full_name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {contact.full_name || 'Unknown Contact'}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Phone className="h-3 w-3" />
+                        <span className="truncate">{contact.phone_number}</span>
+                      </div>
+                      {contact.company && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Building2 className="h-3 w-3" />
+                          <span className="truncate">{contact.company}</span>
+                        </div>
+                      )}
+                      <Badge variant="secondary" className="mt-1 text-[10px]">
+                        {contact.call_list_name}
+                      </Badge>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <Link href={`/dashboard/active-call/${encodeURIComponent(contact.phone_number)}`}>
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Phone className="h-4 w-4 mr-1" />
+                          Call
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingContacts.length > 0 && (
+              <div className="pt-3 border-t mt-3">
+                <Link href={`/dashboard/active-call/${encodeURIComponent(pendingContacts[0].phone_number)}`}>
+                  <Button className="w-full bg-green-600 hover:bg-green-700">
+                    <Phone className="h-4 w-4 mr-2" />
+                    Start Calling
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Quick Stats */}
+        {queueData?.stats && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Today's Progress</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Calls Made</span>
+                <span className="text-sm font-medium">{queueData.stats.callsToday}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Completed</span>
+                <span className="text-sm font-medium">{queueData.stats.completedToday}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Remaining</span>
+                <span className="text-sm font-medium">{queueData.stats.pendingCalls}</span>
+              </div>
+              {queueData.stats.avgCallDuration > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground">Avg Duration</span>
+                  <span className="text-sm font-medium">
+                    {formatDuration(queueData.stats.avgCallDuration)}
+                  </span>
+                </div>
+              )}
+              {queueData.stats.conversionRate > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground">Conversion Rate</span>
+                  <span className="text-sm font-medium text-green-600">
+                    {queueData.stats.conversionRate}%
+                  </span>
+                </div>
+              )}
+              {queueData.stats.callbacksScheduled > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-muted-foreground">Callbacks</span>
+                  <span className="text-sm font-medium">{queueData.stats.callbacksScheduled}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }
