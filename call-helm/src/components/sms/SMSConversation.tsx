@@ -37,7 +37,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Input } from '@/components/ui/input'
-import { useSignalWireRealtime } from '@/hooks/useSignalWireRealtime'
+import { realtimeService } from '@/lib/services/realtimeService'
 import { useSMSStore } from '@/lib/stores/smsStore'
 import {
   useConversation,
@@ -83,7 +83,7 @@ export function SMSConversation({
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [userId, setUserId] = useState<string>('')
-  const [signalWireConnected, setSignalWireConnected] = useState(false)
+  const [realtimeConnected, setRealtimeConnected] = useState(false)
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null)
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -118,11 +118,9 @@ export function SMSConversation({
     showNewMessageButton: true
   })
 
-  // Use SignalWire Realtime hooks
-  const { connection, typing: typingIndicator, messages: realtimeMessages, presence } = useSignalWireRealtime(
-    initialConversationId || '',
-    userId
-  )
+  // Typing indicator refs for Supabase Realtime
+  const typingChannelRef = useRef<ReturnType<typeof realtimeService.getTypingChannel> | null>(null)
+  const sendTypingRef = useRef<(isTyping: boolean) => void>(() => {})
   
   // Use unread message hooks (only for reading status, not marking)
   const { unreadMessages, isUnread } = useConversationReadStatus(initialConversationId || '')
@@ -183,46 +181,54 @@ export function SMSConversation({
     }
   }
 
-  // Initialize SignalWire connection
+  // Initialize Supabase Realtime for typing indicators
   useEffect(() => {
-    const initSignalWire = async () => {
+    const initRealtime = async () => {
       try {
         // Get user info
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
           setUserId(user.id)
-          
-          // Get SignalWire config
-          const response = await fetch('/api/signalwire/config')
-          if (response.ok) {
-            const config = await response.json()
-            
-            // Connect to SignalWire if not already connected
-            if (!connection.isConnected) {
-              await connection.connect(config.projectId, config.token, config.topics)
-              setSignalWireConnected(true)
-            }
-          }
+          setRealtimeConnected(true)
         }
       } catch (error) {
-        console.error('Failed to initialize SignalWire:', error)
-        // Continue with fallback to existing functionality
+        console.error('Failed to initialize realtime:', error)
       }
     }
-    
-    initSignalWire()
+
+    initRealtime()
   }, [])
 
-  // Real-time messages are now handled via TanStack Query invalidation
-
-  // Handle typing indicators from SignalWire
+  // Set up typing channel for the current conversation
   useEffect(() => {
-    if (typingIndicator.isAnyoneTyping) {
-      setTyping(true)
-    } else {
-      setTyping(false)
+    if (!initialConversationId || !userId) return
+
+    const typingChannel = realtimeService.getTypingChannel(initialConversationId)
+    typingChannelRef.current = typingChannel
+
+    // Set up the send function
+    sendTypingRef.current = (isTyping: boolean) => {
+      typingChannel.sendTyping(userId, isTyping)
     }
-  }, [typingIndicator.isAnyoneTyping])
+
+    // Listen for typing events from other users
+    const unsubscribe = typingChannel.onTyping((event) => {
+      if (event.userId !== userId) {
+        setTyping(event.isTyping)
+        // Auto-clear typing after 6 seconds
+        if (event.isTyping) {
+          setTimeout(() => setTyping(false), 6000)
+        }
+      }
+    })
+
+    return () => {
+      unsubscribe()
+      typingChannelRef.current = null
+    }
+  }, [initialConversationId, userId])
+
+  // Real-time messages are now handled via TanStack Query invalidation
 
   // Load conversation and messages
   // Restore draft when conversation changes
@@ -356,32 +362,32 @@ export function SMSConversation({
   }, [conversation?.id, setDraft])
 
   const handleTyping = useCallback(() => {
-    if (!signalWireConnected || !typingIndicator.sendTypingIndicator) return
-    
+    if (!realtimeConnected) return
+
     // Clear existing debounce timer
     if (typingDebounceRef.current) {
       clearTimeout(typingDebounceRef.current)
     }
-    
+
     // Send typing started
-    typingIndicator.sendTypingIndicator(true)
-    
+    sendTypingRef.current(true)
+
     // Set debounce to stop typing after 2 seconds of inactivity
     typingDebounceRef.current = setTimeout(() => {
-      typingIndicator.sendTypingIndicator(false)
+      sendTypingRef.current(false)
     }, 2000)
-  }, [signalWireConnected, typingIndicator])
+  }, [realtimeConnected])
 
   // Handle key press
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
-      
+
       // Stop typing indicator when sending
       if (typingDebounceRef.current) {
         clearTimeout(typingDebounceRef.current)
-        typingIndicator.sendTypingIndicator(false)
+        sendTypingRef.current(false)
       }
     }
   }
@@ -465,7 +471,7 @@ export function SMSConversation({
                   Opted Out
                 </Badge>
               )}
-              {connection.isConnected && (
+              {realtimeConnected && (
                 <Badge variant="outline" className="text-xs">
                   <Circle className="h-2 w-2 mr-1 fill-green-500 text-green-500" />
                   Live

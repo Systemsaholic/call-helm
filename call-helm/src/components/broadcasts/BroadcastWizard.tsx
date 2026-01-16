@@ -320,7 +320,7 @@ export function BroadcastWizard({ open, onClose }: BroadcastWizardProps) {
                               ? 'border-primary bg-primary/5'
                               : 'hover:border-muted-foreground/50'
                           } ${!isApproved ? 'opacity-60' : ''}`}
-                          onClick={() => isApproved && setFormData({ ...formData, fromPhoneNumberId: phone.id })}
+                          onClick={() => setFormData({ ...formData, fromPhoneNumberId: phone.id })} // TODO: Re-enable 10DLC check: isApproved &&
                         >
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">

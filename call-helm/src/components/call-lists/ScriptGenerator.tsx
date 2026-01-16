@@ -1,16 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { 
-  Sparkles, 
-  RefreshCw, 
-  Copy, 
+import {
+  Sparkles,
+  RefreshCw,
+  Copy,
   Check,
   Edit2,
   Save,
@@ -19,8 +19,16 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
-  Lock
+  Lock,
+  ChevronDown,
+  Code2
 } from 'lucide-react'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { TEMPLATE_VARIABLES, formatVariable } from '@/lib/utils/scriptTemplate'
 
 interface ScriptGeneratorProps {
   campaignType: string
@@ -47,6 +55,32 @@ export function ScriptGenerator({
   const [copied, setCopied] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [showUpgradeMessage, setShowUpgradeMessage] = useState(false)
+  const [variablePopoverOpen, setVariablePopoverOpen] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Insert a variable at the cursor position in the textarea
+  const insertVariable = (variableKey: string) => {
+    const variable = formatVariable(variableKey)
+    const textarea = textareaRef.current
+
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const newValue = editedScript.substring(0, start) + variable + editedScript.substring(end)
+      setEditedScript(newValue)
+
+      // Set cursor position after the inserted variable
+      setTimeout(() => {
+        textarea.focus()
+        textarea.setSelectionRange(start + variable.length, start + variable.length)
+      }, 0)
+    } else {
+      // If no textarea ref, just append to end
+      setEditedScript(editedScript + variable)
+    }
+
+    setVariablePopoverOpen(false)
+  }
   
   // New state for script generation inputs
   const [callDescription, setCallDescription] = useState('')
@@ -429,6 +463,56 @@ Additional Context: ${callDescription || description || `${campaignType} campaig
               </>
             ) : (
               <>
+                <Popover open={variablePopoverOpen} onOpenChange={setVariablePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Code2 className="h-4 w-4 mr-1" />
+                      Insert Variable
+                      <ChevronDown className="h-3 w-3 ml-1" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 p-0" align="start">
+                    <div className="p-3 border-b bg-gray-50">
+                      <h4 className="font-medium text-sm">Insert Variable</h4>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Click a variable to insert it at the cursor position
+                      </p>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-2">
+                      {TEMPLATE_VARIABLES.map((category) => (
+                        <div key={category.category} className="mb-3 last:mb-0">
+                          <div className="text-xs font-medium text-gray-500 px-2 py-1">
+                            {category.category}
+                          </div>
+                          <div className="space-y-1">
+                            {category.variables.map((variable) => (
+                              <button
+                                key={variable.key}
+                                onClick={() => insertVariable(variable.key)}
+                                className="w-full text-left px-2 py-1.5 rounded hover:bg-gray-100 transition-colors"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">{variable.label}</span>
+                                  <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">
+                                    {`{{${variable.key}}}`}
+                                  </code>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  {variable.description}
+                                </p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-2 border-t bg-gray-50">
+                      <p className="text-xs text-gray-500">
+                        Tip: Add fallback with <code className="bg-white px-1 rounded">{'{{var::fallback}}'}</code>
+                      </p>
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -453,6 +537,7 @@ Additional Context: ${callDescription || description || `${campaignType} campaig
         <div className="p-4">
           {isEditing ? (
             <Textarea
+              ref={textareaRef}
               value={editedScript}
               onChange={(e) => setEditedScript(e.target.value)}
               className="min-h-[300px] font-mono text-sm"
@@ -470,15 +555,24 @@ Additional Context: ${callDescription || description || `${campaignType} campaig
       <div className="bg-gray-50 rounded-lg p-3">
         <h4 className="text-xs font-medium text-gray-700 mb-2">Script Variables</h4>
         <p className="text-xs text-gray-600 mb-2">
-          The following placeholders will be replaced with actual values during calls:
+          Variables will be replaced with actual values during calls. Use the Insert Variable button while editing to add them.
         </p>
         <div className="flex flex-wrap gap-2">
-          {['[Contact Name]', '[Agent Name]', '[Company]', '[Date]', '[Time]'].map(variable => (
+          {[
+            '{{contact.name}}',
+            '{{contact.first_name}}',
+            '{{agent.name}}',
+            '{{organization.name}}',
+            '{{date.today}}'
+          ].map(variable => (
             <code key={variable} className="bg-white px-2 py-1 rounded text-xs">
               {variable}
             </code>
           ))}
         </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Add fallbacks: <code className="bg-white px-1 rounded">{'{{contact.first_name::friend}}'}</code> uses "friend" if name is unknown
+        </p>
       </div>
     </div>
   )

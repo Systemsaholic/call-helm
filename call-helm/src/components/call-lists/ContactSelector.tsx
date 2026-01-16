@@ -5,12 +5,15 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { 
-  Search, 
-  Users, 
+import {
+  Search,
+  Users,
   CheckCircle,
   Filter,
-  X
+  X,
+  Tag,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react'
 import {
   Select,
@@ -19,6 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 interface Contact {
   id: string
@@ -38,14 +46,16 @@ interface ContactSelectorProps {
   onSelectionChange: (ids: string[]) => void
 }
 
-export function ContactSelector({ 
-  contacts, 
-  selectedIds, 
-  onSelectionChange 
+export function ContactSelector({
+  contacts,
+  selectedIds,
+  onSelectionChange
 }: ContactSelectorProps) {
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterTag, setFilterTag] = useState<string>('all')
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [tagFilterMode, setTagFilterMode] = useState<'any' | 'all'>('any')
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [showTagFilter, setShowTagFilter] = useState(true)
 
   // Extract unique tags and statuses for filtering
   const availableTags = useMemo(() => {
@@ -67,27 +77,50 @@ export function ContactSelector({
   // Filter contacts based on search and filters
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {
-      // Search filter
+      // Search filter - also search in tags
       const searchLower = searchTerm.toLowerCase()
-      const matchesSearch = !searchTerm || 
+      const matchesSearch = !searchTerm ||
         contact.name?.toLowerCase().includes(searchLower) ||
         contact.full_name?.toLowerCase().includes(searchLower) ||
         contact.email?.toLowerCase().includes(searchLower) ||
         contact.phone?.toLowerCase().includes(searchLower) ||
         contact.phone_number?.toLowerCase().includes(searchLower) ||
-        contact.company?.toLowerCase().includes(searchLower)
+        contact.company?.toLowerCase().includes(searchLower) ||
+        contact.tags?.some(tag => tag.toLowerCase().includes(searchLower))
 
-      // Tag filter
-      const matchesTag = filterTag === 'all' || 
-        contact.tags?.includes(filterTag)
+      // Multi-tag filter
+      let matchesTag = true
+      if (selectedTags.length > 0) {
+        if (tagFilterMode === 'any') {
+          // Contact must have at least one of the selected tags
+          matchesTag = selectedTags.some(tag => contact.tags?.includes(tag))
+        } else {
+          // Contact must have ALL selected tags
+          matchesTag = selectedTags.every(tag => contact.tags?.includes(tag))
+        }
+      }
 
       // Status filter
-      const matchesStatus = filterStatus === 'all' || 
+      const matchesStatus = filterStatus === 'all' ||
         contact.status === filterStatus
 
       return matchesSearch && matchesTag && matchesStatus
     })
-  }, [contacts, searchTerm, filterTag, filterStatus])
+  }, [contacts, searchTerm, selectedTags, tagFilterMode, filterStatus])
+
+  // Toggle a tag in the filter
+  const toggleTagFilter = (tag: string) => {
+    setSelectedTags(prev =>
+      prev.includes(tag)
+        ? prev.filter(t => t !== tag)
+        : [...prev, tag]
+    )
+  }
+
+  // Clear all tag filters
+  const clearTagFilters = () => {
+    setSelectedTags([])
+  }
 
   const handleSelectAll = () => {
     if (selectedIds.length === filteredContacts.length) {
@@ -125,20 +158,6 @@ export function ContactSelector({
         </div>
 
         <div className="flex gap-2">
-          {availableTags.length > 0 && (
-            <Select value={filterTag} onValueChange={setFilterTag}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="All Tags" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Tags</SelectItem>
-                {availableTags.map(tag => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-
           {availableStatuses.length > 0 && (
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-[150px]">
@@ -154,22 +173,106 @@ export function ContactSelector({
               </SelectContent>
             </Select>
           )}
-
-          {(filterTag !== 'all' || filterStatus !== 'all') && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setFilterTag('all')
-                setFilterStatus('all')
-              }}
-            >
-              <X className="h-4 w-4 mr-1" />
-              Clear Filters
-            </Button>
-          )}
         </div>
       </div>
+
+      {/* Tag Filter Section */}
+      <Collapsible open={showTagFilter} onOpenChange={setShowTagFilter}>
+        <div className="border rounded-lg">
+          <CollapsibleTrigger asChild>
+            <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-primary" />
+                <span className="font-medium text-sm">Filter by Tags</span>
+                {selectedTags.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    {selectedTags.length} selected
+                  </Badge>
+                )}
+              </div>
+              {showTagFilter ? (
+                <ChevronUp className="h-4 w-4 text-gray-500" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-gray-500" />
+              )}
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-4 pb-4 pt-2 border-t">
+              {availableTags.length > 0 ? (
+                <>
+                  {/* Tag filter mode toggle */}
+                  <div className="flex items-center gap-4 mb-3">
+                    <span className="text-xs text-gray-500">Match:</span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant={tagFilterMode === 'any' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setTagFilterMode('any')}
+                      >
+                        Any tag
+                      </Button>
+                      <Button
+                        variant={tagFilterMode === 'all' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setTagFilterMode('all')}
+                      >
+                        All tags
+                      </Button>
+                    </div>
+                    {selectedTags.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs ml-auto"
+                        onClick={clearTagFilters}
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                  {/* Tag badges */}
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map(tag => (
+                      <Badge
+                        key={tag}
+                        variant={selectedTags.includes(tag) ? 'default' : 'outline'}
+                        className={`cursor-pointer transition-all ${
+                          selectedTags.includes(tag)
+                            ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                            : 'hover:bg-gray-100'
+                        }`}
+                        onClick={() => toggleTagFilter(tag)}
+                      >
+                        {tag}
+                        {selectedTags.includes(tag) && (
+                          <X className="h-3 w-3 ml-1" />
+                        )}
+                      </Badge>
+                    ))}
+                  </div>
+                  {selectedTags.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-2">
+                      Showing contacts with {tagFilterMode === 'any' ? 'any of' : 'all of'} the selected tags
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-4">
+                  <Tag className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No tags found</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Add tags to your contacts to filter them here
+                  </p>
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </div>
+      </Collapsible>
 
       {/* Selection Summary */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
@@ -192,8 +295,8 @@ export function ContactSelector({
       <div className="border rounded-lg divide-y max-h-96 overflow-y-auto">
         {filteredContacts.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
-            {searchTerm || filterTag !== 'all' || filterStatus !== 'all' 
-              ? 'No contacts match your filters' 
+            {searchTerm || selectedTags.length > 0 || filterStatus !== 'all'
+              ? 'No contacts match your filters'
               : 'No contacts available'}
           </div>
         ) : (

@@ -22,8 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Search, User, Phone, Loader2 } from 'lucide-react'
+import { Search, User, Phone, Loader2, ExternalLink } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import Link from 'next/link'
 
 interface Contact {
   id: string
@@ -405,7 +406,20 @@ export function NewConversationDialog({
 
           {error && (
             <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm">
-              {error}
+              {error.includes('phone number not configured') ? (
+                <div className="flex flex-col gap-2">
+                  <span>Organization phone number not configured.</span>
+                  <Link
+                    href="/dashboard/settings?tab=phone_numbers"
+                    className="inline-flex items-center gap-1 text-red-700 underline hover:text-red-800 font-medium"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Configure in Settings <ExternalLink className="h-3 w-3" />
+                  </Link>
+                </div>
+              ) : (
+                error
+              )}
             </div>
           )}
         </div>
