@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { number, friendly_name, capabilities, is_primary } = body
+    const { number, friendly_name, capabilities, is_primary, provider } = body
 
     // Validate required fields
     if (!number || !friendly_name) {
@@ -76,6 +76,25 @@ export async function POST(request: NextRequest) {
           error: "Phone number and friendly name are required"
         },
         { status: 400 }
+      )
+    }
+
+    // Check if number already exists in ANY organization (global uniqueness)
+    const { data: existingNumber } = await supabase
+      .from('phone_numbers')
+      .select('id, organization_id')
+      .eq('number', number)
+      .maybeSingle()
+
+    if (existingNumber) {
+      const isSameOrg = existingNumber.organization_id === member.organization_id
+      return NextResponse.json(
+        {
+          error: isSameOrg
+            ? 'This phone number is already registered to your organization'
+            : 'This phone number is already assigned to another organization'
+        },
+        { status: 409 }
       )
     }
 
@@ -108,7 +127,7 @@ export async function POST(request: NextRequest) {
         capabilities: capabilities || { voice: true, sms: false, mms: false, fax: false },
         is_primary: is_primary || false,
         status: "active",
-        provider: "signalwire"
+        provider: provider || "telnyx" // Default to Telnyx as new provider
       })
       .select()
       .single()

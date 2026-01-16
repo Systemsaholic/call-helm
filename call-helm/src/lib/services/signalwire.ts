@@ -396,11 +396,11 @@ export class SignalWireService {
   // Send verification code via SMS
   async sendVerificationCode(to: string, code: string): Promise<void> {
     const url = `${this.baseUrl}/Messages.json`
-    
+
     // Use the first configured number as the sender
     // In production, this should be a dedicated verification number
     const from = process.env.SIGNALWIRE_VERIFICATION_NUMBER || '+15555555555'
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -421,6 +421,100 @@ export class SignalWireService {
     } catch (error) {
       console.error('SignalWire sendVerificationCode error:', error)
       throw new Error('Failed to send verification code')
+    }
+  }
+
+  // Send verification code via voice call (works for landlines and mobile)
+  async sendVerificationCall(to: string, code: string): Promise<void> {
+    const url = `${this.baseUrl}/Calls.json`
+
+    // Use the verification number as the caller ID
+    const from = process.env.SIGNALWIRE_VERIFICATION_NUMBER || '+15555555555'
+
+    // Create TwiML that speaks the verification code
+    // Format code with pauses between digits for clarity
+    const spokenCode = code.split('').join('. ')
+    const twimlUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/twiml/verification?code=${encodeURIComponent(spokenCode)}`
+
+    try {
+      const formData = new URLSearchParams()
+      formData.append('From', from)
+      formData.append('To', to)
+      formData.append('Url', twimlUrl)
+      formData.append('Method', 'GET')
+      // Timeout after 30 seconds if no answer
+      formData.append('Timeout', '30')
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${this.auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: formData.toString()
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('SignalWire verification call failed:', errorText)
+        throw new Error(`Failed to initiate verification call: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log('Verification call initiated:', data.sid)
+    } catch (error) {
+      console.error('SignalWire sendVerificationCall error:', error)
+      throw new Error('Failed to initiate verification call')
+    }
+  }
+
+  // Lookup phone number type (mobile, landline, voip, etc.)
+  async lookupPhoneNumber(phoneNumber: string): Promise<{
+    type: 'mobile' | 'landline' | 'voip' | 'unknown'
+    carrier?: string
+    valid: boolean
+  }> {
+    // Use SignalWire's lookup API to determine number type
+    const url = `https://${SIGNALWIRE_SPACE_URL}/api/relay/rest/lookup/phone_number/${encodeURIComponent(phoneNumber)}?include=carrier`
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${this.auth}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        // If lookup fails, return unknown but still valid
+        return { type: 'unknown', valid: true }
+      }
+
+      const data = await response.json()
+
+      // Map carrier type to our simplified type
+      let type: 'mobile' | 'landline' | 'voip' | 'unknown' = 'unknown'
+      if (data.carrier?.type) {
+        const carrierType = data.carrier.type.toLowerCase()
+        if (carrierType === 'mobile' || carrierType === 'wireless') {
+          type = 'mobile'
+        } else if (carrierType === 'landline' || carrierType === 'fixed') {
+          type = 'landline'
+        } else if (carrierType === 'voip') {
+          type = 'voip'
+        }
+      }
+
+      return {
+        type,
+        carrier: data.carrier?.name,
+        valid: data.valid !== false
+      }
+    } catch (error) {
+      console.error('SignalWire lookupPhoneNumber error:', error)
+      // Return unknown if lookup fails
+      return { type: 'unknown', valid: true }
     }
   }
 

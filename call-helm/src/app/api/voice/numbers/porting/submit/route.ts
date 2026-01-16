@@ -66,21 +66,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if number is already being ported or exists
+    // Check if number already exists in ANY organization (global uniqueness)
     const { data: existingNumber } = await supabase
       .from('phone_numbers')
-      .select('id, acquisition_method, porting_status')
-      .eq('organization_id', member.organization_id)
+      .select('id, organization_id, acquisition_method, porting_status')
       .eq('number', phoneNumber)
-      .single()
+      .maybeSingle()
 
     if (existingNumber) {
+      const isSameOrg = existingNumber.organization_id === member.organization_id
+
+      if (!isSameOrg) {
+        return NextResponse.json(
+          { error: 'This phone number is already assigned to another organization' },
+          { status: 409 }
+        )
+      }
+
       if (existingNumber.acquisition_method === 'ported') {
         return NextResponse.json(
           { error: 'This number has already been ported to your organization' },
           { status: 409 }
         )
-      } else if (existingNumber.porting_status && 
+      } else if (existingNumber.porting_status &&
                  ['pending', 'submitted', 'in_progress'].includes(existingNumber.porting_status)) {
         return NextResponse.json(
           { error: 'A porting request for this number is already in progress' },

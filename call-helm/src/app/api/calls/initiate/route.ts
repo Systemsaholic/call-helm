@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+import { TelnyxService } from '@/lib/services/telnyx'
 
-// Helper to lazily create Twilio client
-let _twilioClient: any = null
-function getTwilioClient() {
-  if (_twilioClient) return _twilioClient
-  const sid = process.env.TWILIO_ACCOUNT_SID
-  const auth = process.env.TWILIO_AUTH_TOKEN
-  if (!sid || !auth) return null
-  // require dynamically so tests/environment without Twilio don't fail at module load
-  const twilio = require('twilio')
-  _twilioClient = twilio(sid, auth)
-  return _twilioClient
-}
+// Initialize Telnyx service
+const telnyx = new TelnyxService()
 
 const PHONE_E164_REGEX = /^\+?[1-9]\d{1,14}$/
 
@@ -35,12 +25,11 @@ export async function POST(req: NextRequest) {
       contactId,
       phoneNumber,
       callListId,
-      scriptId,
-      provider = "twilio" // Default to Twilio
+      scriptId
     } = body
-    
+
     console.log('=== CALL INITIATE REQUEST ===')
-    console.log('Provider:', provider)
+    console.log('Provider: telnyx')
     console.log('Contact ID:', contactId)
     console.log('Phone Number (raw):', phoneNumber)
     console.log('Call List ID:', callListId)
@@ -143,13 +132,41 @@ export async function POST(req: NextRequest) {
     
     console.log('Global recording check:', { canRecord, wantsToRecord, enableRecording })
 
-    // Initiate call based on provider
-    let externalCallId = null
+    // Get organization's phone number (from number)
+    const { data: phoneNumberData, error: phoneError } = await supabase
+      .from('phone_numbers')
+      .select('number, status, provider')
+      .eq('organization_id', member.organization_id)
+      .in('status', ['active'])
+      .order('is_primary', { ascending: false })
+      .limit(1)
+
+    console.log('Phone number query result:', { phoneNumberData, phoneError })
+
+    if (phoneError || !phoneNumberData || phoneNumberData.length === 0) {
+      console.error('ERROR: No phone number configured - Query returned:', { phoneError, count: phoneNumberData?.length })
+      return NextResponse.json({
+        error: 'Organization phone number not configured. Please add a phone number in Settings.'
+      }, { status: 400 })
+    }
+
+    const fromNumber = phoneNumberData[0].number
+
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
+      console.error('Telnyx not configured')
+      return NextResponse.json({ error: 'Voice service not configured' }, { status: 503 })
+    }
+
+    // Initiate call via Telnyx
+    let externalCallId: string | null = null
+    let callControlData: { callControlId: string; callSessionId: string; callLegId: string } | null = null
+
     let callData: any = {
       organization_id: member.organization_id,
       contact_id: contactId || null,
       direction: "outbound",
-      caller_number: process.env.TWILIO_PHONE_NUMBER || "system",
+      caller_number: fromNumber,
       called_number: formattedPhoneNumber,
       status: "answered",  // Using 'answered' as the initial status since 'initiated' isn't valid
       member_id: member.id,
@@ -159,139 +176,43 @@ export async function POST(req: NextRequest) {
         call_list_id: callListId,
         script_id: scriptId,
         initiated_by: user.id,
-        provider,
-        initial_status: "initiated"  // Store the actual initial status in metadata
+        provider: 'telnyx',
+        initial_status: "initiated"
       }
     }
 
-    if (provider === "twilio") {
-      const twilioClient = getTwilioClient()
-      if (!twilioClient) {
-        return NextResponse.json({ error: "Twilio credentials not configured" }, { status: 500 })
-      }
-      
-      try {
-        // Build call parameters
-        const callParams: any = {
-          to: formattedPhoneNumber,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          // Use server-side APP_URL for webhook callbacks
-          url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio/voice`, // TwiML endpoint
-          statusCallback: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio`,
-          statusCallbackEvent: ["initiated", "ringing", "answered", "completed"],
-          statusCallbackMethod: "POST"
-        }
-        
-        // Add recording parameters only if enabled
-        if (enableRecording) {
-          callParams.record = true
-          callParams.recordingStatusCallback = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/twilio/recording`
-          console.log('Twilio recording ENABLED')
-        } else {
-          console.log('Twilio recording DISABLED')
-        }
-        
-        // Initiate call via Twilio
-        const call = await twilioClient.calls.create(callParams)
+    try {
+      // Build client state with context for webhooks
+      const clientState = JSON.stringify({
+        organizationId: member.organization_id,
+        memberId: member.id,
+        contactId,
+        callListId,
+        autoRecord: enableRecording
+      })
 
-        externalCallId = call.sid
-        callData.metadata.external_id = call.sid
-      } catch (twilioError: any) {
-        console.error("Twilio call initiation error:", twilioError)
-        return NextResponse.json({ error: `Failed to initiate call: ${twilioError.message}` }, { status: 500 })
-      }
-    } else if (provider === "signalwire") {
-      console.log('=== SIGNALWIRE CALL FLOW ===')
-      
-      // Import SignalWire service
-      const { signalwireService } = await import('@/lib/services/signalwire')
-      
-      // Get the organization's primary phone number for SignalWire
-      const { data: phoneNumberData, error: phoneError } = await supabase
-        .from("phone_numbers")
-        .select("number")
-        .eq("organization_id", member.organization_id)
-        .eq("provider", "signalwire")
-        .eq("is_primary", true)
-        .single()
-      
-      console.log('SignalWire phone lookup:', { phoneNumberData, phoneError })
-      
-      if (!phoneNumberData?.number) {
-        console.error('ERROR: No SignalWire phone number configured')
-        return NextResponse.json({ error: "No SignalWire phone number configured" }, { status: 400 })
-      }
-      
-      console.log('SignalWire phone number:', phoneNumberData.number)
-      
-      // The member.phone was already fetched above
-      if (!member?.phone) {
-        console.error('ERROR: Agent has no phone number configured')
-        return NextResponse.json({ 
-          error: "Your phone number is not configured. Please update your profile with a phone number." 
-        }, { status: 400 })
-      }
-      
-      // Format agent's phone number
-      let agentPhone = member.phone.replace(/[\s()-]/g, "")
-      if (!agentPhone.startsWith('+')) {
-        if (agentPhone.length === 10) {
-          agentPhone = '+1' + agentPhone
-        } else if (agentPhone.length === 11 && agentPhone.startsWith('1')) {
-          agentPhone = '+' + agentPhone
-        } else {
-          agentPhone = '+' + agentPhone
-        }
-      }
-      
-      console.log('Agent phone (formatted):', agentPhone)
-      console.log('Contact phone (formatted):', formattedPhoneNumber)
-      console.log('Will call agent first, then connect to contact')
-      
-      try {
-        // For click-to-call, we call the agent first, then connect them to the contact
-        // We'll pass the target number as a parameter to the TwiML endpoint
-        console.log('Initiating SignalWire call with params:')
-        console.log('  From:', phoneNumberData.number)
-        console.log('  To (Agent):', agentPhone)
-        console.log('  Target (Contact):', formattedPhoneNumber)
-        
-        if (wantsToRecord && !canRecord) {
-          console.log('User wants to record but not on Pro plan')
-        }
-        
-        const callSid = await signalwireService.initiateCallWithParams({
-          from: phoneNumberData.number,
-          to: agentPhone, // Call the agent first
-          callerId: phoneNumberData.number,
-          recordingEnabled: false, // Don't use SW's built-in recording, we control it via TwiML
-          params: {
-            TargetNumber: formattedPhoneNumber, // The contact to connect to
-            IsAgentLeg: 'true',
-            CallId: callData.id, // Pass call ID for updating recording status
-            OrgId: member.organization_id, // Pass org ID for plan check
-            EnableRecording: enableRecording ? 'true' : 'false' // Pass recording preference
-          }
-        })
-        
-        console.log('SignalWire call initiated successfully! SID:', callSid)
-        
-        externalCallId = callSid
-        callData.metadata.external_id = callSid
-        callData.metadata.agent_phone = agentPhone
-        callData.metadata.contact_phone = formattedPhoneNumber
-        callData.caller_number = phoneNumberData.number
-      } catch (signalwireError: any) {
-        console.error("SignalWire call initiation error:", signalwireError)
-        return NextResponse.json({ 
-          error: `Failed to initiate call: ${signalwireError.message}` 
-        }, { status: 500 })
-      }
-    } else {
-      // Mock call for development/testing
-      externalCallId = `mock-${Date.now()}`
-      callData.metadata.external_id = externalCallId
-      callData.status = "answered" // Mock as answered for testing
+      callControlData = await telnyx.initiateCall({
+        from: fromNumber,
+        to: formattedPhoneNumber,
+        answeringMachineDetection: true,
+        clientState
+      })
+
+      console.log('Telnyx call initiated:', {
+        callControlId: callControlData.callControlId,
+        to: formattedPhoneNumber,
+        from: fromNumber
+      })
+
+      externalCallId = callControlData.callControlId
+      callData.metadata.external_id = callControlData.callControlId
+      callData.metadata.call_session_id = callControlData.callSessionId
+      callData.metadata.call_leg_id = callControlData.callLegId
+    } catch (telnyxError: any) {
+      console.error('Telnyx call initiation error:', telnyxError)
+      return NextResponse.json({
+        error: `Failed to initiate call: ${telnyxError.message}`
+      }, { status: 500 })
     }
 
     // Create call record in database
@@ -349,7 +270,9 @@ export async function POST(req: NextRequest) {
       metadata: {
         call_id: call.id,
         external_id: externalCallId,
-        provider,
+        provider: 'telnyx',
+        call_control_id: externalCallId,
+        call_session_id: callControlData?.callSessionId,
         initiated_at: new Date().toISOString()
       }
     })

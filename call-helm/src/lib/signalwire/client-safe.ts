@@ -1,5 +1,7 @@
 // Client-safe SignalWire implementation that uses API endpoints
+// Uses Supabase Realtime for typing indicators and presence
 import { EventEmitter } from 'events'
+import { realtimeService, type PresenceState } from '@/lib/services/realtimeService'
 
 export interface TypingEvent {
   conversationId: string
@@ -33,7 +35,13 @@ class ClientSafeSignalWireClient extends EventEmitter {
   private static instance: ClientSafeSignalWireClient | null = null
   private isConnected: boolean = false
   private typingTimers: Map<string, NodeJS.Timeout> = new Map()
+  private typingUnsubscribers: Map<string, () => void> = new Map()
   private config: any = null
+  private currentUserId: string | null = null
+  private presenceControl: {
+    unsubscribe: () => void
+    updatePresence: (state: any) => Promise<void>
+  } | null = null
 
   private constructor() {
     super()
@@ -46,7 +54,7 @@ class ClientSafeSignalWireClient extends EventEmitter {
     return ClientSafeSignalWireClient.instance
   }
 
-  public async connect(projectId: string, token: string, topics: string[] = ['office']): Promise<void> {
+  public async connect(projectId: string, token: string, topics: string[] = ['office'], userId?: string): Promise<void> {
     if (this.isConnected) {
       console.log('SignalWire client already connected')
       return
@@ -55,13 +63,35 @@ class ClientSafeSignalWireClient extends EventEmitter {
     try {
       // Store config for later use
       this.config = { projectId, token, topics }
-      
-      // For now, we'll just mark as connected
-      // In a real implementation, you would establish WebSocket connection here
+      this.currentUserId = userId || null
+
+      // Set up presence tracking if we have a user ID and organization context
+      if (userId && projectId) {
+        const presenceChannelName = `presence:${projectId}`
+
+        this.presenceControl = realtimeService.subscribeToPresence(
+          presenceChannelName,
+          userId,
+          { status: 'online' },
+          (state: PresenceState) => {
+            // Emit presence updates for all users
+            Object.entries(state).forEach(([key, users]) => {
+              users.forEach(user => {
+                this.emit('presence', {
+                  userId: user.id,
+                  status: user.status || 'online',
+                  lastSeen: user.online_at
+                })
+              })
+            })
+          }
+        )
+      }
+
       this.isConnected = true
       this.emit('connected')
-      
-      console.log('SignalWire client connected (client-safe mode)')
+
+      console.log('SignalWire client connected (using Supabase Realtime)')
     } catch (error) {
       console.error('Failed to connect SignalWire client:', error)
       this.emit('error', error)
@@ -104,8 +134,11 @@ class ClientSafeSignalWireClient extends EventEmitter {
         this.typingTimers.delete(timerKey)
       }
 
-      // For now, emit locally
-      // In a real implementation, you would send this via WebSocket
+      // Send typing indicator via Supabase Realtime broadcast
+      const typingChannel = realtimeService.getTypingChannel(conversationId)
+      await typingChannel.sendTyping(userId, isTyping)
+
+      // Also emit locally for immediate feedback
       this.emit('typing', {
         conversationId,
         userId,
@@ -125,10 +158,32 @@ class ClientSafeSignalWireClient extends EventEmitter {
     }
   }
 
+  /**
+   * Subscribe to typing indicators for a conversation
+   * @returns Unsubscribe function
+   */
+  public subscribeToTyping(conversationId: string, callback: (event: TypingEvent) => void): () => void {
+    const typingChannel = realtimeService.getTypingChannel(conversationId)
+    return typingChannel.onTyping((event) => {
+      callback({
+        conversationId,
+        userId: event.userId,
+        isTyping: event.isTyping
+      })
+    })
+  }
+
   public async updatePresence(userId: string, status: 'online' | 'offline' | 'away'): Promise<void> {
     try {
-      // For now, emit locally
-      // In a real implementation, you would send this via WebSocket
+      // Update presence via Supabase Realtime presence
+      if (this.presenceControl) {
+        await this.presenceControl.updatePresence({
+          status,
+          lastSeen: new Date().toISOString()
+        })
+      }
+
+      // Also emit locally for immediate feedback
       this.emit('presence', {
         userId,
         status,
@@ -141,14 +196,25 @@ class ClientSafeSignalWireClient extends EventEmitter {
 
   public disconnect(): void {
     console.log('Disconnecting SignalWire client...')
-    
+
     // Clear typing timers
     this.typingTimers.forEach(timer => clearTimeout(timer))
     this.typingTimers.clear()
-    
+
+    // Unsubscribe from typing channels
+    this.typingUnsubscribers.forEach(unsub => unsub())
+    this.typingUnsubscribers.clear()
+
+    // Clean up presence subscription
+    if (this.presenceControl) {
+      this.presenceControl.unsubscribe()
+      this.presenceControl = null
+    }
+
+    this.currentUserId = null
     this.isConnected = false
     this.emit('disconnected')
-    
+
     console.log('SignalWire client disconnected')
   }
 

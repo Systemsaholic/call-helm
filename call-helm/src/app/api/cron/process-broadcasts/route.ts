@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { billingService } from '@/lib/services/billing'
+import { TelnyxService } from '@/lib/services/telnyx'
 
 // Use service role for cron job
 const supabaseAdmin = createClient(
@@ -14,16 +14,19 @@ const supabaseAdmin = createClient(
   }
 )
 
-// SignalWire configuration
-const SIGNALWIRE_SPACE_URL = process.env.SIGNALWIRE_SPACE_URL
-const SIGNALWIRE_API_URL = SIGNALWIRE_SPACE_URL
-  ? `https://${SIGNALWIRE_SPACE_URL}/api/laml/2010-04-01`
-  : null
+// Initialize Telnyx service
+const telnyx = new TelnyxService()
 
 // Configuration
 const RATE_LIMIT = 10 // messages per second
 const BATCH_SIZE = 50 // recipients per cron run
 const MAX_RETRIES = 3
+
+// Broadcast SMS pricing - higher than conversational to cover Canadian carrier fees
+// Canadian SMS costs ~$0.0175 (base $0.0025 + carrier fee $0.015)
+// US SMS costs ~$0.004
+// At $0.025, we maintain 30%+ margin even for Canadian destinations
+const BROADCAST_SMS_UNIT_COST = 0.025
 
 // Verify cron secret for security
 function verifyCronSecret(request: NextRequest): boolean {
@@ -71,66 +74,24 @@ function processTemplate(
   return message
 }
 
-// Send SMS via SignalWire
+// Send SMS via Telnyx
 async function sendSMS(
   from: string,
   to: string,
   body: string
-): Promise<{ success: boolean; sid?: string; error?: string; segments?: number }> {
-  if (!SIGNALWIRE_API_URL) {
-    return { success: false, error: 'SignalWire not configured' }
-  }
-
-  const projectId = process.env.SIGNALWIRE_PROJECT_ID
-  const apiToken = process.env.SIGNALWIRE_API_TOKEN
-
-  if (!projectId || !apiToken) {
-    return { success: false, error: 'SignalWire credentials not configured' }
-  }
-
-  const signalwireAuth = Buffer.from(`${projectId}:${apiToken}`).toString('base64')
-
-  const formData = new URLSearchParams()
-  formData.append('From', from)
-  formData.append('To', to)
-  formData.append('Body', body)
-
-  // Add webhook for status updates
-  const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
-  if (webhookUrl) {
-    formData.append('StatusCallback', `${webhookUrl}/api/sms/status`)
-  }
-
+): Promise<{ success: boolean; messageId?: string; error?: string; segments?: number; cost?: number }> {
   try {
-    const response = await fetch(
-      `${SIGNALWIRE_API_URL}/Accounts/${projectId}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${signalwireAuth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString()
-      }
-    )
+    const result = await telnyx.sendMessage({
+      from,
+      to,
+      text: body
+    })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      let errorMessage = errorText
-      try {
-        const errorJson = JSON.parse(errorText)
-        errorMessage = errorJson.message || errorJson.error || errorText
-      } catch {
-        // Keep original error text
-      }
-      return { success: false, error: `SignalWire Error (${response.status}): ${errorMessage}` }
-    }
-
-    const result = await response.json()
     return {
       success: true,
-      sid: result.sid,
-      segments: result.num_segments || 1
+      messageId: result.id,
+      segments: result.parts || 1,
+      cost: result.cost ? parseFloat(result.cost.amount) : undefined
     }
   } catch (error) {
     return {
@@ -200,7 +161,35 @@ async function processBroadcast(broadcastId: string): Promise<{
   }
 
   if (!recipients || recipients.length === 0) {
-    // No more pending recipients
+    // No more pending recipients - mark broadcast as completed
+    // Get final counts
+    const { data: finalCounts } = await supabaseAdmin
+      .from('sms_broadcast_recipients')
+      .select('status')
+      .eq('broadcast_id', broadcastId)
+
+    if (finalCounts) {
+      const sentCount = finalCounts.filter(r => r.status === 'sent' || r.status === 'delivered').length
+      const deliveredCount = finalCounts.filter(r => r.status === 'delivered').length
+      const failedCount = finalCounts.filter(r => r.status === 'failed').length
+      const skippedCount = finalCounts.filter(r => r.status === 'skipped').length
+
+      await supabaseAdmin
+        .from('sms_broadcasts')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          sent_count: sentCount,
+          delivered_count: deliveredCount,
+          failed_count: failedCount,
+          opted_out_skipped: skippedCount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', broadcastId)
+
+      console.log(`Broadcast ${broadcastId} completed: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}, skipped=${skippedCount}`)
+    }
+
     stats.completed = true
     return stats
   }
@@ -247,23 +236,65 @@ async function processBroadcast(broadcastId: string): Promise<{
     const result = await sendSMS(fromNumber, recipient.phone_number, messageBody)
 
     if (result.success) {
+      // Find or create conversation for this recipient
+      let conversationId: string | null = null
+
+      const { data: existingConversation } = await supabaseAdmin
+        .from('sms_conversations')
+        .select('id')
+        .eq('organization_id', broadcast.organization_id)
+        .eq('phone_number', recipient.phone_number)
+        .maybeSingle()
+
+      if (existingConversation) {
+        conversationId = existingConversation.id
+        // Update conversation's last message time
+        await supabaseAdmin
+          .from('sms_conversations')
+          .update({
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', conversationId)
+      } else {
+        // Create new conversation
+        const { data: newConversation } = await supabaseAdmin
+          .from('sms_conversations')
+          .insert({
+            organization_id: broadcast.organization_id,
+            phone_number: recipient.phone_number,
+            contact_name: recipient.contact_name,
+            from_phone_number_id: broadcast.from_phone_number_id,
+            status: 'active',
+            last_message_at: new Date().toISOString()
+          })
+          .select('id')
+          .single()
+
+        conversationId = newConversation?.id || null
+      }
+
       // Create SMS message record
       const { data: messageRecord, error: messageError } = await supabaseAdmin
         .from('sms_messages')
         .insert({
-          conversation_id: null, // Will be created/linked later if needed
+          conversation_id: conversationId,
           organization_id: broadcast.organization_id,
           direction: 'outbound',
           from_number: fromNumber,
           to_number: recipient.phone_number,
           message_body: messageBody,
           status: 'sent',
-          signalwire_message_sid: result.sid,
+          telnyx_message_id: result.messageId,
           segments: result.segments,
           sent_at: new Date().toISOString()
         })
         .select()
         .single()
+
+      if (messageError) {
+        console.error('Error creating message record:', messageError)
+      }
 
       // Update recipient status
       await supabaseAdmin
@@ -275,17 +306,28 @@ async function processBroadcast(broadcastId: string): Promise<{
         })
         .eq('id', recipient.id)
 
-      // Track usage for billing
-      await billingService.trackUsage(
-        broadcast.organization_id,
-        'sms_messages',
-        1,
-        {
-          broadcast_id: broadcastId,
-          recipient_id: recipient.id,
-          message_id: messageRecord?.id
-        }
-      )
+      // Track usage for billing (using admin client to bypass RLS)
+      // Broadcast SMS is priced higher than conversational to cover Canadian carrier fees
+      const { error: usageError } = await supabaseAdmin
+        .from('usage_events')
+        .insert({
+          organization_id: broadcast.organization_id,
+          resource_type: 'sms_broadcast',
+          amount: 1,
+          unit_cost: BROADCAST_SMS_UNIT_COST,
+          total_cost: BROADCAST_SMS_UNIT_COST,
+          description: 'SMS broadcast message',
+          metadata: {
+            broadcast_id: broadcastId,
+            recipient_id: recipient.id,
+            message_id: messageRecord?.id,
+            telnyx_cost: result.cost
+          }
+        })
+
+      if (usageError) {
+        console.error('Error tracking usage (non-critical):', usageError)
+      }
 
       stats.sent++
     } else {
@@ -314,6 +356,45 @@ async function processBroadcast(broadcastId: string): Promise<{
       console.log(`Broadcast ${broadcastId} status changed to ${currentStatus?.status}, stopping`)
       break
     }
+  }
+
+  // After processing batch, update broadcast counters
+  // Get current counts from recipients table for accuracy
+  const { data: recipientCounts } = await supabaseAdmin
+    .from('sms_broadcast_recipients')
+    .select('status')
+    .eq('broadcast_id', broadcastId)
+
+  if (recipientCounts) {
+    const sentCount = recipientCounts.filter(r => r.status === 'sent' || r.status === 'delivered').length
+    const deliveredCount = recipientCounts.filter(r => r.status === 'delivered').length
+    const failedCount = recipientCounts.filter(r => r.status === 'failed').length
+    const skippedCount = recipientCounts.filter(r => r.status === 'skipped').length
+    const pendingCount = recipientCounts.filter(r => r.status === 'pending' || r.status === 'sending').length
+
+    // Check if all recipients are processed
+    const isComplete = pendingCount === 0
+
+    const updateData: Record<string, any> = {
+      sent_count: sentCount,
+      delivered_count: deliveredCount,
+      failed_count: failedCount,
+      opted_out_skipped: skippedCount,
+      updated_at: new Date().toISOString()
+    }
+
+    if (isComplete) {
+      updateData.status = 'completed'
+      updateData.completed_at = new Date().toISOString()
+      stats.completed = true
+    }
+
+    await supabaseAdmin
+      .from('sms_broadcasts')
+      .update(updateData)
+      .eq('id', broadcastId)
+
+    console.log(`Broadcast ${broadcastId} updated: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}, skipped=${skippedCount}, complete=${isComplete}`)
   }
 
   return stats

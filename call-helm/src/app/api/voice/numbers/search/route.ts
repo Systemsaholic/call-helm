@@ -2,10 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { signalwireService } from '@/lib/services/signalwire'
 
+// Canadian area codes for auto-detection
+const CANADIAN_AREA_CODES = new Set([
+  '204', '226', '236', '249', '250', '263', '289', '306', '343', '354', '365', '367',
+  '382', '403', '416', '418', '428', '431', '437', '438', '450', '460', '468', '474',
+  '506', '514', '519', '548', '579', '581', '584', '587', '604', '613', '639', '647',
+  '672', '683', '705', '709', '742', '753', '778', '780', '782', '807', '819', '825',
+  '867', '873', '879', '902', '905'
+])
+
+function detectCountryFromAreaCode(areaCode: string): string {
+  return CANADIAN_AREA_CODES.has(areaCode) ? 'CA' : 'US'
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
-    
+
     // Check authentication
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -13,7 +26,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Get request body
-    const { areaCode, region, contains, locality, country = 'US', city } = await request.json()
+    let { areaCode, region, contains, locality, country, city } = await request.json()
+
+    // Auto-detect country from area code if not specified
+    if (areaCode && !country) {
+      country = detectCountryFromAreaCode(areaCode)
+      console.log(`Auto-detected country ${country} for area code ${areaCode}`)
+    }
+    country = country || 'US'
     
     if (!areaCode && !region && !contains && !locality && !city) {
       return NextResponse.json(

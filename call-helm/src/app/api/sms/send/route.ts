@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { TelnyxService } from '@/lib/services/telnyx'
 
-// SignalWire API configuration
-const SIGNALWIRE_SPACE_URL = process.env.SIGNALWIRE_SPACE_URL
-const SIGNALWIRE_API_URL = SIGNALWIRE_SPACE_URL 
-  ? `https://${SIGNALWIRE_SPACE_URL}/api/laml/2010-04-01`
-  : null
+// Initialize Telnyx service
+const telnyx = new TelnyxService()
 
 interface SendSMSRequest {
   to: string
@@ -82,7 +80,7 @@ export async function POST(request: NextRequest) {
     if (templateId) {
       const { data: template } = await supabase
         .from('sms_templates')
-        .select('message_body, variables')
+        .select('message_body, variables, usage_count')
         .eq('id', templateId)
         .eq('organization_id', member.organization_id)
         .single()
@@ -112,22 +110,40 @@ export async function POST(request: NextRequest) {
     const formattedTo = formatPhoneNumber(to)
     
     // Get organization's phone number (from number)
-    // Get the primary phone number or the first active one
+    // Get the primary phone number or the first active one that can send SMS
     const { data: phoneNumbers, error: phoneError } = await supabase
       .from('phone_numbers')
-      .select('number')
+      .select('number, status, number_type')
       .eq('organization_id', member.organization_id)
-      .eq('status', 'active')
+      .in('status', ['active', 'grace_period']) // Include grace_period to provide better error
       .order('is_primary', { ascending: false })
       .limit(1)
-    
+
     if (phoneError || !phoneNumbers || phoneNumbers.length === 0) {
-      return NextResponse.json({ 
-        error: 'Organization phone number not configured. Please add and verify a phone number in Settings.' 
+      return NextResponse.json({
+        error: 'Organization phone number not configured. Please add and verify a phone number in Settings.'
       }, { status: 400 })
     }
-    
-    const fromNumber = phoneNumbers[0].number
+
+    const phoneNumber = phoneNumbers[0]
+
+    // Check if the phone number can send outbound messages
+    if (phoneNumber.status === 'grace_period') {
+      return NextResponse.json({
+        error: 'Your trial has ended. Outbound messaging is disabled during the grace period. Upgrade your plan to restore full functionality.',
+        code: 'GRACE_PERIOD_OUTBOUND_BLOCKED'
+      }, { status: 403 })
+    }
+
+    // Check if this is a verified caller ID (voice only, no SMS)
+    if (phoneNumber.number_type === 'verified_caller_id') {
+      return NextResponse.json({
+        error: 'This phone number is verified for outbound caller ID only. It cannot send SMS messages. Purchase or port a number to enable SMS.',
+        code: 'VERIFIED_CALLER_ID_NO_SMS'
+      }, { status: 403 })
+    }
+
+    const fromNumber = phoneNumber.number
     
     // Check if contact is opted out
     let conversationData: any = null
@@ -212,137 +228,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create message record' }, { status: 500 })
     }
     
-    // Send SMS via SignalWire
+    // Send SMS via Telnyx
     try {
-      if (!SIGNALWIRE_API_URL) {
-        console.error('SignalWire configuration error: SIGNALWIRE_SPACE_URL is not set')
-        throw new Error('SignalWire configuration error')
-      }
-
-      const projectId = process.env.SIGNALWIRE_PROJECT_ID
-      const apiToken = process.env.SIGNALWIRE_API_TOKEN
-
-      if (!projectId || !apiToken) {
-        console.error('SignalWire credentials missing')
-        throw new Error('SignalWire credentials not configured')
-      }
-
-      const signalwireAuth = Buffer.from(`${projectId}:${apiToken}`).toString('base64')
-      
-      // Prepare form data for SignalWire
-      const formData = new URLSearchParams()
-      formData.append('From', fromNumber)
-      formData.append('To', formattedTo)
-      formData.append('Body', finalMessage)
-      
-      // Add media URLs if present (for MMS)
-      if (mediaUrls && mediaUrls.length > 0) {
-        mediaUrls.forEach(url => {
-          formData.append('MediaUrl', url)
-        })
-      }
-      
-      // Add webhook for status updates
       const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || ''
-      if (webhookUrl) {
-        formData.append('StatusCallback', `${webhookUrl}/api/sms/status`)
-      }
 
-      const signalwireEndpoint = `${SIGNALWIRE_API_URL}/Accounts/${projectId}/Messages.json`
-      
-      console.log('SignalWire SMS Request:', {
-        endpoint: signalwireEndpoint,
+      console.log('Telnyx SMS Request:', {
         from: fromNumber,
         to: formattedTo,
         messageLength: finalMessage.length,
-        hasWebhook: !!webhookUrl
+        hasMedia: mediaUrls && mediaUrls.length > 0
       })
-      
-      const response = await fetch(signalwireEndpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Basic ${signalwireAuth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString()
+
+      const telnyxResponse = await telnyx.sendMessage({
+        from: fromNumber,
+        to: formattedTo,
+        text: finalMessage,
+        mediaUrls: mediaUrls,
+        webhookUrl: webhookUrl ? `${webhookUrl}/api/sms/telnyx/status` : undefined
       })
-      
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('SignalWire API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText
-        })
-        
-        // Try to parse error as JSON for better error message
-        let errorMessage = errorText
-        try {
-          const errorJson = JSON.parse(errorText)
-          errorMessage = errorJson.message || errorJson.error || errorText
-        } catch (e) {
-          // Keep original error text if not JSON
-        }
-        
-        // Update message status to failed
-        await supabase
-          .from('sms_messages')
-          .update({ 
-            status: 'failed',
-            error_message: `SignalWire Error (${response.status}): ${errorMessage}`,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', messageRecord.id)
-        
-        return NextResponse.json({ 
-          error: 'Failed to send SMS',
-          details: errorMessage,
-          status: response.status
-        }, { status: 500 })
-      }
-      
-      const signalwireResponse = await response.json()
-      
-      console.log('SignalWire SMS sent successfully:', {
-        sid: signalwireResponse.sid,
-        status: signalwireResponse.status,
-        to: signalwireResponse.to,
-        from: signalwireResponse.from,
-        segments: signalwireResponse.num_segments
+
+      console.log('Telnyx SMS sent successfully:', {
+        id: telnyxResponse.id,
+        status: telnyxResponse.status,
+        to: telnyxResponse.to,
+        from: telnyxResponse.from,
+        segments: telnyxResponse.parts
       })
-      
-      // Update message record with SignalWire SID
+
+      // Update message record with Telnyx message ID
       await supabase
         .from('sms_messages')
-        .update({ 
-          signalwire_message_sid: signalwireResponse.sid,
+        .update({
+          telnyx_message_id: telnyxResponse.id,
           status: 'sent',
           sent_at: new Date().toISOString(),
-          segments: signalwireResponse.num_segments || 1,
+          segments: telnyxResponse.parts || 1,
           updated_at: new Date().toISOString()
         })
         .eq('id', messageRecord.id)
-      
+
       // Update conversation last message time
       await supabase
         .from('sms_conversations')
-        .update({ 
+        .update({
           last_message_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', finalConversationId)
-      
+
       // Check if message contains opt-out keyword
       if (isOptOutKeyword(finalMessage)) {
         await supabase
           .from('sms_conversations')
-          .update({ 
+          .update({
             is_opted_out: true,
             opted_out_at: new Date().toISOString()
           })
           .eq('id', finalConversationId)
       }
-      
+
       // Trigger async analysis
       if (webhookUrl) {
         fetch(`${webhookUrl}/api/sms/analyze`, {
@@ -354,30 +298,30 @@ export async function POST(request: NextRequest) {
           })
         }).catch(err => console.error('Failed to trigger SMS analysis:', err))
       }
-      
+
       return NextResponse.json({
         success: true,
         messageId: messageRecord.id,
         conversationId: finalConversationId,
-        signalwireSid: signalwireResponse.sid,
+        telnyxMessageId: telnyxResponse.id,
         status: 'sent',
-        segments: signalwireResponse.num_segments || 1
+        segments: telnyxResponse.parts || 1
       })
-      
+
     } catch (error) {
       console.error('Error sending SMS:', error)
-      
+
       // Update message status to failed
       await supabase
         .from('sms_messages')
-        .update({ 
+        .update({
           status: 'failed',
           error_message: error instanceof Error ? error.message : 'Unknown error',
           updated_at: new Date().toISOString()
         })
         .eq('id', messageRecord.id)
-      
-      return NextResponse.json({ 
+
+      return NextResponse.json({
         error: 'Failed to send SMS',
         details: error instanceof Error ? error.message : 'Unknown error'
       }, { status: 500 })
@@ -394,9 +338,11 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint for testing
 export async function GET() {
+  const configStatus = TelnyxService.getConfigurationStatus()
   return NextResponse.json({
     status: 'ok',
     message: 'SMS send endpoint',
-    provider: 'SignalWire'
+    provider: 'Telnyx',
+    configured: configStatus.apiKey && configStatus.messagingProfileId
   })
 }

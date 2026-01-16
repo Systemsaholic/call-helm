@@ -65,18 +65,65 @@ export async function POST(request: NextRequest) {
       updateData.error_message = `Error ${errorCode}: ${errorMessage}`
     }
     
-    const { error: updateError } = await supabase
+    // Update message and get the message record
+    const { data: messageRecord, error: updateError } = await supabase
       .from('sms_messages')
       .update(updateData)
       .eq('signalwire_message_sid', messageSid)
-    
+      .select('id')
+      .maybeSingle()
+
     if (updateError) {
       console.error('Error updating message status:', updateError)
       return NextResponse.json({ error: 'Failed to update status' }, { status: 500 })
     }
-    
+
     console.log(`SMS ${messageSid} status updated to ${mappedStatus}`)
-    
+
+    // Sync status to broadcast recipient if this message is part of a broadcast
+    if (messageRecord?.id && (mappedStatus === 'delivered' || mappedStatus === 'failed')) {
+      const { data: recipient } = await supabase
+        .from('sms_broadcast_recipients')
+        .select('id, broadcast_id')
+        .eq('message_id', messageRecord.id)
+        .maybeSingle()
+
+      if (recipient) {
+        // Update recipient status
+        await supabase
+          .from('sms_broadcast_recipients')
+          .update({
+            status: mappedStatus,
+            ...(mappedStatus === 'failed' && errorMessage ? { error_message: `${errorCode}: ${errorMessage}` } : {})
+          })
+          .eq('id', recipient.id)
+
+        // Update broadcast counters
+        const { data: recipientCounts } = await supabase
+          .from('sms_broadcast_recipients')
+          .select('status')
+          .eq('broadcast_id', recipient.broadcast_id)
+
+        if (recipientCounts) {
+          const sentCount = recipientCounts.filter(r => r.status === 'sent' || r.status === 'delivered').length
+          const deliveredCount = recipientCounts.filter(r => r.status === 'delivered').length
+          const failedCount = recipientCounts.filter(r => r.status === 'failed').length
+
+          await supabase
+            .from('sms_broadcasts')
+            .update({
+              sent_count: sentCount,
+              delivered_count: deliveredCount,
+              failed_count: failedCount,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', recipient.broadcast_id)
+
+          console.log(`Broadcast ${recipient.broadcast_id} counters updated: sent=${sentCount}, delivered=${deliveredCount}, failed=${failedCount}`)
+        }
+      }
+    }
+
     // Return empty response for SignalWire (they expect 204 No Content)
     return new Response(null, { status: 204 })
     

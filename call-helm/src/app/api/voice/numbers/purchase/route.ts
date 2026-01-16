@@ -41,17 +41,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if number already exists in organization
+    // Check if number already exists in ANY organization (global uniqueness)
     const { data: existingNumber } = await supabase
       .from('phone_numbers')
-      .select('id')
-      .eq('organization_id', member.organization_id)
+      .select('id, organization_id')
       .eq('number', phoneNumber)
-      .single()
+      .maybeSingle()
 
     if (existingNumber) {
+      const isSameOrg = existingNumber.organization_id === member.organization_id
       return NextResponse.json(
-        { error: 'This phone number is already registered to your organization' },
+        {
+          error: isSameOrg
+            ? 'This phone number is already registered to your organization'
+            : 'This phone number is already assigned to another organization'
+        },
         { status: 409 }
       )
     }

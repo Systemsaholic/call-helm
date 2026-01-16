@@ -1,36 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import crypto from 'crypto'
+import { TelnyxService } from '@/lib/services/telnyx'
 
-// Decrypt sensitive data with validation and descriptive errors
-function decrypt(text: string, key: string): string {
-  if (!text || !text.includes(":")) {
-    throw new Error("Invalid encrypted payload format")
-  }
-
-  const textParts = text.split(':')
-  const ivHex = textParts.shift() || ""
-  const encryptedHex = textParts.join(":")
-
-  if (!ivHex || !encryptedHex) throw new Error("Invalid encrypted payload parts")
-
-  const iv = Buffer.from(ivHex, "hex")
-  if (iv.length !== 16) throw new Error("Invalid IV length")
-
-  if (!key || key.length !== 64) {
-    throw new Error("Invalid ENCRYPTION_KEY length; expected 32 bytes hex (64 chars)")
-  }
-
-  try {
-    const encryptedText = Buffer.from(encryptedHex, "hex")
-    const decipher = crypto.createDecipheriv("aes-256-cbc", Buffer.from(key, "hex"), iv)
-    let decrypted = decipher.update(encryptedText)
-    decrypted = Buffer.concat([decrypted, decipher.final()])
-    return decrypted.toString()
-  } catch (err) {
-    throw new Error("Decryption failed: " + String(err))
-  }
-}
+// Initialize Telnyx service
+const telnyx = new TelnyxService()
 
 export async function POST(request: NextRequest) {
   try {
@@ -88,62 +61,64 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get voice integration settings
-    const { data: voiceConfig, error: configError } = await supabase.from("voice_integrations").select("*").eq("organization_id", member.organization_id).eq("is_active", true).single()
+    // Get organization's phone number (from number)
+    const { data: phoneNumbers, error: phoneError } = await supabase
+      .from('phone_numbers')
+      .select('number, status, auto_record')
+      .eq('organization_id', member.organization_id)
+      .in('status', ['active'])
+      .order('is_primary', { ascending: false })
+      .limit(1)
 
-    if (configError || !voiceConfig) {
-      return NextResponse.json(
-        {
-          error: "Voice service not configured. Please contact your administrator."
-        },
-        { status: 503 }
-      )
+    if (phoneError || !phoneNumbers || phoneNumbers.length === 0) {
+      return NextResponse.json({
+        error: 'Organization phone number not configured. Please add a phone number in Settings.'
+      }, { status: 400 })
     }
 
-    // Decrypt API token using server-side ENCRYPTION_KEY
-    const encryptionKey = process.env.ENCRYPTION_KEY
-    if (!encryptionKey) {
-      console.error("Missing ENCRYPTION_KEY for voice decryption")
-      return NextResponse.json({ error: "Server not configured" }, { status: 500 })
+    const fromPhoneNumber = phoneNumbers[0]
+    const fromNumber = fromPhoneNumber.number
+
+    // Check if Telnyx is configured
+    if (!TelnyxService.isConfigured()) {
+      console.error('Telnyx not configured')
+      return NextResponse.json({ error: 'Voice service not configured' }, { status: 503 })
     }
 
-    const apiToken = decrypt(voiceConfig.api_token_encrypted, encryptionKey)
+    // Initiate call via Telnyx Call Control API
+    let callData: { callControlId: string; callSessionId: string; callLegId: string }
+    try {
+      // Build client state with context for webhooks
+      const clientState = JSON.stringify({
+        organizationId: member.organization_id,
+        agentId: agentId || member.id,
+        contactId,
+        callListContactId,
+        campaignId,
+        autoRecord: fromPhoneNumber.auto_record !== false
+      })
 
-    // Prepare SignalWire API call (but hide the provider from response)
-    const signalwireUrl = `https://${voiceConfig.space_url}/api/relay/rest/phone_numbers/${voiceConfig.default_caller_id || voiceConfig.phone_numbers[0]}/calls`
+      callData = await telnyx.initiateCall({
+        from: fromNumber,
+        to: phoneNumber,
+        answeringMachineDetection: true,
+        clientState
+      })
 
-  // Create call via SignalWire
-  const callResponse = await fetch(signalwireUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      to: phoneNumber,
-      from: voiceConfig.default_caller_id || voiceConfig.phone_numbers[0],
-      // Use server-side APP_URL for webhooks when available
-      url: `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/twiml`, // TwiML instructions
-      status_callback: voiceConfig.status_callback_url,
-      status_callback_event: ["initiated", "answered", "completed"],
-      record: voiceConfig.recording_enabled,
-      machine_detection: "DetectMessageEnd",
-      machine_detection_timeout: 5000
-    })
-  })
-
-    if (!callResponse.ok) {
-      const error = await callResponse.text()
-      console.error("SignalWire error:", error)
+      console.log('Telnyx call initiated:', {
+        callControlId: callData.callControlId,
+        to: phoneNumber,
+        from: fromNumber
+      })
+    } catch (error) {
+      console.error('Telnyx call error:', error)
       return NextResponse.json(
         {
-          error: "Failed to initiate call. Please try again."
+          error: 'Failed to initiate call. Please try again.'
         },
         { status: 500 }
       )
     }
-
-    const callData = await callResponse.json()
 
     // Create call attempt record
     const { data: callAttempt, error: attemptError } = await supabase
@@ -158,10 +133,13 @@ export async function POST(request: NextRequest) {
         direction: "outbound",
         start_time: new Date().toISOString(),
         disposition: "initiated",
-        provider_call_id: callData.sid,
+        provider_call_id: callData.callControlId,
         metadata: {
           initiated_by: user.id,
-          initiated_at: new Date().toISOString()
+          initiated_at: new Date().toISOString(),
+          provider: 'telnyx',
+          call_session_id: callData.callSessionId,
+          call_leg_id: callData.callLegId
         }
       })
       .select()
@@ -186,7 +164,9 @@ export async function POST(request: NextRequest) {
         description: `Outbound call initiated to ${phoneNumber}`,
         metadata: {
           phone_number: phoneNumber,
-          provider_call_id: callData.sid,
+          provider: 'telnyx',
+          call_control_id: callData.callControlId,
+          call_session_id: callData.callSessionId,
           estimated: true
         }
       })
@@ -222,7 +202,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = await createClient()
-    
+
     // Check authentication
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
@@ -236,7 +216,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Call ID required' }, { status: 400 })
     }
 
-    // Get call attempt to find provider call ID
+    // Get call attempt to find provider call ID (call_control_id for Telnyx)
     const { data: callAttempt } = await supabase
       .from('call_attempts')
       .select('provider_call_id, organization_id')
@@ -247,34 +227,19 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Call not found' }, { status: 404 })
     }
 
-    // Get voice config
-    const { data: voiceConfig } = await supabase
-      .from('voice_integrations')
-      .select('*')
-      .eq('organization_id', callAttempt.organization_id)
-      .single()
-
-    if (!voiceConfig) {
-      return NextResponse.json({ error: 'Voice config not found' }, { status: 404 })
+    if (!callAttempt.provider_call_id) {
+      return NextResponse.json({ error: 'Call control ID not found' }, { status: 404 })
     }
 
-    // Decrypt API token
-    const encryptionKey = process.env.ENCRYPTION_KEY
-    if (!encryptionKey) {
-      console.error("Missing ENCRYPTION_KEY for ending call")
-      return NextResponse.json({ error: "Server not configured" }, { status: 500 })
+    // End call via Telnyx Call Control API
+    try {
+      await telnyx.hangupCall(callAttempt.provider_call_id)
+      console.log('Telnyx call ended:', callAttempt.provider_call_id)
+    } catch (error) {
+      console.error('Error ending Telnyx call:', error)
+      // Continue to update the record even if the hangup fails
+      // (the call may have already ended)
     }
-    const apiToken = decrypt(voiceConfig.api_token_encrypted, encryptionKey)
-
-    // End call via SignalWire
-    const signalwireUrl = `https://${voiceConfig.space_url}/api/relay/rest/calls/${callAttempt.provider_call_id}`
-    
-    await fetch(signalwireUrl, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${apiToken}`
-      }
-    })
 
     // Update call attempt
     await supabase

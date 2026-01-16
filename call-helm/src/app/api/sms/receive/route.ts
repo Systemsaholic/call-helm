@@ -75,21 +75,76 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
-    
-    // Get organization from the phone number that received the message
-    const { data: phoneData } = await supabase
-      .from('phone_numbers')
-      .select('organization_id')
-      .eq('number', toNumber)
-      .eq('status', 'active')
-      .single()
-    
-    if (!phoneData) {
+
+    // Get organization ID from URL parameter first (preferred method)
+    const url = new URL(request.url)
+    const orgIdFromUrl = url.searchParams.get('org')
+
+    let organizationId: string | null = null
+
+    if (orgIdFromUrl) {
+      // Verify the org exists and has this phone number
+      const { data: phoneData } = await supabase
+        .from('phone_numbers')
+        .select('organization_id')
+        .eq('number', toNumber)
+        .eq('organization_id', orgIdFromUrl)
+        .eq('status', 'active')
+        .maybeSingle()
+
+      if (phoneData) {
+        organizationId = phoneData.organization_id
+      }
+    }
+
+    // Second: check for existing conversation with this sender (for broadcast replies)
+    if (!organizationId) {
+      const { data: existingConversation } = await supabase
+        .from('sms_conversations')
+        .select('organization_id')
+        .eq('phone_number', fromNumber)
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingConversation) {
+        // Verify this org has the phone number
+        const { data: phoneData } = await supabase
+          .from('phone_numbers')
+          .select('organization_id')
+          .eq('number', toNumber)
+          .eq('organization_id', existingConversation.organization_id)
+          .eq('status', 'active')
+          .maybeSingle()
+
+        if (phoneData) {
+          organizationId = phoneData.organization_id
+          console.log('Routed reply to org via existing conversation:', organizationId)
+        }
+      }
+    }
+
+    // Fallback: look up organization by phone number (first match)
+    if (!organizationId) {
+      const { data: phoneData } = await supabase
+        .from('phone_numbers')
+        .select('organization_id')
+        .eq('number', toNumber)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle()
+
+      if (phoneData) {
+        organizationId = phoneData.organization_id
+      }
+    }
+
+    if (!organizationId) {
       console.error('No organization found for phone number:', toNumber)
       return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
     }
-    
-    const organizationId = phoneData.organization_id
+
+    console.log('Incoming SMS routed to organization:', organizationId)
     
     // Check if conversation exists
     let { data: conversation } = await supabase
