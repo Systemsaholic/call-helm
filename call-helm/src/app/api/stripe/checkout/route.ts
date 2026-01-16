@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { stripe, getPriceId } from '@/lib/stripe'
+import { stripe } from '@/lib/stripe'
 import { z } from 'zod'
 
 // Supabase admin client for server-side operations
@@ -43,11 +43,28 @@ export async function POST(request: NextRequest) {
     const { data: userData } = await supabase.auth.admin.getUserById(userId)
     const userEmail = userData?.user?.email
 
-    // Get the Stripe price ID for the selected plan
-    const priceId = getPriceId(planSlug, billingPeriod)
+    // Get the Stripe price ID from database (single source of truth)
+    const { data: plan, error: planError } = await supabase
+      .from('subscription_plans')
+      .select('stripe_price_id_monthly, stripe_price_id_yearly')
+      .eq('slug', planSlug)
+      .eq('is_active', true)
+      .single()
+
+    if (planError || !plan) {
+      return NextResponse.json(
+        { error: 'Invalid plan' },
+        { status: 400 }
+      )
+    }
+
+    const priceId = billingPeriod === 'monthly'
+      ? plan.stripe_price_id_monthly
+      : plan.stripe_price_id_yearly
+
     if (!priceId) {
       return NextResponse.json(
-        { error: 'Invalid plan or billing period' },
+        { error: 'Plan does not have Stripe pricing configured' },
         { status: 400 }
       )
     }
