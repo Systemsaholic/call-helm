@@ -1,7 +1,7 @@
 # Click-to-Call Implementation Documentation
 
 ## Overview
-Successfully implemented a complete click-to-call system with real-time status updates using SignalWire webhooks and a floating notification UI.
+Successfully implemented a complete click-to-call system with real-time status updates using Telnyx webhooks and a floating notification UI.
 
 ## Architecture
 
@@ -25,8 +25,8 @@ Successfully implemented a complete click-to-call system with real-time status u
    - Prevents multiple simultaneous calls
    - Shows upgrade dialog when minutes are exhausted
 
-4. **SignalWire Webhook Handler (`/src/app/api/voice/status/route.ts`)**
-   - Receives real-time status updates from SignalWire
+4. **Telnyx Webhook Handler (`/src/app/api/voice/status/route.ts`)**
+   - Receives real-time status updates from Telnyx
    - Implements status progression validation
    - Prevents status regression (e.g., completed → initiated)
    - Handles multi-leg call tracking (agent and contact legs)
@@ -36,7 +36,7 @@ Successfully implemented a complete click-to-call system with real-time status u
 1. **Initiation**
    - User clicks call button in contacts table
    - API creates call record in database
-   - SignalWire initiates call to agent first
+   - Telnyx initiates call to agent first
 
 2. **Status Progression**
    - `initiated` → Call is being set up
@@ -47,7 +47,7 @@ Successfully implemented a complete click-to-call system with real-time status u
    - `completed` → Call ended successfully
 
 3. **Real-time Updates**
-   - SignalWire sends webhooks to `/api/voice/status`
+   - Telnyx sends webhooks to `/api/voice/status`
    - Status stored in call record metadata
    - UI polls `/api/calls/[callId]/status` every 2 seconds
    - Floating notification shows current status
@@ -90,7 +90,7 @@ Successfully implemented a complete click-to-call system with real-time status u
   end_time: timestamp
   duration: number // seconds
   metadata: {
-    external_id: string // SignalWire call SID
+    external_id: string // Telnyx call control ID
     call_status: string // Real-time status
     initial_status: string
     contact_call_sid?: string // Contact leg SID
@@ -107,12 +107,12 @@ Successfully implemented a complete click-to-call system with real-time status u
 ```env
 NEXT_PUBLIC_SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
-SIGNALWIRE_SPACE_URL=
-SIGNALWIRE_PROJECT_ID=
-SIGNALWIRE_API_TOKEN=
+TELNYX_API_KEY=
+TELNYX_PUBLIC_KEY=
+TELNYX_APP_ID=
 ```
 
-### SignalWire Webhook URLs
+### Telnyx Webhook URLs
 - TwiML: `https://your-domain/api/voice/twiml`
 - Status Callback: `https://your-domain/api/voice/status`
 

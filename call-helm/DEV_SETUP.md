@@ -4,7 +4,7 @@
 - Node.js 18+
 - pnpm
 - ngrok account with permanent subdomain
-- SignalWire account
+- Telnyx account
 - Supabase project
 
 ## Quick Start
@@ -25,7 +25,7 @@ pnpm dev
 ```
 This runs the app on port 3035.
 
-### 3. Update SignalWire Webhooks (if needed)
+### 3. Update Telnyx Webhooks (if needed)
 If webhooks are not working, update them to your permanent URL:
 ```bash
 pnpm webhooks:update
@@ -43,7 +43,7 @@ APP_URL=https://buffalo-massive-violently.ngrok-free.app
 
 With your permanent ngrok URL (`buffalo-massive-violently.ngrok-free.app`):
 - ✅ No need to update environment variables when restarting ngrok
-- ✅ SignalWire webhooks always point to the correct URL
+- ✅ Telnyx webhooks always point to the correct URL
 - ✅ Consistent development experience
 - ✅ Can bookmark your development URL
 
@@ -70,7 +70,7 @@ ngrok http --url=buffalo-massive-violently.ngrok-free.app 3035
 ### Webhooks not working?
 1. Check ngrok is running: `pnpm tunnel`
 2. Update webhooks: `pnpm webhooks:update`
-3. Check SignalWire dashboard for the correct URLs
+3. Check Telnyx portal for the correct URLs
 
 ### Port conflicts?
 If port 3035 is in use:
@@ -83,11 +83,11 @@ kill -9 <PID>
 
 - `pnpm dev` - Start Next.js dev server on port 3035
 - `pnpm tunnel` - Start ngrok with permanent URL
-- `pnpm webhooks:update` - Update SignalWire webhooks
+- `pnpm webhooks:update` - Update Telnyx webhooks
 - `pnpm build` - Build for production
 - `pnpm test` - Run tests
 
-## SignalWire Phone Numbers
+## Telnyx Phone Numbers
 
 Current configured numbers:
 - +13433533549 (Primary)

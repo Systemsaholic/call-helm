@@ -254,19 +254,13 @@ const { unreadCounts, markAsRead } = useUnreadCounts()
 const { notificationSettings } = useSMSNotifications()
 ```
 
-### 3. Remove `SignalWireRealtime` (Optional)
+### 3. Consolidated to Supabase (✅ Complete)
 
-**Decision**: Keep or remove SignalWire?
+**Decision**: ✅ Completed - All realtime functionality now uses Supabase
 
-**Option A**: Keep for typing indicators only
-- Use SignalWire for typing (not in Supabase)
-- Use Supabase for everything else
-
-**Option B**: Remove completely
-- Implement typing via Supabase broadcast
-- One realtime system, simpler architecture
-
-**Recommendation**: Option B - Consolidate to Supabase
+- ✅ Typing indicators use Supabase broadcast
+- ✅ One realtime system, simpler architecture
+- ✅ Voice/SMS now uses Telnyx (replaced SignalWire)
 
 ### 4. Testing Checklist
 
@@ -408,14 +402,14 @@ const { unreadCounts } = useUnreadCounts()
 **Impact**: Old useUnreadMessages hook still exists in `/src/hooks/`
 **Recommendation**: Add deprecation comments or remove entirely
 
-### 3. SignalWire Integration (Optional)
-**Status**: Still running alongside Supabase
-**Priority**: MEDIUM
-**Impact**: Two realtime systems for different features
-**Options**:
-- Option A: Keep SignalWire for typing indicators only
-- Option B: Migrate typing to Supabase broadcast
-**Recommendation**: Option B for consistency
+### 3. Telephony Migration (✅ Complete)
+**Status**: Migrated from SignalWire to Telnyx
+**Impact**: Voice and SMS now powered by Telnyx
+**Changes**:
+- ✅ Typing indicators migrated to Supabase broadcast
+- ✅ Voice calls use Telnyx API
+- ✅ SMS sending/receiving uses Telnyx API
+- ✅ One realtime system (Supabase) for app state
 
 ---
 
@@ -440,4 +434,4 @@ const { unreadCounts } = useUnreadCounts()
 
 **The foundation is in place AND integrated for a fast, reliable, maintainable SMS module.**
 
-**Next**: Production testing and optional SignalWire consolidation.
+**Next**: Production testing.

@@ -19,7 +19,7 @@ A modern SaaS platform for managing call centers with AI-powered insights and au
 - **State Management**: Zustand, TanStack Query
 - **UI Components**: Custom components inspired by Jobber design
 - **AI Integration**: OpenAI API for call analysis
-- **Future**: SignalWire for native calling
+- **Telephony**: Telnyx for voice calling and SMS
 
 ## Getting Started
 
@@ -148,7 +148,7 @@ Required for production:
 Optional:
 - `OPENAI_API_KEY` - For AI analysis
 - `STRIPE_SECRET_KEY` - For billing
-- `SIGNALWIRE_*` - For calling features
+- `TELNYX_*` - For calling and SMS features
 
 ## License
 

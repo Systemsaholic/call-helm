@@ -23,7 +23,7 @@
 - Checks:
   - Environment variables
   - Database connection (Supabase)
-  - SignalWire configuration
+  - Telnyx configuration
   - OpenAI API configuration
   - AssemblyAI configuration
 - Returns 200 if healthy, 503 if unhealthy
@@ -61,10 +61,10 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
-# SignalWire (Critical)
-SIGNALWIRE_SPACE_URL=your_space_url
-SIGNALWIRE_PROJECT_ID=your_project_id
-SIGNALWIRE_API_TOKEN=your_api_token
+# Telnyx (Critical)
+TELNYX_API_KEY=your_api_key
+TELNYX_PUBLIC_KEY=your_public_key
+TELNYX_APP_ID=your_app_id
 
 # AI Services (Critical)
 OPENAI_API_KEY=your_openai_key
@@ -74,7 +74,7 @@ ASSEMBLYAI_API_KEY=your_assemblyai_key
 NEXT_PUBLIC_APP_URL=https://your-domain.com
 
 # Optional
-SIGNALWIRE_CAMPAIGN_REGISTRY_API=your_registry_api
+# (Telnyx handles 10DLC via portal configuration)
 ```
 
 ### 3. **Vercel Deployment**
@@ -98,7 +98,7 @@ curl https://your-domain.com/api/health
 - [ ] Health check endpoint returns healthy status
 - [ ] All environment variables validated
 - [ ] Database connection working
-- [ ] SignalWire webhooks configured correctly
+- [ ] Telnyx webhooks configured correctly
 - [ ] SMS sending/receiving functional
 - [ ] Call recording and transcription working
 - [ ] AI analysis features operational
@@ -142,7 +142,7 @@ curl https://your-domain.com/api/health
 - [ ] Check webhook delivery success rates
 - [ ] Monitor database performance
 - [ ] Track API response times
-- [ ] Review SignalWire usage/costs
+- [ ] Review Telnyx usage/costs
 
 ### Ongoing
 - [ ] Weekly health check reviews
