@@ -45,13 +45,49 @@ interface CallHistoryProps {
   limit?: number
 }
 
-export function CallHistory({ 
-  contactId, 
-  callListId, 
+interface CallRecordingData {
+  id: string
+  call_id: string
+  recording_url: string
+  recording_sid?: string
+  duration: number
+  start_time: string
+  end_time: string
+  transcription?: string
+  caller_number: string
+  called_number: string
+  agent_name?: string
+  contact_name?: string
+  direction: 'inbound' | 'outbound'
+  status: 'completed' | 'failed' | 'recording' | 'transcribing'
+}
+
+interface CallData {
+  id: string
+  recording_url?: string
+  recording_sid?: string
+  transcription?: string
+  duration?: number
+  caller_number?: string
+  called_number?: string
+  direction?: 'inbound' | 'outbound'
+  start_time: string
+  end_time?: string
+  status: string
+  contact_id?: string
+  member_id?: string
+  contact?: { full_name?: string; phone_number?: string } | null
+  member?: { full_name?: string; email?: string } | null
+  mood_sentiment?: string
+}
+
+export function CallHistory({
+  contactId,
+  callListId,
   agentId,
-  limit = 50 
+  limit = 50
 }: CallHistoryProps) {
-  const [selectedRecording, setSelectedRecording] = useState<any>(null)
+  const [selectedRecording, setSelectedRecording] = useState<CallRecordingData | null>(null)
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [organizationId, setOrganizationId] = useState<string | null>(null)
   const supabase = createClient()
@@ -65,7 +101,6 @@ export function CallHistory({
     refetchOnWindowFocus: true,
     staleTime: 1000 * 10, // Consider data stale after 10 seconds
     queryFn: async () => {
-      console.log('🔄 Fetching call history for org:', organizationId)
       // First get the calls
       let query = supabase
         .from('calls')
@@ -153,12 +188,7 @@ export function CallHistory({
 
   // Subscribe to real-time updates for calls
   useEffect(() => {
-    if (!organizationId) {
-      console.log('⚠️ CallHistory: No organizationId for subscription')
-      return
-    }
-
-    console.log('🔌 CallHistory: Setting up real-time subscription for organization:', organizationId)
+    if (!organizationId) return
 
     const channel = supabase
       .channel(`call-history-${organizationId}`)
@@ -170,41 +200,20 @@ export function CallHistory({
           table: 'calls',
           filter: `organization_id=eq.${organizationId}`
         },
-        (payload) => {
-          const newData = payload.new as any
-          const oldData = payload.old as any
-          
-          console.log('📜 Call history real-time update:', {
-            event: payload.eventType,
-            callId: newData?.id || oldData?.id,
-            hasEndTime: !!newData?.end_time,
-            timestamp: new Date().toISOString()
-          })
-          
+        () => {
           // Invalidate and refetch the query when calls change
-          // This is especially important when calls end (UPDATE with end_time)
-          if (payload.eventType === 'UPDATE' && newData?.end_time && !oldData?.end_time) {
-            console.log('🔄 Call ended - invalidating call history cache')
-          }
-          
-          queryClient.invalidateQueries({ 
-            queryKey: ['call-history', contactId, callListId, agentId, organizationId] 
+          queryClient.invalidateQueries({
+            queryKey: ['call-history', contactId, callListId, agentId, organizationId]
           })
         }
       )
       .subscribe((status, error) => {
-        console.log('📡 CallHistory subscription status:', status)
         if (error) {
-          console.error('❌ CallHistory subscription error:', error)
-        }
-        
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ CallHistory successfully subscribed to real-time updates')
+          console.error('CallHistory subscription error:', error)
         }
       })
 
     return () => {
-      console.log('🧹 Cleaning up CallHistory subscription')
       supabase.removeChannel(channel)
     }
   }, [organizationId, contactId, callListId, agentId, queryClient])
@@ -251,23 +260,23 @@ export function CallHistory({
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const handlePlayRecording = (call: any) => {
+  const handlePlayRecording = (call: CallData) => {
     if (!call.recording_url) return
 
-    const recording = {
-      recording_url: call.recording_url,
-      recording_sid: call.recording_sid, // Add recording_sid for proxy
-      transcription: call.transcription,
+    const recording: CallRecordingData = {
+      id: call.id,
       call_id: call.id,
+      recording_url: call.recording_url,
+      recording_sid: call.recording_sid,
       duration: call.duration || 0,
-      caller_number: call.caller_number,
-      called_number: call.called_number,
+      start_time: call.start_time,
+      end_time: call.end_time || call.start_time,
+      transcription: call.transcription,
+      caller_number: call.caller_number || '',
+      called_number: call.called_number || '',
       agent_name: call.member?.full_name,
       contact_name: call.contact?.full_name,
-      direction: call.direction,
-      start_time: call.start_time,
-      end_time: call.end_time,
-      id: call.id,
+      direction: call.direction || 'outbound',
       status: 'completed'
     }
 

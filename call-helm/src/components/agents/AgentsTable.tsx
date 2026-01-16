@@ -69,17 +69,14 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
   }
 
   const handleSendInvitation = async (agent: Agent) => {
-    console.log('handleSendInvitation called for agent:', agent)
     const actionText = agent.status === 'invited' ? 'resend the invitation' : 'send an invitation'
     confirmation.showConfirmation({
       title: `Send Invitation to ${agent.full_name || agent.email}?`,
       description: `Are you sure you want to ${actionText} to ${agent.email}? They will receive an email with instructions to set up their account.`,
       confirmText: agent.status === 'invited' ? 'Resend Invitation' : 'Send Invitation',
       onConfirm: async () => {
-        console.log('Confirmation onConfirm called, sending invitation for agent:', agent.id)
         try {
           await sendInvitationsMutation.mutateAsync([agent.id])
-          console.log('Invitation sent successfully')
         } catch (error) {
           console.error('Error sending invitation:', error)
         }
@@ -316,7 +313,6 @@ export function AgentsTable({ agents, loading }: AgentsTableProps) {
                             onClick={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
-                              console.log('Button clicked for agent:', agent.email)
                               handleSendInvitation(agent)
                             }}
                             disabled={sendInvitationsMutation.isPending}

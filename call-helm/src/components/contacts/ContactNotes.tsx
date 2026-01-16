@@ -68,12 +68,8 @@ export function ContactNotes({ contactId, limit, compact = false }: ContactNotes
   // Get organization and member IDs
   useEffect(() => {
     async function getIds() {
-      if (!user?.id) {
-        console.log('ContactNotes: No user ID yet')
-        return
-      }
+      if (!user?.id) return
 
-      console.log('ContactNotes: Fetching organization and member IDs for user:', user.id)
       const { data: member, error } = await supabase
         .from('organization_members')
         .select('id, organization_id')
@@ -87,10 +83,6 @@ export function ContactNotes({ contactId, limit, compact = false }: ContactNotes
       }
 
       if (member) {
-        console.log('ContactNotes: Setting IDs:', { 
-          organizationId: member.organization_id, 
-          memberId: member.id 
-        })
         setOrganizationId(member.organization_id)
         setMemberId(member.id)
       }
@@ -132,14 +124,6 @@ export function ContactNotes({ contactId, limit, compact = false }: ContactNotes
   // Create note mutation
   const createNote = useMutation({
     mutationFn: async (content: string) => {
-      console.log('Creating note with:', {
-        contact_id: contactId,
-        organization_id: organizationId,
-        member_id: memberId,
-        content: content.substring(0, 50) + '...',
-        created_by: user?.id
-      })
-      
       const { data, error } = await supabase
         .from('contact_notes')
         .insert({
@@ -335,7 +319,6 @@ export function ContactNotes({ contactId, limit, compact = false }: ContactNotes
           variant="outline"
           className="mt-2"
           onClick={() => {
-            console.log('Add First Note clicked, setting isAdding to true')
             setIsAdding(true)
           }}
         >
@@ -434,7 +417,6 @@ export function ContactNotes({ contactId, limit, compact = false }: ContactNotes
           ) : !compact ? (
             <Button
               onClick={() => {
-                console.log('Add Note button clicked, setting isAdding to true')
                 setIsAdding(true)
               }}
               className="w-full"
