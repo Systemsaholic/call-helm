@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '@/lib/hooks/useAuth'
 import { useRealtimeContactAssignments } from '@/lib/hooks/useRealtimeSubscription'
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -92,9 +93,37 @@ export function AgentCallDashboard() {
   })
   const [callTimer, setCallTimer] = useState(0)
   const [selectedContact, setSelectedContact] = useState<CallQueueItem | null>(null)
+  const [memberId, setMemberId] = useState<string | null>(null)
 
-  // Subscribe to real-time updates
-  useRealtimeContactAssignments()
+  // Ref to hold fetchCallQueue for use in callbacks
+  const fetchCallQueueRef = useRef<() => Promise<void>>(() => Promise.resolve())
+
+  // Handle real-time assignment changes
+  const handleAssignmentChange = useCallback(
+    (payload: RealtimePostgresChangesPayload<any>) => {
+      console.log('📋 Contact assignment change:', payload.eventType, payload.new || payload.old)
+
+      // Refresh the queue when assignments change
+      if (payload.eventType === 'INSERT') {
+        // New contact assigned - show toast and refetch queue
+        toast.info('New contact assigned to your queue')
+        fetchCallQueueRef.current()
+      } else if (payload.eventType === 'UPDATE') {
+        // Contact updated - refetch queue to get latest status
+        fetchCallQueueRef.current()
+      } else if (payload.eventType === 'DELETE') {
+        // Contact removed from queue - remove from local state
+        const deletedId = (payload.old as any)?.id
+        if (deletedId) {
+          setCallQueue(prev => prev.filter(item => item.id !== deletedId))
+        }
+      }
+    },
+    []
+  )
+
+  // Subscribe to real-time contact assignment updates
+  useRealtimeContactAssignments(memberId, handleAssignmentChange)
 
   // Timer for active call
   useEffect(() => {
@@ -118,6 +147,11 @@ export function AgentCallDashboard() {
       .single()
 
     if (!member) return
+
+    // Store member ID for real-time subscription
+    if (member.id !== memberId) {
+      setMemberId(member.id)
+    }
 
     const { data, error } = await supabase
       .from('call_list_contacts')
@@ -160,6 +194,11 @@ export function AgentCallDashboard() {
       })))
     }
   }
+
+  // Keep the ref updated with the latest fetchCallQueue
+  useEffect(() => {
+    fetchCallQueueRef.current = fetchCallQueue
+  })
 
   // Fetch call statistics
   const fetchCallStats = async () => {

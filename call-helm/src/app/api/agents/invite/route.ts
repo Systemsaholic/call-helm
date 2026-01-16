@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { Resend } from 'resend'
+import { processBatch } from '@/lib/utils/batch'
+import { inviteAgentsSchema } from '@/lib/validations/api.schema'
+import { asyncHandler, AuthenticationError } from '@/lib/errors/handler'
+import { rateLimiters } from '@/lib/middleware/rateLimiter'
+import { AGENTS } from '@/lib/constants'
 
 // Helper for required environment variables
 function getRequiredEnv(key: string): string {
@@ -12,9 +18,6 @@ function getRequiredEnv(key: string): string {
 
 // Check if service role key is configured
 const hasServiceRoleKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
-if (!hasServiceRoleKey) {
-  console.warn('SUPABASE_SERVICE_ROLE_KEY not configured - using simplified invitation flow')
-}
 
 // Create admin client with service role key for admin operations (if available)
 const supabaseAdmin = hasServiceRoleKey
@@ -26,391 +29,359 @@ const supabaseAdmin = hasServiceRoleKey
     })
   : null
 
-export async function POST(request: NextRequest) {
-  console.log('Invite API route called')
-  try {
+// Initialize Resend client for custom branded emails
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+
+/**
+ * Generate invitation email HTML with custom branding
+ */
+function generateInviteEmailHtml(params: {
+  inviteUrl: string
+  agentName: string
+  orgName: string
+  inviterName?: string
+}): string {
+  const { inviteUrl, agentName, orgName, inviterName } = params
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+          <h1 style="color: #2563eb; margin-bottom: 8px;">Call Helm</h1>
+        </div>
+
+        <h2 style="margin-bottom: 16px;">You're invited to join ${orgName}!</h2>
+
+        <p>Hi ${agentName},</p>
+
+        <p>${inviterName ? `${inviterName} has invited you` : 'You have been invited'} to join <strong>${orgName}</strong> on Call Helm as an agent.</p>
+
+        <p>Click the button below to accept your invitation and set up your account:</p>
+
+        <p style="margin: 32px 0; text-align: center;">
+          <a href="${inviteUrl}" style="background-color: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+            Accept Invitation
+          </a>
+        </p>
+
+        <p style="font-size: 14px; color: #666;">
+          Or copy and paste this link into your browser:<br>
+          <a href="${inviteUrl}" style="color: #2563eb; word-break: break-all;">${inviteUrl}</a>
+        </p>
+
+        <p style="font-size: 14px; color: #666;">
+          This invitation link will expire in 24 hours.
+        </p>
+
+        <hr style="margin-top: 32px; border: none; border-top: 1px solid #eee;">
+
+        <p style="font-size: 12px; color: #999; text-align: center;">
+          You're receiving this email because someone invited you to Call Helm.<br>
+          If you didn't expect this invitation, you can safely ignore this email.
+        </p>
+      </body>
+    </html>
+  `
+}
+
+export const POST = asyncHandler(async (request: NextRequest) => {
+  // Apply rate limiting for expensive operations
+  const rateLimitResult = await rateLimiters.expensive(request, async () => {
+    console.log('Agent invite API route called')
+
+    // Validate NEXT_PUBLIC_APP_URL is configured
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    if (!appUrl) {
+      return NextResponse.json(
+        { error: 'Application URL not configured. Please set NEXT_PUBLIC_APP_URL environment variable.' },
+        { status: 500 }
+      )
+    }
+
+    // Check Resend configuration
+    if (!resend) {
+      console.warn('RESEND_API_KEY not configured - falling back to Supabase SMTP')
+    }
 
     // Get the current user's session
     const cookieStore = await cookies()
-    
-    // Debug: Log cookies
-    const allCookies = cookieStore.getAll()
-    console.log('Available cookies:', allCookies.map(c => c.name))
-    
-    const supabase = createServerClient(getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"), getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"), {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
-          } catch {
-            // Log errors when setting cookies instead of silently swallowing
-            console.error("Failed to set cookies in invite route")
+
+    const supabase = createServerClient(
+      getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+      getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll()
+          },
+          setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              )
+            } catch {
+              console.error("Failed to set cookies in invite route")
+            }
           }
         }
       }
-    })
+    )
 
     // Verify the user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError) {
-      console.error('Auth error in invite API:', authError)
-      return NextResponse.json({ error: 'Authentication failed', details: authError.message }, { status: 401 })
-    }
-    
-    if (!user) {
-      console.error('No user found in invite API')
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
+
+    if (authError || !user) {
+      throw new AuthenticationError('Authentication required')
     }
 
-    // Get the current user's organization member ID for tracking invitations
+    // Validate request body
+    const body = await request.json()
+    const { agentIds } = inviteAgentsSchema.parse(body)
+
+    // Get the current user's organization member ID and details
     let currentUserMemberId = null
+    let currentUserName = 'An administrator'
+    let organizationName = 'the organization'
+
     if (supabaseAdmin) {
-      try {
-        const { data: currentMember, error: memberError } = await supabaseAdmin
-          .from('organization_members')
-          .select('id')
-          .eq('user_id', user.id)
-          .single()
-        
-        if (currentMember && !memberError) {
-          currentUserMemberId = currentMember.id
-        } else {
-          console.warn('Could not find organization member record for current user:', user.id)
+      const { data: currentMember } = await supabaseAdmin
+        .from('organization_members')
+        .select('id, full_name, organization_id, organizations(name)')
+        .eq('user_id', user.id)
+        .single()
+
+      if (currentMember) {
+        currentUserMemberId = currentMember.id
+        currentUserName = currentMember.full_name || 'An administrator'
+        organizationName = (currentMember.organizations as any)?.name || 'your organization'
+      }
+    }
+
+    if (!supabaseAdmin) {
+      return NextResponse.json({
+        success: false,
+        error: 'Service role key not configured',
+        message: 'Email invitations require service role configuration'
+      }, { status: 501 })
+    }
+
+    // Get agents to invite
+    const { data: agents, error: fetchError } = await supabaseAdmin
+      .from('organization_members')
+      .select('*')
+      .in('id', agentIds)
+      .in('status', ['pending_invitation', 'invited'])
+
+    if (fetchError) {
+      console.error('Error fetching agents:', fetchError)
+      return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
+    }
+
+    if (!agents || agents.length === 0) {
+      return NextResponse.json({ error: 'No agents found to invite' }, { status: 404 })
+    }
+
+    // Check if we're within bulk operation limits
+    if (agents.length > AGENTS.BULK_OPERATION_LIMIT) {
+      return NextResponse.json({
+        error: `Too many agents. Maximum ${AGENTS.BULK_OPERATION_LIMIT} agents per operation`,
+        code: 'BULK_LIMIT_EXCEEDED'
+      }, { status: 400 })
+    }
+
+    // Process invitations in batches
+    const inviteAgent = async (agent: typeof agents[0]) => {
+      let authUser = null
+      let userAlreadyExists = false
+      let inviteLink: string | null = null
+
+      // Use Supabase's generateLink API to create an invite link without sending email
+      const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'invite',
+        email: agent.email,
+        options: {
+          data: {
+            organization_member_id: agent.id,
+            organization_id: agent.organization_id,
+            role: agent.role,
+            full_name: agent.full_name,
+            email: agent.email,
+            invited: true
+          },
+          redirectTo: `${appUrl}/auth/callback?type=invite`
         }
-      } catch (error) {
-        console.error('Error getting current user member ID:', error)
-      }
-    }
-
-    // Get the request body
-    const { agentIds } = await request.json()
-    
-    if (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0) {
-      return NextResponse.json({ error: 'Invalid agent IDs' }, { status: 400 })
-    }
-
-    // If we have admin client, use it for full invitation flow
-    if (supabaseAdmin) {
-      // Get agents to invite (both pending and already invited for resending)
-      const { data: agents, error: fetchError } = await supabaseAdmin
-        .from('organization_members')
-        .select('*')
-        .in('id', agentIds)
-        .in('status', ['pending_invitation', 'invited'])
-
-      if (fetchError) {
-        console.error('Error fetching agents:', fetchError)
-        return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
-      }
-
-      if (!agents || agents.length === 0) {
-        return NextResponse.json({ error: 'No agents found to invite' }, { status: 404 })
-      }
-
-      // Send invitations using admin client
-      const results = await Promise.allSettled(
-        agents.map(async (agent) => {
-          try {
-            let authUser = null
-            let inviteError = null
-            let userAlreadyExists = false
-            
-            // Check if this is a disposable email first (for informational warning)
-            if (agent.email.includes('mailsac.com') || agent.email.includes('tempmail') || agent.email.includes('guerrillamail')) {
-              console.warn(`Disposable email detected: ${agent.email}. These emails may have restrictions.`)
-            }
-            
-            // Create auth user and send invitation
-            const result = await supabaseAdmin.auth.admin.inviteUserByEmail(
-              agent.email,
-              {
-                data: {
-                  organization_member_id: agent.id,
-                  organization_id: agent.organization_id,
-                  role: agent.role,
-                  full_name: agent.full_name,
-                  email: agent.email,
-                  invited: true
-                },
-                redirectTo: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3035'}/auth/callback?type=invite`
-              }
-            )
-            
-            authUser = result.data
-            inviteError = result.error
-
-            if (inviteError) {
-              console.error(`Failed to invite ${agent.email}:`, inviteError)
-              console.error('Invite error details:', {
-                message: inviteError.message,
-                code: inviteError.code,
-                status: inviteError.status,
-                details: (inviteError as any).details
-              })
-              
-              // Handle specific Supabase auth errors
-              if (inviteError.message?.includes('already registered') || inviteError.code === 'email_exists') {
-                // User already exists - we need to sync our records instead of sending invitation
-                console.log(`User ${agent.email} already exists, syncing records instead of sending invitation`)
-                userAlreadyExists = true
-                
-                // Try to get the existing user info
-                try {
-                  const { data: existingUsers, error: getUserError } = await supabaseAdmin.auth.admin.listUsers({
-                    page: 1,
-                    perPage: 1000
-                  })
-                  
-                  if (existingUsers && !getUserError) {
-                    const existingUser = existingUsers.users.find(u => u.email === agent.email)
-                    if (existingUser) {
-                      authUser = { user: existingUser }
-                      console.log(`Found existing user: ${existingUser.id}`)
-                    }
-                  }
-                } catch (getUserError) {
-                  console.error(`Failed to get existing user ${agent.email}:`, getUserError)
-                }
-              } else if (inviteError.code === 'over_email_send_rate_limit' || inviteError.message?.includes('rate limit')) {
-                // Rate limit hit - provide helpful message
-                console.error(`Rate limit hit for ${agent.email}. Default SMTP allows 4 emails/hour.`)
-                throw new Error(`Email rate limit exceeded. Please wait before sending more invitations or configure custom SMTP.`)
-              } else if (inviteError.message?.includes('not authorized') || inviteError.message?.includes('Email address not authorized')) {
-                // Email not authorized - using default SMTP without custom configuration
-                console.error(`Email ${agent.email} not authorized. Using default SMTP requires email to be in project team.`)
-                throw new Error(`Email address not authorized. When using default SMTP, you can only send to team members. Configure custom SMTP to send to any email.`)
-              } else {
-                throw inviteError
-              }
-            }
-
-            // Ensure profile exists for ALL users (both new and existing) before updating organization_members
-            if (authUser?.user?.id) {
-              try {
-                // Try to create profile if it doesn't exist
-                const { error: profileError } = await supabaseAdmin
-                  .from('profiles')
-                  .upsert({
-                    id: authUser.user.id,
-                    email: agent.email,
-                    full_name: agent.full_name,
-                    onboarded: userAlreadyExists, // Existing users are onboarded, new users need setup
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  }, {
-                    onConflict: 'id'
-                  })
-
-                if (profileError) {
-                  console.error(`Failed to create/update profile for ${agent.email}:`, profileError)
-                  throw profileError // This is critical - without profile, organization_members update will fail
-                }
-                
-                console.log(`Profile ensured for user ${authUser.user.id} (${agent.email})`)
-              } catch (profileError) {
-                console.error(`Profile creation error for ${agent.email}:`, profileError)
-                throw profileError
-              }
-            }
-
-            // Update agent status
-            const updateData = userAlreadyExists ? {
-              // For existing users, mark as active and link the user account
-              status: 'active',
-              invited_at: new Date().toISOString(),
-              user_id: authUser?.user?.id || null,
-            } : {
-              // For new invitations, mark as invited
-              status: 'invited',
-              invited_at: new Date().toISOString(),
-              user_id: authUser?.user?.id || null,
-            }
-
-            const { error: updateError } = await supabaseAdmin
-              .from('organization_members')
-              .update(updateData)
-              .eq('id', agent.id)
-
-            if (updateError) {
-              console.error(`Failed to update agent status for ${agent.email}:`, updateError)
-              throw updateError
-            }
-
-            // Track invitation (only if we have current user's member ID)
-            if (currentUserMemberId) {
-              const { error: trackError } = await supabaseAdmin
-                .from('agent_invitations')
-                .insert({
-                  organization_member_id: agent.id,
-                  invited_by: currentUserMemberId,
-                })
-
-              if (trackError) {
-                console.error(`Failed to track invitation for ${agent.email}:`, trackError)
-                // Don't throw here, invitation was sent successfully
-              }
-            } else {
-              console.warn(`Skipping invitation tracking for ${agent.email} - no current user member ID`)
-            }
-
-            return { success: true, agent }
-          } catch (error) {
-            return { success: false, agent, error }
-          }
-        })
-      )
-
-      // Count successes and failures
-      const successes = results.filter((r) => r.status === 'fulfilled' && r.value.success)
-      const failures = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
-
-      if (failures.length > 0) {
-        console.error('Some invitations failed:', failures)
-        console.error('Failed agents:', failures.map(f => {
-          if (f.status === 'rejected') {
-            return { email: 'unknown', reason: f.reason }
-          }
-          return { 
-            email: f.value?.agent?.email, 
-            error: (f.value?.error as any)?.message || f.value?.error 
-          }
-        }))
-      }
-
-      // Check if any were resent
-      const resentCount = agents.filter(a => a.status === 'invited').length
-      const newInviteCount = agents.filter(a => a.status === 'pending_invitation').length
-      
-      let message = ''
-      if (resentCount > 0 && newInviteCount > 0) {
-        message = `${newInviteCount} new invitation(s) and ${resentCount} resent successfully`
-      } else if (resentCount > 0) {
-        message = `${resentCount} invitation(s) resent successfully`
-      } else {
-        message = `${successes.length} invitation(s) sent successfully`
-      }
-      
-      if (failures.length > 0) {
-        message += `, ${failures.length} failed`
-      }
-      
-      return NextResponse.json({
-        success: true,
-        invited: successes.length,
-        failed: failures.length,
-        total: results.length,
-        message
       })
-    } else {
-      // Simplified flow without service role key - just update status to show invitation was attempted
-      // In production, you would need the service role key to actually send email invitations
-      
-      // Get agents using regular client (both pending and already invited for resending)
-      const { data: agents, error: fetchError } = await supabase
-        .from('organization_members')
-        .select('*')
-        .in('id', agentIds)
-        .in('status', ['pending_invitation', 'invited'])
 
-      if (fetchError) {
-        console.error('Error fetching agents:', fetchError)
-        return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 })
-      }
+      if (linkError) {
+        // Handle user already exists
+        if (linkError.message?.includes('already registered') || linkError.code === 'email_exists') {
+          userAlreadyExists = true
+          console.log(`User ${agent.email} already exists, syncing records`)
 
-      if (!agents || agents.length === 0) {
-        return NextResponse.json({ error: 'No agents found to invite' }, { status: 404 })
-      }
+          // Try to get existing user
+          const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000
+          })
 
-      // Update agent status to simulate invitation (for development)
-      const results = await Promise.allSettled(
-        agents.map(async (agent) => {
-          try {
-            // Update agent status to invited (simulation for development)
-            const { error: updateError } = await supabase
-              .from('organization_members')
-              .update({
-                status: 'invited',
-                invited_at: new Date().toISOString(),
-                // Note: In production with service role key, a user_id would be created here
-              })
-              .eq('id', agent.id)
-
-            if (updateError) {
-              console.error(`Failed to update agent status for ${agent.email}:`, updateError)
-              throw updateError
+          if (existingUsers) {
+            const existingUser = existingUsers.users.find(u => u.email === agent.email)
+            if (existingUser) {
+              authUser = { user: existingUser }
             }
-
-            // Track invitation (only if we have current user's member ID)
-            if (currentUserMemberId) {
-              const { error: trackError } = await supabase
-                .from('agent_invitations')
-                .insert({
-                  organization_member_id: agent.id,
-                  invited_by: currentUserMemberId,
-                })
-
-              if (trackError) {
-                console.error(`Failed to track invitation for ${agent.email}:`, trackError)
-                // Don't throw here, status was updated successfully
-              }
-            } else {
-              console.warn(`Skipping invitation tracking for ${agent.email} - no current user member ID`)
-            }
-
-            return { success: true, agent }
-          } catch (error) {
-            return { success: false, agent, error }
           }
-        })
-      )
+        } else {
+          console.error(`Failed to generate invite link for ${agent.email}:`, linkError)
+          throw linkError
+        }
+      } else if (linkData) {
+        authUser = linkData
+        // The hashed_token is used to construct the verification URL
+        // Supabase returns the full action link in linkData.properties.action_link
+        inviteLink = linkData.properties?.action_link || null
 
-      // Count successes and failures
-      const successes = results.filter((r) => r.status === 'fulfilled' && r.value.success)
-      const failures = results.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
+        if (!inviteLink && linkData.properties?.hashed_token) {
+          // Construct the link manually if action_link is not provided
+          inviteLink = `${appUrl}/auth/callback?token_hash=${linkData.properties.hashed_token}&type=invite`
+        }
 
-      if (failures.length > 0) {
-        console.error('Some status updates failed:', failures)
+        console.log(`Generated invite link for ${agent.email}`)
       }
 
-      // Check if any were resent
-      const resentCount = agents.filter(a => a.status === 'invited').length
-      const newInviteCount = agents.filter(a => a.status === 'pending_invitation').length
-      
-      let message = ''
-      if (resentCount > 0 && newInviteCount > 0) {
-        message = `${newInviteCount} new and ${resentCount} resent (marked as invited)`
-      } else if (resentCount > 0) {
-        message = `${resentCount} invitation(s) resent (marked as invited)`
-      } else {
-        message = `${successes.length} agent(s) marked as invited`
+      // Send email via Resend if we have an invite link and Resend is configured
+      if (inviteLink && resend && !userAlreadyExists) {
+        try {
+          const emailHtml = generateInviteEmailHtml({
+            inviteUrl: inviteLink,
+            agentName: agent.full_name || 'there',
+            orgName: organizationName,
+            inviterName: currentUserName
+          })
+
+          await resend.emails.send({
+            from: 'Call Helm <notifications@callhelm.com>',
+            to: agent.email,
+            subject: `You're invited to join ${organizationName} on Call Helm`,
+            html: emailHtml
+          })
+
+          console.log(`Invitation email sent to ${agent.email} via Resend`)
+        } catch (emailError) {
+          console.error(`Failed to send email to ${agent.email} via Resend:`, emailError)
+          // Don't throw - the invite link was created successfully
+          // The user can still be re-invited later
+        }
+      } else if (inviteLink && !resend) {
+        console.warn(`No RESEND_API_KEY configured - invite link generated but email not sent for ${agent.email}`)
+        console.log(`Invite link (manual): ${inviteLink}`)
       }
-      
-      message += ' (email invitations require service role key)'
-      
-      if (failures.length > 0) {
-        message = `${message}, ${failures.length} failed`
+
+      // Ensure profile exists
+      if (authUser?.user?.id) {
+        await supabaseAdmin
+          .from('profiles')
+          .upsert({
+            id: authUser.user.id,
+            email: agent.email,
+            full_name: agent.full_name,
+            onboarded: userAlreadyExists,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'id'
+          })
       }
-      
-      return NextResponse.json({
-        success: true,
-        invited: successes.length,
-        failed: failures.length,
-        total: results.length,
-        message,
-        warning: 'Service role key not configured - agents marked as invited but no emails sent'
-      })
+
+      // Update agent status
+      const updateData = userAlreadyExists ? {
+        status: 'active',
+        invited_at: new Date().toISOString(),
+        user_id: authUser?.user?.id || null,
+      } : {
+        status: 'invited',
+        invited_at: new Date().toISOString(),
+        user_id: authUser?.user?.id || null,
+      }
+
+      await supabaseAdmin
+        .from('organization_members')
+        .update(updateData)
+        .eq('id', agent.id)
+
+      // Track invitation
+      if (currentUserMemberId) {
+        await supabaseAdmin
+          .from('agent_invitations')
+          .insert({
+            organization_member_id: agent.id,
+            invited_by: currentUserMemberId,
+          })
+      }
+
+      return agent
     }
 
-
-  } catch (error) {
-    console.error('Invitation API error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+    // Process invitations with batching
+    const { successes, failures } = await processBatch(
+      agents,
+      inviteAgent,
+      {
+        batchSize: 10,
+        delayBetweenBatches: 500,
+        maxConcurrency: 5,
+        onBatchComplete: (index) => {
+          console.log(`Invitation batch ${index + 1} completed`)
+        },
+        onBatchError: (index, error) => {
+          console.error(`Invitation batch ${index + 1} failed:`, error)
+        }
+      }
     )
-  }
-}
+
+    // Prepare response
+    const resentCount = agents.filter(a => a.status === 'invited').length
+    const newInviteCount = agents.filter(a => a.status === 'pending_invitation').length
+
+    let message = ''
+    if (resentCount > 0 && newInviteCount > 0) {
+      message = `${newInviteCount} new invitation(s) and ${resentCount} resent successfully`
+    } else if (resentCount > 0) {
+      message = `${resentCount} invitation(s) resent successfully`
+    } else {
+      message = `${successes.length} invitation(s) sent successfully`
+    }
+
+    if (!resend) {
+      message += ' (Note: RESEND_API_KEY not configured - emails not sent)'
+    }
+
+    if (failures.length > 0) {
+      message += `, ${failures.length} failed`
+
+      console.error('Failed invitations:', failures.map(f => ({
+        email: f.item?.email,
+        error: f.error?.message
+      })))
+    }
+
+    return NextResponse.json({
+      success: true,
+      invited: successes.length,
+      failed: failures.length,
+      total: agents.length,
+      message,
+      emailProvider: resend ? 'resend' : 'none',
+      failures: failures.length > 0 ? failures.map(f => ({
+        email: f.item?.email,
+        error: f.error?.message
+      })) : undefined
+    })
+  })
+
+  return rateLimitResult
+})

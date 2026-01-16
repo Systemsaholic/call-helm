@@ -114,46 +114,27 @@ export function useAgent(agentId: string) {
 
 // Create agent
 export function useCreateAgent() {
-  const { supabase } = useAuth()
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: async (input: CreateAgentInput) => {
-      // Get current user first
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
-      if (!currentUser) throw new Error('User not authenticated')
-      
-      // Get user's organization
-      const { data: member } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('user_id', currentUser.id)
-        .single()
+      // Use API route to bypass RLS and use service role key
+      const response = await fetch('/api/agents/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(input),
+      })
 
-      if (!member) throw new Error('No organization found')
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create agent')
+      }
 
-      // Create agent record (without auth user)
-      // Automatically assign to current user's organization
-      const { data, error } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: member.organization_id, // Auto-assign to user's org
-          email: input.email,
-          full_name: input.full_name,
-          phone: input.phone || null,
-          role: input.role,
-          extension: input.extension || null,
-          department: null, // We don't store department name anymore, only department_id
-          department_id: input.department_id && input.department_id !== '' ? input.department_id : null,
-          bio: input.bio || null,
-          status: 'pending_invitation',
-          is_active: false,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      return data as Agent
+      const result = await response.json()
+      return result.agent as Agent
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.lists() })
@@ -234,7 +215,7 @@ export function useSendInvitations() {
 
   return useMutation({
     mutationFn: async (agentIds: string[]) => {
-      // Call the API route to send invitations (requires server-side admin access)
+      // Call the API route to send invitations via Resend (requires server-side admin access)
       const response = await fetch('/api/agents/invite', {
         method: 'POST',
         headers: {
