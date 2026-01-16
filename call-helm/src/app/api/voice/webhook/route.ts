@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     
     // Get raw body for signature verification
     const rawBody = await request.text()
-    const signature = request.headers.get('x-signalwire-signature') || 
+    const signature = request.headers.get('x-telnyx-signature') ||
                      request.headers.get('x-webhook-signature') || ''
     
     // Parse the body
@@ -184,7 +184,7 @@ async function handleCallEnded(supabase: SupabaseClient, organizationId: string,
       direction
     } = data
     
-    // Map SignalWire status to our disposition
+    // Map Telnyx status to our disposition
     const dispositionMap: Record<string, string> = {
       'completed': 'answered',
       'busy': 'busy',
@@ -321,7 +321,7 @@ async function handleRecordingFinished(supabase: SupabaseClient, organizationId:
 
 // Handle GET requests for webhook verification
 export async function GET(request: NextRequest) {
-  // SignalWire may send a GET request to verify the webhook endpoint
+  // Telnyx may send a GET request to verify the webhook endpoint
   return NextResponse.json({ 
     status: 'ok',
     message: 'Webhook endpoint active'

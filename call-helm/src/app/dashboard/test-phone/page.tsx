@@ -87,8 +87,8 @@ export default function TestPhonePage() {
                 {voiceIntegration && (
                   <>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Space URL:</span>
-                      <span className="text-sm text-gray-600">{voiceIntegration.space_url || 'Not set'}</span>
+                      <span className="text-sm font-medium">App ID:</span>
+                      <span className="text-sm text-gray-600">{voiceIntegration.app_id || 'Not set'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Recording Enabled:</span>

@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { smsLogger } from '@/lib/logger'
 
-// SignalWire SMS status webhook handler
+// Telnyx SMS status webhook handler
 export async function POST(request: NextRequest) {
   try {
     smsLogger.info('SMS status webhook received')
 
-    // Parse form-encoded data from SignalWire
+    // Parse form-encoded data from Telnyx
     const formData = await request.formData()
     const data: Record<string, unknown> = {}
     formData.forEach((value, key) => {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Map SignalWire status to our status
+    // Map Telnyx status to our status
     let mappedStatus = messageStatus.toLowerCase()
     if (mappedStatus === 'sent') {
       mappedStatus = 'sent'
@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Return empty response for SignalWire (they expect 204 No Content)
+    // Return empty response for Telnyx (they expect 204 No Content)
     return new Response(null, { status: 204 })
     
   } catch (error) {
@@ -134,12 +134,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// SignalWire may send HEAD requests to verify webhook
+// Telnyx may send HEAD requests to verify webhook
 export async function HEAD() {
   return new Response(null, { status: 200 })
 }
 
-// SignalWire may send GET requests to verify webhook
+// Telnyx may send GET requests to verify webhook
 export async function GET() {
   return NextResponse.json({ 
     status: 'ok',

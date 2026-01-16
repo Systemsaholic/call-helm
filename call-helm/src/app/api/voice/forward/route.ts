@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 
     // Read raw body and verify signature
     const rawBody = await request.text()
-    const signature = request.headers.get("x-signalwire-signature") || request.headers.get("x-webhook-signature") || ""
+    const signature = request.headers.get("x-telnyx-signature") || request.headers.get("x-webhook-signature") || ""
 
     // Attempt to look up webhook secret for the receiving number before parsing
     const params = new URLSearchParams(rawBody)
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     if (webhookSecret) {
       const expected = crypto.createHmac("sha256", webhookSecret).update(rawBody).digest("hex")
       if (!timingSafeCompare(expected, signature)) {
-        voiceLogger.warn("Invalid SignalWire signature for forwarding")
+        voiceLogger.warn("Invalid Telnyx signature for forwarding")
         return new NextResponse("Invalid signature", { status: 403 })
       }
     }

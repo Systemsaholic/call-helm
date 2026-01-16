@@ -72,7 +72,7 @@ export interface PhoneNumber {
   }
   is_primary: boolean
   status: 'active' | 'inactive'
-  provider: 'signalwire' | 'twilio'
+  provider: 'telnyx' | 'twilio'
   created_at: string
   updated_at: string
 }
@@ -137,7 +137,7 @@ export interface UsageTracking {
 export interface VoiceIntegration {
   id: string
   organization_id: string
-  provider: 'signalwire' | 'twilio'
+  provider: 'telnyx' | 'twilio'
   api_key?: string
   api_secret?: string
   space_url?: string

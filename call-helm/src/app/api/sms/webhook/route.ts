@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   try {
     smsLogger.info('SMS webhook received')
 
-    // Parse form data from SignalWire
+    // Parse form data from Telnyx
     const formData = await request.formData()
     
     // Extract SMS details
@@ -365,36 +365,31 @@ async function sendAutoReply(
       .select()
       .single()
     
-    // Send via SignalWire
-    const signalwireAuth = Buffer.from(
-      `${process.env.SIGNALWIRE_PROJECT_ID}:${process.env.SIGNALWIRE_API_TOKEN}`
-    ).toString('base64')
-    
-    const formData = new URLSearchParams()
-    formData.append('From', fromNumber)
-    formData.append('To', toNumber)
-    formData.append('Body', message)
-    
+    // Send via Telnyx
     const response = await fetch(
-      `https://${process.env.SIGNALWIRE_SPACE_URL}/api/laml/2010-04-01/Accounts/${process.env.SIGNALWIRE_PROJECT_ID}/Messages.json`,
+      'https://api.telnyx.com/v2/messages',
       {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${signalwireAuth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+          'Content-Type': 'application/json',
         },
-        body: formData.toString()
+        body: JSON.stringify({
+          from: fromNumber,
+          to: toNumber,
+          text: message,
+        })
       }
     )
-    
+
     if (response.ok && autoReplyMessage) {
-      const signalwireResponse = await response.json()
-      
+      const telnyxResponse = await response.json()
+
       // Update message status
       await supabase
         .from('sms_messages')
         .update({
-          signalwire_message_sid: signalwireResponse.sid,
+          telnyx_message_id: telnyxResponse.data?.id,
           status: 'sent',
           sent_at: new Date().toISOString()
         })
@@ -411,6 +406,6 @@ export async function GET() {
   return NextResponse.json({
     status: 'ok',
     message: 'SMS webhook endpoint',
-    provider: 'SignalWire'
+    provider: 'Telnyx'
   })
 }

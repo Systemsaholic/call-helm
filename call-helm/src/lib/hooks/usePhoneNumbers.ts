@@ -26,8 +26,9 @@ export interface VoiceIntegration {
   organization_id: string
   provider: string
   is_active: boolean
-  space_url: string
-  project_id: string
+  api_key?: string
+  public_key?: string
+  app_id?: string
   phone_numbers: string[]
   default_caller_id?: string
   recording_enabled: boolean
@@ -170,9 +171,9 @@ export function usePhoneNumbers() {
   }
 
   const configureVoiceIntegration = async (config: {
-    spaceUrl: string
-    projectId: string
-    apiToken: string
+    apiKey: string
+    publicKey?: string
+    appId: string
   }) => {
     try {
       const response = await fetch('/api/voice/setup', {

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       .upsert(
         {
           organization_id: member.organization_id,
-          provider: "internal", // White-labeled - hide SignalWire
+          provider: "telnyx",
           is_active: true,
           space_url: spaceUrl,
           project_id: projectId,

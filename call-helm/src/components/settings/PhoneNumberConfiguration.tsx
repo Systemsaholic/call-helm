@@ -68,33 +68,33 @@ export function PhoneNumberConfiguration() {
     voicemail: true
   })
   
-  // SignalWire configuration
-  const [signalWireConfig, setSignalWireConfig] = useState({
-    spaceUrl: '',
-    projectId: '',
-    apiToken: ''
+  // Telnyx configuration
+  const [telnyxConfig, setTelnyxConfig] = useState({
+    apiKey: '',
+    publicKey: '',
+    appId: ''
   })
 
   useEffect(() => {
-    if (voiceIntegration?.space_url) {
-      setSignalWireConfig(prev => ({
+    if (voiceIntegration?.is_active) {
+      setTelnyxConfig(prev => ({
         ...prev,
-        spaceUrl: voiceIntegration.space_url || '',
-        projectId: voiceIntegration.project_id || '',
-        apiToken: '' // Don't expose the API token
+        apiKey: '', // Don't expose the API key
+        publicKey: voiceIntegration.public_key || '',
+        appId: voiceIntegration.app_id || ''
       }))
     }
   }, [voiceIntegration])
 
-  const handleSaveSignalWireConfig = async () => {
-    if (!signalWireConfig.spaceUrl || !signalWireConfig.projectId || !signalWireConfig.apiToken) {
-      toast.error('Please fill in all SignalWire configuration fields')
+  const handleSaveTelnyxConfig = async () => {
+    if (!telnyxConfig.apiKey || !telnyxConfig.appId) {
+      toast.error('Please fill in all Telnyx configuration fields')
       return
     }
 
     setSaving(true)
     try {
-      await configureVoiceIntegration(signalWireConfig)
+      await configureVoiceIntegration(telnyxConfig)
       setShowConfigDialog(false)
     } catch (error) {
       // Error is already handled in the hook
@@ -122,7 +122,7 @@ export function PhoneNumberConfiguration() {
         },
         status: 'active',
         is_primary: phoneNumbers.length === 0,
-        provider: 'signalwire',
+        provider: 'telnyx',
         provider_id: undefined
       })
       
@@ -211,14 +211,14 @@ export function PhoneNumberConfiguration() {
           </Button>
           {voiceIntegration?.is_active && (
             <Button variant="outline" asChild>
-              <a 
-                href="https://signalwire.com" 
-                target="_blank" 
+              <a
+                href="https://portal.telnyx.com"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center"
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
-                SignalWire Dashboard
+                Telnyx Portal
               </a>
             </Button>
           )}
@@ -332,57 +332,57 @@ export function PhoneNumberConfiguration() {
         )}
       </div>
 
-      {/* SignalWire Configuration Dialog */}
+      {/* Telnyx Configuration Dialog */}
       <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Configure SignalWire</DialogTitle>
+            <DialogTitle>Configure Telnyx</DialogTitle>
             <DialogDescription>
-              Enter your SignalWire credentials to enable voice calling
+              Enter your Telnyx credentials to enable voice calling
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div>
-              <Label htmlFor="space-url">Space URL</Label>
+              <Label htmlFor="api-key">API Key</Label>
               <Input
-                id="space-url"
-                placeholder="your-space.signalwire.com"
-                value={signalWireConfig.spaceUrl}
-                onChange={(e) => setSignalWireConfig({ ...signalWireConfig, spaceUrl: e.target.value })}
-                className="mt-1"
-              />
-              <p className="text-xs text-gray-500 mt-1">Found in your SignalWire dashboard</p>
-            </div>
-
-            <div>
-              <Label htmlFor="project-id">Project ID</Label>
-              <Input
-                id="project-id"
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                value={signalWireConfig.projectId}
-                onChange={(e) => setSignalWireConfig({ ...signalWireConfig, projectId: e.target.value })}
-                className="mt-1"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="api-token">API Token</Label>
-              <Input
-                id="api-token"
+                id="api-key"
                 type="password"
-                placeholder="Your API token"
-                value={signalWireConfig.apiToken}
-                onChange={(e) => setSignalWireConfig({ ...signalWireConfig, apiToken: e.target.value })}
+                placeholder="KEY..."
+                value={telnyxConfig.apiKey}
+                onChange={(e) => setTelnyxConfig({ ...telnyxConfig, apiKey: e.target.value })}
                 className="mt-1"
               />
-              <p className="text-xs text-gray-500 mt-1">Keep this secure and never share it</p>
+              <p className="text-xs text-gray-500 mt-1">Found in your Telnyx portal under API Keys</p>
+            </div>
+
+            <div>
+              <Label htmlFor="public-key">Public Key (Optional)</Label>
+              <Input
+                id="public-key"
+                placeholder="Your public key"
+                value={telnyxConfig.publicKey}
+                onChange={(e) => setTelnyxConfig({ ...telnyxConfig, publicKey: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="app-id">App ID</Label>
+              <Input
+                id="app-id"
+                placeholder="Your TeXML App ID"
+                value={telnyxConfig.appId}
+                onChange={(e) => setTelnyxConfig({ ...telnyxConfig, appId: e.target.value })}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">The TeXML Application ID for webhooks</p>
             </div>
 
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription>
-                You can find these credentials in your SignalWire Space under API → Credentials
+                You can find these credentials in your Telnyx Portal under Auth → API Keys
               </AlertDescription>
             </Alert>
           </div>
@@ -391,7 +391,7 @@ export function PhoneNumberConfiguration() {
             <Button variant="outline" onClick={() => setShowConfigDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveSignalWireConfig} disabled={saving}>
+            <Button onClick={handleSaveTelnyxConfig} disabled={saving}>
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

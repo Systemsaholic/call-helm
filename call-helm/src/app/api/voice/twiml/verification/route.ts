@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // TwiML endpoint that speaks the verification code
-// This is called by SignalWire when the verification call is answered
+// This is called by Telnyx when the verification call is answered
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const code = searchParams.get('code') || ''
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   })
 }
 
-// Also handle POST in case SignalWire uses POST
+// Also handle POST in case Telnyx uses POST
 export async function POST(request: NextRequest) {
   return GET(request)
 }

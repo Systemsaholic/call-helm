@@ -6,7 +6,7 @@ export async function POST(request: NextRequest) {
   try {
     voiceLogger.info('Recording complete webhook received')
 
-    // Parse form data from SignalWire
+    // Parse form data from Telnyx
     const formData = await request.formData()
     const recordingSid = formData.get('RecordingSid') as string
     const recordingUrl = formData.get('RecordingUrl') as string
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// SignalWire might send GET requests for verification
+// Telnyx might send GET requests for verification
 export async function GET(request: NextRequest) {
   return NextResponse.json({ 
     status: 'ok',

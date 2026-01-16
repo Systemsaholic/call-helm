@@ -78,15 +78,15 @@ export function verifyTwilioWebhook(
   return crypto.timingSafeEqual(sigBuffer, expectedBuffer)
 }
 
-// SignalWire webhook signature verification (similar to Twilio)
-export function verifySignalWireWebhook(
-  projectKey: string,
+// Telnyx webhook signature verification
+export function verifyTelnyxWebhook(
+  apiKey: string,
   signature: string,
   url: string,
   params: Record<string, any>
 ): boolean {
-  // SignalWire uses the same signature method as Twilio
-  return verifyTwilioWebhook(projectKey, signature, url, params)
+  // Telnyx uses HMAC signature method similar to Twilio
+  return verifyTwilioWebhook(apiKey, signature, url, params)
 }
 
 // Generic webhook verification middleware
@@ -201,10 +201,10 @@ export const WEBHOOK_IP_RANGES = {
     // ... more ranges
   ],
   
-  // SignalWire IP ranges (examples - check SignalWire docs for current list)
-  signalwire: [
-    '34.203.250.0/23',
-    '35.156.191.128/25',
+  // Telnyx IP ranges (examples - check Telnyx docs for current list)
+  telnyx: [
+    '3.211.152.0/21',
+    '54.175.0.0/16',
     // ... more ranges
   ],
   

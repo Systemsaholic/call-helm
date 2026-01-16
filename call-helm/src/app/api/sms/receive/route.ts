@@ -32,12 +32,12 @@ function isOptInKeyword(message: string): boolean {
   return optInKeywords.includes(normalizedMessage)
 }
 
-// SignalWire incoming SMS webhook handler
+// Telnyx incoming SMS webhook handler
 export async function POST(request: NextRequest) {
   try {
     smsLogger.info('Incoming SMS webhook received')
 
-    // Parse form-encoded data from SignalWire
+    // Parse form-encoded data from Telnyx
     const formData = await request.formData()
     const data: Record<string, string> = {}
     formData.forEach((value, key) => {
@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
       }).catch(err => smsLogger.error('Failed to trigger SMS analysis', { error: err }))
     }
     
-    // Return empty response to SignalWire
+    // Return empty response to Telnyx
     return new Response(null, { status: 204 })
     
   } catch (error) {
@@ -306,12 +306,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// SignalWire may send HEAD requests to verify webhook
+// Telnyx may send HEAD requests to verify webhook
 export async function HEAD() {
   return new Response(null, { status: 200 })
 }
 
-// SignalWire may send GET requests to verify webhook
+// Telnyx may send GET requests to verify webhook
 export async function GET() {
   return NextResponse.json({ 
     status: 'ok',

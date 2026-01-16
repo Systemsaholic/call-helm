@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
       data: { url: request.url, method: request.method }
     })
     
-    // Parse form data from SignalWire
+    // Parse form data from Telnyx
     const formData = await request.formData()
     const from = formData.get('From') as string
     const to = formData.get('To') as string
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// SignalWire might send GET requests for webhook verification
+// Telnyx might send GET requests for webhook verification
 export async function GET(request: NextRequest) {
   return NextResponse.json({ 
     status: 'ok',

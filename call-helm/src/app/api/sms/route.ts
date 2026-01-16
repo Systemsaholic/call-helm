@@ -123,31 +123,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Send SMS via SignalWire
-    const signalwireResponse = await fetch(
-      `https://${process.env.SIGNALWIRE_SPACE_NAME}.signalwire.com/api/laml/2010-04-01/Accounts/${process.env.SIGNALWIRE_PROJECT_ID}/Messages.json`,
+    // Send SMS via Telnyx
+    const telnyxResponse = await fetch(
+      'https://api.telnyx.com/v2/messages',
       {
         method: 'POST',
         headers: {
-          'Authorization': 'Basic ' + Buffer.from(
-            `${process.env.SIGNALWIRE_PROJECT_ID}:${process.env.SIGNALWIRE_API_TOKEN}`
-          ).toString('base64'),
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Bearer ${process.env.TELNYX_API_KEY}`,
+          'Content-Type': 'application/json',
         },
-        body: new URLSearchParams({
-          From: from,
-          To: to,
-          Body: message,
+        body: JSON.stringify({
+          from: from,
+          to: to,
+          text: message,
         }),
       }
     )
 
-    if (!signalwireResponse.ok) {
-      const error = await signalwireResponse.json()
-      throw new Error(error.message || 'Failed to send SMS')
+    if (!telnyxResponse.ok) {
+      const error = await telnyxResponse.json()
+      throw new Error(error.errors?.[0]?.detail || 'Failed to send SMS')
     }
 
-    const smsData = await signalwireResponse.json()
+    const smsData = await telnyxResponse.json()
 
     // Store SMS in database
     const { data: savedMessage, error: saveError } = await supabase
@@ -161,7 +159,7 @@ export async function POST(request: NextRequest) {
         to_number: to,
         body: message,
         status: 'sent',
-        signalwire_sid: smsData.sid,
+        telnyx_message_id: smsData.data?.id,
         segments: Math.ceil(message.length / 160),
         cost: smsData.price || 0,
       })

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Get status update from SignalWire
+    // Get status update from Telnyx
     const formData = await request.formData()
     const callSid = formData.get("CallSid") as string
     const callStatus = formData.get("CallStatus") as string
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     const to = formData.get("To") as string
     const duration = formData.get("CallDuration") as string
 
-    voiceLogger.info('SignalWire status webhook', {
+    voiceLogger.info('Telnyx status webhook', {
       data: { callSid, callStatus, from, to, duration }
     })
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     if (phoneNumber && callSid && callStatus) {
       voiceLogger.debug('Found phone number org', { data: { organizationId: phoneNumber.organization_id } })
       
-      // Map SignalWire status to our database enum values
+      // Map Telnyx status to our database enum values
       const statusMap: Record<string, string> = {
         'initiated': 'answered', // Use 'answered' as placeholder in enum
         'ringing': 'answered',
