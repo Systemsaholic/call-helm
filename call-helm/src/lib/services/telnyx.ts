@@ -64,6 +64,28 @@ export interface CallOptions {
   customHeaders?: Record<string, string>
 }
 
+export interface TwoLegBridgeCallOptions {
+  // Agent (first leg) options
+  agentEndpoint: string  // Phone number or SIP URI (sip:ext@domain.com)
+  agentEndpointType: 'cell' | '3cx_did' | 'sip_uri'
+
+  // Contact (second leg) options
+  contactNumber: string  // E.164 format
+
+  // Common options
+  from: string  // Caller ID
+  connectionId?: string
+  webhookUrl?: string
+
+  // Recording options
+  recordingEnabled?: boolean
+  announceRecording?: boolean
+  recordingAnnouncementUrl?: string  // Custom audio URL
+
+  // Tracking
+  clientState?: Record<string, unknown>
+}
+
 export interface CallControlId {
   callControlId: string
   callSessionId: string
@@ -593,6 +615,230 @@ export class TelnyxService {
     })
 
     voiceLogger.info('Calls bridged', { data: { callControlId, targetCallControlId } })
+  }
+
+  // ============================================
+  // TWO-LEG BRIDGE CALLING
+  // ============================================
+
+  /**
+   * Initiate the first leg of a two-leg bridge call (calls the agent)
+   *
+   * Flow:
+   * 1. Call agent endpoint (cell/DID/SIP URI)
+   * 2. Agent answers → webhook triggers playback of "Connecting..."
+   * 3. Call contact → webhook triggers bridge when contact answers
+   * 4. If recording enabled, play announcement and start recording
+   *
+   * The orchestration is handled via webhooks with client_state tracking.
+   */
+  async initiateAgentLeg(options: TwoLegBridgeCallOptions): Promise<CallControlId> {
+    const webhookUrl = options.webhookUrl ||
+      `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/telnyx/webhook`
+
+    // Prepare client state with all info needed for webhook orchestration
+    const clientState = JSON.stringify({
+      ...options.clientState,
+      bridgeCall: true,
+      phase: 'agent_leg',
+      contactNumber: options.contactNumber,
+      agentEndpoint: options.agentEndpoint,
+      agentEndpointType: options.agentEndpointType,
+      from: options.from,
+      recordingEnabled: options.recordingEnabled,
+      announceRecording: options.announceRecording,
+      recordingAnnouncementUrl: options.recordingAnnouncementUrl
+    })
+
+    // Determine the "to" value - SIP URI or phone number
+    const toValue = options.agentEndpointType === 'sip_uri'
+      ? options.agentEndpoint  // Already in sip:ext@domain format
+      : options.agentEndpoint  // E.164 phone number
+
+    const body: Record<string, unknown> = {
+      connection_id: options.connectionId || this.connectionId,
+      to: toValue,
+      from: options.from,
+      webhook_url: webhookUrl,
+      webhook_url_method: 'POST',
+      client_state: Buffer.from(clientState).toString('base64')
+    }
+
+    voiceLogger.info('Initiating agent leg of bridge call', {
+      data: {
+        to: toValue,
+        from: options.from,
+        endpointType: options.agentEndpointType,
+        contactNumber: options.contactNumber
+      }
+    })
+
+    const result = await this.request<{
+      call_control_id: string
+      call_session_id: string
+      call_leg_id: string
+    }>('/calls', { method: 'POST', body })
+
+    return {
+      callControlId: result.call_control_id,
+      callSessionId: result.call_session_id,
+      callLegId: result.call_leg_id
+    }
+  }
+
+  /**
+   * Initiate the second leg of a two-leg bridge call (calls the contact)
+   * Called from webhook handler after agent answers
+   */
+  async initiateContactLeg(options: {
+    contactNumber: string
+    from: string
+    agentCallControlId: string
+    connectionId?: string
+    webhookUrl?: string
+    recordingEnabled?: boolean
+    announceRecording?: boolean
+    recordingAnnouncementUrl?: string
+    clientState?: Record<string, unknown>
+  }): Promise<CallControlId> {
+    const webhookUrl = options.webhookUrl ||
+      `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL}/api/voice/telnyx/webhook`
+
+    // Prepare client state for contact leg
+    const clientState = JSON.stringify({
+      ...options.clientState,
+      bridgeCall: true,
+      phase: 'contact_leg',
+      agentCallControlId: options.agentCallControlId,
+      recordingEnabled: options.recordingEnabled,
+      announceRecording: options.announceRecording,
+      recordingAnnouncementUrl: options.recordingAnnouncementUrl
+    })
+
+    const body: Record<string, unknown> = {
+      connection_id: options.connectionId || this.connectionId,
+      to: options.contactNumber,
+      from: options.from,
+      webhook_url: webhookUrl,
+      webhook_url_method: 'POST',
+      client_state: Buffer.from(clientState).toString('base64'),
+      // Enable AMD for contact leg to detect voicemail
+      answering_machine_detection: 'detect',
+      answering_machine_detection_config: {
+        after_greeting_silence_millis: 800,
+        total_analysis_time_millis: 5000
+      }
+    }
+
+    voiceLogger.info('Initiating contact leg of bridge call', {
+      data: {
+        to: options.contactNumber,
+        from: options.from,
+        agentCallControlId: options.agentCallControlId
+      }
+    })
+
+    const result = await this.request<{
+      call_control_id: string
+      call_session_id: string
+      call_leg_id: string
+    }>('/calls', { method: 'POST', body })
+
+    return {
+      callControlId: result.call_control_id,
+      callSessionId: result.call_session_id,
+      callLegId: result.call_leg_id
+    }
+  }
+
+  /**
+   * Play the "Connecting to destination..." announcement to agent
+   */
+  async playConnectingAnnouncement(
+    callControlId: string,
+    clientState?: string
+  ): Promise<void> {
+    // Default connecting announcement URL (can be customized)
+    const announcementUrl = process.env.TELNYX_CONNECTING_AUDIO_URL ||
+      'https://call-helm-assets.s3.amazonaws.com/audio/connecting-destination.mp3'
+
+    await this.playAudio(callControlId, announcementUrl, { clientState })
+
+    voiceLogger.info('Playing connecting announcement', { data: { callControlId } })
+  }
+
+  /**
+   * Play the recording disclosure announcement to contact
+   */
+  async playRecordingAnnouncement(
+    callControlId: string,
+    customUrl?: string,
+    clientState?: string
+  ): Promise<void> {
+    // Use custom URL or default
+    const announcementUrl = customUrl ||
+      process.env.TELNYX_RECORDING_AUDIO_URL ||
+      'https://call-helm-assets.s3.amazonaws.com/audio/recording-announcement.mp3'
+
+    await this.playAudio(callControlId, announcementUrl, { clientState })
+
+    voiceLogger.info('Playing recording announcement', { data: { callControlId } })
+  }
+
+  /**
+   * Complete the bridge: connect agent and contact, start recording
+   * Called from webhook after both parties have answered
+   */
+  async completeBridgeCall(options: {
+    agentCallControlId: string
+    contactCallControlId: string
+    recordingEnabled?: boolean
+  }): Promise<void> {
+    // Bridge the calls
+    await this.bridgeCalls(options.agentCallControlId, options.contactCallControlId)
+
+    // Start recording on the agent leg (captures both sides with dual channel)
+    if (options.recordingEnabled) {
+      await this.startRecording(options.agentCallControlId, {
+        format: 'wav',
+        channels: 'dual',
+        playBeep: false
+      })
+    }
+
+    voiceLogger.info('Bridge call completed', {
+      data: {
+        agentCallControlId: options.agentCallControlId,
+        contactCallControlId: options.contactCallControlId,
+        recordingEnabled: options.recordingEnabled
+      }
+    })
+  }
+
+  /**
+   * Build a SIP URI from extension and server domain
+   * @param extension - 3CX extension number (e.g., "1001")
+   * @param serverDomain - 3CX server domain (e.g., "company.3cx.us")
+   * @returns SIP URI in format "sip:1001@company.3cx.us"
+   */
+  static buildSipUri(extension: string, serverDomain: string): string {
+    // Remove any existing sip: prefix
+    const cleanExtension = extension.replace(/^sip:/i, '')
+    // Remove any domain if accidentally included
+    const extOnly = cleanExtension.split('@')[0]
+    // Clean the domain
+    const cleanDomain = serverDomain.replace(/^(sip:|https?:\/\/)/i, '')
+
+    return `sip:${extOnly}@${cleanDomain}`
+  }
+
+  /**
+   * Validate SIP URI format
+   */
+  static isValidSipUri(uri: string): boolean {
+    // Basic SIP URI validation: sip:user@domain
+    const sipUriPattern = /^sip:[^@]+@[^@]+$/i
+    return sipUriPattern.test(uri)
   }
 
   /**
@@ -1351,6 +1597,27 @@ export class TelnyxService {
     } catch {
       return clientState
     }
+  }
+
+  /**
+   * Encode client state to base64 for Telnyx
+   */
+  static encodeClientState(clientState: string): string {
+    return Buffer.from(clientState, 'utf-8').toString('base64')
+  }
+
+  /**
+   * Alias for hangupCall - simpler method name
+   */
+  async hangup(callControlId: string): Promise<void> {
+    return this.hangupCall(callControlId)
+  }
+
+  /**
+   * Alias for bridgeCalls - simpler method name
+   */
+  async bridge(callControlId: string, targetCallControlId: string): Promise<void> {
+    return this.bridgeCalls(callControlId, targetCallControlId)
   }
 
   /**

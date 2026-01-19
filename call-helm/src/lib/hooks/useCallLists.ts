@@ -32,6 +32,9 @@ export interface CallList {
   script_template?: string
   keywords?: string[]
   call_goals?: string[]
+  custom_dispositions?: Array<{ label: string; value: string; color?: string }>
+  announce_recording?: boolean
+  recording_announcement_url?: string
   created_at: string
   created_by?: string
   updated_at: string
@@ -72,6 +75,9 @@ export interface CallListInput {
   tags?: string[]
   script_template?: string
   contact_ids?: string[]
+  custom_dispositions?: Array<{ label: string; value: string; color?: string }> | null
+  announce_recording?: boolean
+  recording_announcement_url?: string
 }
 
 export interface CallListContact {

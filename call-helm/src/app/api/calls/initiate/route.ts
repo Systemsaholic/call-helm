@@ -26,11 +26,12 @@ export async function POST(req: NextRequest) {
       contactId,
       phoneNumber,
       callListId,
-      scriptId
+      scriptId,
+      useBridgeFlow = true // Default to two-leg bridge flow
     } = body
 
     voiceLogger.info('Call initiate request', {
-      data: { provider: 'telnyx', contactId, phoneNumber, callListId, scriptId, userId: user?.id }
+      data: { provider: 'telnyx', contactId, phoneNumber, callListId, scriptId, userId: user?.id, useBridgeFlow }
     })
 
     if (!phoneNumber) {
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
 
     // Format phone number to E.164 if not already
     let formattedPhoneNumber = phoneNumber.toString().replace(/[\s()-]/g, "")
-    
+
     // Add + prefix if not present
     if (!formattedPhoneNumber.startsWith('+')) {
       // Assume US/Canada number if no country code
@@ -61,14 +62,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid phone number format" }, { status: 400 })
     }
 
-    // Get user's organization and member details
+    // Get user's organization and member details including phone preferences
     const { data: member, error: memberError } = await supabase
       .from("organization_members")
-      .select("id, organization_id, phone")
+      .select("id, organization_id, phone, phone_type, sip_uri, three_cx_extension")
       .eq("user_id", user.id)
       .eq("is_active", true)
       .single()
-    
+
     voiceLogger.debug('Member lookup result', { data: { member, error: memberError } })
 
     if (!member?.organization_id) {
@@ -76,14 +77,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No organization found" }, { status: 400 })
     }
 
+    // Determine agent endpoint for two-leg bridge
+    const phoneType = member.phone_type || 'cell'
+    let agentEndpoint: string | null = null
+
+    if (phoneType === 'sip_uri' && member.sip_uri) {
+      agentEndpoint = member.sip_uri
+    } else if (phoneType === '3cx_did' && member.phone) {
+      agentEndpoint = member.phone
+    } else if (member.phone) {
+      agentEndpoint = member.phone
+    }
+
+    // Check if agent has a phone configured for bridge flow
+    if (useBridgeFlow && !agentEndpoint) {
+      voiceLogger.error('Agent phone not configured for bridge calling')
+      return NextResponse.json({
+        error: 'Your phone number is not configured. Please set your phone number in Settings to make calls.'
+      }, { status: 400 })
+    }
+
     voiceLogger.debug('Organization context', {
-      data: { organizationId: member.organization_id, memberId: member.id, memberPhone: member.phone }
+      data: {
+        organizationId: member.organization_id,
+        memberId: member.id,
+        agentEndpoint,
+        phoneType
+      }
     })
 
     // Check usage limits before allowing call
     const { data: usageData } = await supabase.from("usage_tracking").select("used_amount, tier_included").eq("organization_id", member.organization_id).eq("resource_type", "call_minutes").gte("billing_period_end", new Date().toISOString()).single()
 
-    const { data: orgData } = await supabase.from("organizations").select("subscription_tier").eq("id", member.organization_id).single()
+    const { data: orgData } = await supabase.from("organizations").select("subscription_tier, three_cx_server_url").eq("id", member.organization_id).single()
 
     // Check if user has available minutes
     const usedMinutes = usageData?.used_amount || 0
@@ -102,6 +128,26 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Get call list settings if provided (for recording announcement, custom dispositions)
+    let callListSettings: {
+      announce_recording?: boolean
+      recording_announcement_url?: string
+      custom_dispositions?: unknown[]
+      call_goals?: string[]
+      keywords?: string[]
+    } | null = null
+
+    if (callListId) {
+      const { data: callList } = await supabase
+        .from('call_lists')
+        .select('announce_recording, recording_announcement_url, custom_dispositions, call_goals, keywords')
+        .eq('id', callListId)
+        .eq('organization_id', member.organization_id)
+        .single()
+
+      callListSettings = callList
+    }
+
     // Get script if provided
     let scriptContent = null
     if (scriptId) {
@@ -116,18 +162,24 @@ export async function POST(req: NextRequest) {
       .select('default_record_calls')
       .eq('id', user.id)
       .single()
-    
+
     const { data: limits } = await supabase
       .from('organization_limits')
       .select('features')
       .eq('organization_id', member.organization_id)
       .single()
-    
+
     const canRecord = limits?.features?.call_recording_transcription === true
     const wantsToRecord = userPrefs?.default_record_calls === true
     const enableRecording = canRecord && wantsToRecord
-    
-    voiceLogger.debug('Recording check', { data: { canRecord, wantsToRecord, enableRecording } })
+
+    // Determine if we should announce recording
+    const announceRecording = enableRecording && (callListSettings?.announce_recording !== false)
+    const recordingAnnouncementUrl = callListSettings?.recording_announcement_url || null
+
+    voiceLogger.debug('Recording check', {
+      data: { canRecord, wantsToRecord, enableRecording, announceRecording, recordingAnnouncementUrl }
+    })
 
     // Get organization's phone number (from number)
     const { data: phoneNumberData, error: phoneError } = await supabase
@@ -155,7 +207,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Voice service not configured' }, { status: 503 })
     }
 
-    // Initiate call via Telnyx
+    // Build SIP URI if needed (agent has extension but no SIP URI configured)
+    if (phoneType === 'sip_uri' && member.three_cx_extension && !member.sip_uri && orgData?.three_cx_server_url) {
+      agentEndpoint = TelnyxService.buildSipUri(member.three_cx_extension, orgData.three_cx_server_url)
+      voiceLogger.debug('Built SIP URI from extension', { data: { agentEndpoint } })
+    }
+
+    // Initiate call - use two-leg bridge flow if enabled
     let externalCallId: string | null = null
     let callControlData: { callControlId: string; callSessionId: string; callLegId: string } | null = null
 
@@ -169,41 +227,90 @@ export async function POST(req: NextRequest) {
       member_id: member.id,
       start_time: new Date().toISOString(),
       recording_enabled: enableRecording,
+      // Two-leg bridge specific fields
+      bridge_status: useBridgeFlow ? 'agent_ringing' : null,
+      agent_endpoint: useBridgeFlow ? agentEndpoint : null,
+      agent_endpoint_type: useBridgeFlow ? phoneType : null,
       metadata: {
         call_list_id: callListId,
         script_id: scriptId,
         initiated_by: user.id,
         provider: 'telnyx',
-        initial_status: "initiated"
+        initial_status: "initiated",
+        bridge_flow: useBridgeFlow,
+        announce_recording: announceRecording,
+        recording_announcement_url: recordingAnnouncementUrl,
+        call_goals: callListSettings?.call_goals || [],
+        keywords: callListSettings?.keywords || []
       } as Record<string, unknown>
     }
 
     try {
-      // Build client state with context for webhooks
-      const clientState = JSON.stringify({
-        organizationId: member.organization_id,
-        memberId: member.id,
-        contactId,
-        callListId,
-        autoRecord: enableRecording
-      })
+      if (useBridgeFlow && agentEndpoint) {
+        // Two-leg bridge flow: Call agent first, then contact
+        voiceLogger.info('Initiating two-leg bridge call', {
+          data: { agentEndpoint, phoneType, contactNumber: formattedPhoneNumber }
+        })
 
-      callControlData = await telnyx.initiateCall({
-        from: fromNumber,
-        to: formattedPhoneNumber,
-        answeringMachineDetection: true,
-        clientState
-      })
+        callControlData = await telnyx.initiateAgentLeg({
+          agentEndpoint,
+          agentEndpointType: phoneType as 'cell' | '3cx_did' | 'sip_uri',
+          contactNumber: formattedPhoneNumber,
+          from: fromNumber,
+          recordingEnabled: enableRecording,
+          announceRecording,
+          recordingAnnouncementUrl: recordingAnnouncementUrl || undefined,
+          clientState: {
+            organizationId: member.organization_id,
+            memberId: member.id,
+            contactId,
+            callListId,
+            autoRecord: enableRecording,
+            bridgeFlow: true
+          }
+        })
 
-      voiceLogger.info('Telnyx call initiated', {
-        data: { callControlId: callControlData.callControlId, to: formattedPhoneNumber, from: fromNumber }
-      })
+        voiceLogger.info('Agent leg initiated', {
+          data: { callControlId: callControlData.callControlId, agentEndpoint, from: fromNumber }
+        })
 
-      externalCallId = callControlData.callControlId
-      const metadata = callData.metadata as Record<string, unknown>
-      metadata.external_id = callControlData.callControlId
-      metadata.call_session_id = callControlData.callSessionId
-      metadata.call_leg_id = callControlData.callLegId
+        externalCallId = callControlData.callControlId
+        const metadata = callData.metadata as Record<string, unknown>
+        metadata.external_id = callControlData.callControlId
+        metadata.call_session_id = callControlData.callSessionId
+        metadata.call_leg_id = callControlData.callLegId
+        callData.agent_call_control_id = callControlData.callControlId
+      } else {
+        // Legacy direct call flow (calls contact directly)
+        voiceLogger.info('Initiating direct call (legacy flow)', {
+          data: { to: formattedPhoneNumber, from: fromNumber }
+        })
+
+        const clientState = JSON.stringify({
+          organizationId: member.organization_id,
+          memberId: member.id,
+          contactId,
+          callListId,
+          autoRecord: enableRecording
+        })
+
+        callControlData = await telnyx.initiateCall({
+          from: fromNumber,
+          to: formattedPhoneNumber,
+          answeringMachineDetection: true,
+          clientState
+        })
+
+        voiceLogger.info('Telnyx call initiated', {
+          data: { callControlId: callControlData.callControlId, to: formattedPhoneNumber, from: fromNumber }
+        })
+
+        externalCallId = callControlData.callControlId
+        const metadata = callData.metadata as Record<string, unknown>
+        metadata.external_id = callControlData.callControlId
+        metadata.call_session_id = callControlData.callSessionId
+        metadata.call_leg_id = callControlData.callLegId
+      }
     } catch (telnyxError) {
       voiceLogger.error('Telnyx call initiation error', { error: telnyxError })
       return NextResponse.json({
@@ -230,7 +337,7 @@ export async function POST(req: NextRequest) {
       }, { status: 500 })
     }
 
-    voiceLogger.info('Call record created', { data: { callId: call.id } })
+    voiceLogger.info('Call record created', { data: { callId: call.id, bridgeFlow: useBridgeFlow } })
 
     // Update call list contact status if applicable
     if (callListId && contactId) {
@@ -259,14 +366,16 @@ export async function POST(req: NextRequest) {
       agent_id: user.id,
       contact_id: contactId,
       call_attempt_id: call.id,
-      description: `Outbound call to ${formattedPhoneNumber}`,
+      description: `Outbound call to ${formattedPhoneNumber}${useBridgeFlow ? ' (bridge)' : ''}`,
       metadata: {
         call_id: call.id,
         external_id: externalCallId,
         provider: 'telnyx',
         call_control_id: externalCallId,
         call_session_id: callControlData?.callSessionId,
-        initiated_at: new Date().toISOString()
+        initiated_at: new Date().toISOString(),
+        bridge_flow: useBridgeFlow,
+        agent_endpoint: useBridgeFlow ? agentEndpoint : null
       }
     })
 
@@ -274,7 +383,9 @@ export async function POST(req: NextRequest) {
       success: true,
       callId: call.id,
       externalId: externalCallId,
-      status: call.status
+      status: call.status,
+      bridgeStatus: useBridgeFlow ? 'agent_ringing' : null,
+      bridgeFlow: useBridgeFlow
     })
   } catch (error) {
     voiceLogger.error('Call initiation error', { error })

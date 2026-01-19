@@ -83,6 +83,13 @@ function SettingsContent() {
     bio: ''
   })
 
+  // Phone preferences state for two-leg bridge calling
+  const [phonePrefs, setPhonePrefs] = useState({
+    phoneType: 'cell' as 'cell' | '3cx_did' | 'sip_uri',
+    sipUri: '',
+    threeCxExtension: ''
+  })
+
   // Organization state
   const [orgData, setOrgData] = useState({
     name: 'My Organization',
@@ -104,6 +111,29 @@ function SettingsContent() {
       })
     }
   }, [profile, user])
+
+  // Fetch phone preferences from organization_members
+  useEffect(() => {
+    async function fetchPhonePrefs() {
+      if (!user || !supabase) return
+
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('phone_type, sip_uri, three_cx_extension')
+        .eq('user_id', user.id)
+        .single()
+
+      if (member) {
+        setPhonePrefs({
+          phoneType: (member.phone_type as 'cell' | '3cx_did' | 'sip_uri') || 'cell',
+          sipUri: member.sip_uri || '',
+          threeCxExtension: member.three_cx_extension || ''
+        })
+      }
+    }
+
+    fetchPhonePrefs()
+  }, [user, supabase])
 
   // Initialize organization data when settings load
   useEffect(() => {
@@ -149,6 +179,20 @@ function SettingsContent() {
           phone: profileData.phone,
           bio: profileData.bio
         })
+
+        // Also update phone preferences in organization_members
+        if (!error && supabase && user) {
+          await supabase
+            .from('organization_members')
+            .update({
+              phone: profileData.phone,
+              phone_type: phonePrefs.phoneType,
+              sip_uri: phonePrefs.phoneType === 'sip_uri' ? phonePrefs.sipUri : null,
+              three_cx_extension: phonePrefs.phoneType !== 'cell' ? phonePrefs.threeCxExtension : null
+            })
+            .eq('user_id', user.id)
+        }
+
         success = !error
       } else if (activeTab === 'organization' && orgSettings) {
         const { error } = await updateOrgSettings({
@@ -358,6 +402,77 @@ function SettingsContent() {
                 rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+
+            {/* Phone Preferences for Calling */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Calling Preferences</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Configure how you want to receive calls when making outbound calls from Call Helm.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone Type
+                  </label>
+                  <select
+                    value={phonePrefs.phoneType}
+                    onChange={(e) => setPhonePrefs({ ...phonePrefs, phoneType: e.target.value as 'cell' | '3cx_did' | 'sip_uri' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="cell">Cell Phone (PSTN)</option>
+                    <option value="3cx_did">3CX / PBX (DID)</option>
+                    <option value="sip_uri">3CX / PBX (SIP URI)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {phonePrefs.phoneType === 'cell' && 'Calls will be placed to your cell phone number above.'}
+                    {phonePrefs.phoneType === '3cx_did' && 'Calls will be placed to your 3CX extension\'s DID number.'}
+                    {phonePrefs.phoneType === 'sip_uri' && 'Calls will be placed directly to your 3CX extension via SIP.'}
+                  </p>
+                </div>
+
+                {phonePrefs.phoneType !== 'cell' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      3CX Extension
+                    </label>
+                    <input
+                      type="text"
+                      value={phonePrefs.threeCxExtension}
+                      onChange={(e) => setPhonePrefs({ ...phonePrefs, threeCxExtension: e.target.value })}
+                      placeholder="e.g., 1001"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Your 3CX extension number
+                    </p>
+                  </div>
+                )}
+
+                {phonePrefs.phoneType === 'sip_uri' && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      SIP URI
+                    </label>
+                    <input
+                      type="text"
+                      value={phonePrefs.sipUri}
+                      onChange={(e) => setPhonePrefs({ ...phonePrefs, sipUri: e.target.value })}
+                      placeholder="sip:1001@company.3cx.us"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      The SIP URI for your 3CX extension (format: sip:extension@your-3cx-server.com)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {phonePrefs.phoneType !== 'cell' && (
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+                  <strong>Note:</strong> When using 3CX/PBX, ensure your organization's 3CX server is configured in Organization Settings.
+                </div>
+              )}
             </div>
           </div>
         )

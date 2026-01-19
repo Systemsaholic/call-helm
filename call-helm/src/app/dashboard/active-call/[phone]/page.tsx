@@ -58,6 +58,12 @@ interface Contact {
   organization_id: string
 }
 
+interface CustomDisposition {
+  label: string
+  value: string
+  color?: string
+}
+
 interface CallListContact {
   id: string
   call_list_id: string
@@ -72,6 +78,7 @@ interface CallListContact {
     script_template: string | null
     keywords: string[] | null
     call_goals: string[] | null
+    custom_dispositions: CustomDisposition[] | null
   } | null
 }
 
@@ -87,7 +94,8 @@ interface CallAttempt {
   } | null
 }
 
-const DISPOSITIONS = [
+// Default/standard dispositions - used when no custom dispositions are defined
+const DEFAULT_DISPOSITIONS = [
   { value: 'answered', label: 'Answered', color: 'bg-green-100 text-green-800' },
   { value: 'voicemail', label: 'Voicemail', color: 'bg-yellow-100 text-yellow-800' },
   { value: 'no_answer', label: 'No Answer', color: 'bg-gray-100 text-gray-800' },
@@ -98,6 +106,14 @@ const DISPOSITIONS = [
   { value: 'not_interested', label: 'Not Interested', color: 'bg-red-100 text-red-800' },
   { value: 'wrong_number', label: 'Wrong Number', color: 'bg-red-100 text-red-800' },
   { value: 'do_not_call', label: 'Do Not Call', color: 'bg-red-100 text-red-800' },
+]
+
+// Custom disposition color palette (used when custom disposition doesn't have a color)
+const CUSTOM_DISPOSITION_COLORS = [
+  'bg-indigo-100 text-indigo-800',
+  'bg-teal-100 text-teal-800',
+  'bg-amber-100 text-amber-800',
+  'bg-pink-100 text-pink-800',
 ]
 
 const SENTIMENTS = [
@@ -216,10 +232,10 @@ export default function ActiveCallPage({ params }: { params: Promise<{ phone: st
         const clContact = assignedContacts.find(ac => ac.contact_id === matchingContact.id)
 
         if (clContact) {
-          // Fetch call list details including script, keywords, and goals
+          // Fetch call list details including script, keywords, goals, and custom dispositions
           const { data: callListData } = await supabase
             .from('call_lists')
-            .select('id, name, script_template, keywords, call_goals')
+            .select('id, name, script_template, keywords, call_goals, custom_dispositions')
             .in('id', callListIds)
 
           const callListsMap = new Map((callListData || []).map(cl => [cl.id, cl]))
@@ -428,6 +444,30 @@ export default function ActiveCallPage({ params }: { params: Promise<{ phone: st
   const hasGoals = callListContact?.call_list?.call_goals && callListContact.call_list.call_goals.length > 0
   const hasCampaignGuidance = hasScript || hasKeywords || hasGoals
 
+  // Compute active dispositions - prefer custom dispositions from call list if available
+  const customDispositions = callListContact?.call_list?.custom_dispositions
+  const hasCustomDispositions = customDispositions && customDispositions.length > 0
+
+  // If custom dispositions exist, show them first (up to 4), then add essential standard options
+  const activeDispositions = hasCustomDispositions
+    ? [
+        // Custom dispositions with assigned colors
+        ...customDispositions.slice(0, 4).map((d, index) => ({
+          value: d.value,
+          label: d.label,
+          color: d.color || CUSTOM_DISPOSITION_COLORS[index % CUSTOM_DISPOSITION_COLORS.length],
+          isCustom: true,
+        })),
+        // Separator marker (we'll handle display separately)
+        // Essential standard dispositions that should always be available
+        { value: 'voicemail', label: 'Voicemail', color: 'bg-yellow-100 text-yellow-800', isCustom: false },
+        { value: 'no_answer', label: 'No Answer', color: 'bg-gray-100 text-gray-800', isCustom: false },
+        { value: 'busy', label: 'Busy', color: 'bg-orange-100 text-orange-800', isCustom: false },
+        { value: 'callback_requested', label: 'Callback Requested', color: 'bg-blue-100 text-blue-800', isCustom: false },
+        { value: 'do_not_call', label: 'Do Not Call', color: 'bg-red-100 text-red-800', isCustom: false },
+      ]
+    : DEFAULT_DISPOSITIONS.map(d => ({ ...d, isCustom: false }))
+
   // Build script variables and process template
   const scriptVariables = buildScriptVariables({
     contact: contact,
@@ -571,13 +611,38 @@ export default function ActiveCallPage({ params }: { params: Promise<{ phone: st
 
                         {/* Disposition */}
                         <div className="md:col-span-2">
-                          <Label className="text-xs mb-1 block text-gray-500">Disposition</Label>
+                          <Label className="text-xs mb-1 block text-gray-500">
+                            Disposition
+                            {hasCustomDispositions && (
+                              <span className="ml-1 text-indigo-600">(Custom)</span>
+                            )}
+                          </Label>
                           <Select value={disposition} onValueChange={setDisposition}>
                             <SelectTrigger className="h-8 text-sm">
-                              <SelectValue placeholder="Select..." />
+                              <SelectValue placeholder="Select outcome..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {DISPOSITIONS.map((d) => (
+                              {hasCustomDispositions && (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50">
+                                    Campaign Dispositions
+                                  </div>
+                                  {activeDispositions.filter(d => d.isCustom).map((d) => (
+                                    <SelectItem key={d.value} value={d.value} className="font-medium">
+                                      {d.label}
+                                    </SelectItem>
+                                  ))}
+                                  <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 mt-1">
+                                    Standard Options
+                                  </div>
+                                  {activeDispositions.filter(d => !d.isCustom).map((d) => (
+                                    <SelectItem key={d.value} value={d.value}>
+                                      {d.label}
+                                    </SelectItem>
+                                  ))}
+                                </>
+                              )}
+                              {!hasCustomDispositions && activeDispositions.map((d) => (
                                 <SelectItem key={d.value} value={d.value}>
                                   {d.label}
                                 </SelectItem>
@@ -780,26 +845,31 @@ export default function ActiveCallPage({ params }: { params: Promise<{ phone: st
                     <CardContent className="pt-0 pb-3">
                       {callHistory.length > 0 ? (
                         <div className="space-y-2">
-                          {callHistory.map((call) => (
-                            <div key={call.id} className="p-2 bg-gray-50 rounded text-xs">
-                              <div className="flex items-center gap-2">
-                                <Badge
-                                  variant="secondary"
-                                  className={`text-[10px] ${DISPOSITIONS.find(d => d.value === call.disposition)?.color || 'bg-gray-100'}`}
-                                >
-                                  {DISPOSITIONS.find(d => d.value === call.disposition)?.label || call.disposition}
-                                </Badge>
-                                {call.duration_seconds && (
-                                  <span className="text-gray-500">
-                                    {Math.floor(call.duration_seconds / 60)}:{(call.duration_seconds % 60).toString().padStart(2, '0')}
-                                  </span>
-                                )}
+                          {callHistory.map((call) => {
+                            // Find disposition in custom or default list
+                            const dispositionInfo = activeDispositions.find(d => d.value === call.disposition) ||
+                              DEFAULT_DISPOSITIONS.find(d => d.value === call.disposition)
+                            return (
+                              <div key={call.id} className="p-2 bg-gray-50 rounded text-xs">
+                                <div className="flex items-center gap-2">
+                                  <Badge
+                                    variant="secondary"
+                                    className={`text-[10px] ${dispositionInfo?.color || 'bg-gray-100'}`}
+                                  >
+                                    {dispositionInfo?.label || call.disposition}
+                                  </Badge>
+                                  {call.duration_seconds && (
+                                    <span className="text-gray-500">
+                                      {Math.floor(call.duration_seconds / 60)}:{(call.duration_seconds % 60).toString().padStart(2, '0')}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-gray-500 mt-1">
+                                  {new Date(call.started_at).toLocaleDateString()}
+                                </p>
                               </div>
-                              <p className="text-gray-500 mt-1">
-                                {new Date(call.started_at).toLocaleDateString()}
-                              </p>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ) : (
                         <p className="text-gray-500 text-xs">No call history</p>

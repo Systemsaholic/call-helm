@@ -20,7 +20,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { ArrowLeft, Save, Code2, ChevronDown, Loader2 } from 'lucide-react'
+import { ArrowLeft, Save, Code2, ChevronDown, Loader2, Plus, X, GripVertical } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { TEMPLATE_VARIABLES, formatVariable } from '@/lib/utils/scriptTemplate'
 
 export default function EditCallListPage() {
@@ -36,7 +37,17 @@ export default function EditCallListPage() {
   const [campaignType, setCampaignType] = useState('marketing')
   const [scriptTemplate, setScriptTemplate] = useState('')
   const [variablePopoverOpen, setVariablePopoverOpen] = useState(false)
+  const [customDispositions, setCustomDispositions] = useState<Array<{ label: string; value: string }>>([])
+  const [newDispositionLabel, setNewDispositionLabel] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Available colors for custom dispositions
+  const dispositionColors = [
+    { name: 'Indigo', class: 'bg-indigo-100 text-indigo-800' },
+    { name: 'Teal', class: 'bg-teal-100 text-teal-800' },
+    { name: 'Amber', class: 'bg-amber-100 text-amber-800' },
+    { name: 'Pink', class: 'bg-pink-100 text-pink-800' },
+  ]
 
   // Initialize form when data loads
   useEffect(() => {
@@ -45,8 +56,36 @@ export default function EditCallListPage() {
       setDescription(callList.description || '')
       setCampaignType(callList.campaign_type || 'marketing')
       setScriptTemplate(callList.script_template || '')
+      // Initialize custom dispositions
+      if (callList.custom_dispositions && Array.isArray(callList.custom_dispositions)) {
+        setCustomDispositions(callList.custom_dispositions)
+      }
     }
   }, [callList])
+
+  // Helper function to convert label to value (slug)
+  const labelToValue = (label: string) => {
+    return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+  }
+
+  // Add a new custom disposition
+  const addCustomDisposition = () => {
+    if (!newDispositionLabel.trim()) return
+    if (customDispositions.length >= 4) return
+
+    const newDisposition = {
+      label: newDispositionLabel.trim(),
+      value: labelToValue(newDispositionLabel),
+    }
+
+    setCustomDispositions([...customDispositions, newDisposition])
+    setNewDispositionLabel('')
+  }
+
+  // Remove a custom disposition
+  const removeCustomDisposition = (index: number) => {
+    setCustomDispositions(customDispositions.filter((_, i) => i !== index))
+  }
 
   const insertVariable = (variableKey: string) => {
     const variable = formatVariable(variableKey)
@@ -77,6 +116,7 @@ export default function EditCallListPage() {
         description,
         campaign_type: campaignType,
         script_template: scriptTemplate,
+        custom_dispositions: customDispositions.length > 0 ? customDispositions : null,
       }
     })
     router.push(`/dashboard/call-lists/${callListId}`)
@@ -247,6 +287,84 @@ export default function EditCallListPage() {
             <p className="text-xs text-gray-500 mt-2">
               Variables like {`{{contact.name}}`} will be replaced with actual values during calls.
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Custom Dispositions Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Custom Dispositions</CardTitle>
+            <CardDescription>
+              Define up to 4 campaign-specific call outcomes. These appear prominently in the agent's disposition dropdown.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Current dispositions */}
+            {customDispositions.length > 0 && (
+              <div className="space-y-2">
+                {customDispositions.map((disposition, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg border"
+                  >
+                    <GripVertical className="h-4 w-4 text-gray-400" />
+                    <Badge className={dispositionColors[index % dispositionColors.length].class}>
+                      {disposition.label}
+                    </Badge>
+                    <span className="text-xs text-gray-500 flex-1">
+                      → {disposition.value}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeCustomDisposition(index)}
+                      className="h-6 w-6 p-0 text-gray-400 hover:text-red-500"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new disposition */}
+            {customDispositions.length < 4 ? (
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g., Meeting Scheduled, Interested, Quote Sent..."
+                  value={newDispositionLabel}
+                  onChange={(e) => setNewDispositionLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addCustomDisposition()
+                    }
+                  }}
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  onClick={addCustomDisposition}
+                  disabled={!newDispositionLabel.trim()}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">
+                Maximum of 4 custom dispositions reached. Remove one to add another.
+              </p>
+            )}
+
+            {customDispositions.length === 0 && (
+              <div className="text-sm text-gray-500 bg-gray-50 p-4 rounded-lg text-center">
+                <p className="font-medium">No custom dispositions defined</p>
+                <p className="text-xs mt-1">
+                  Agents will see the standard disposition options. Add custom options specific to this campaign.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
