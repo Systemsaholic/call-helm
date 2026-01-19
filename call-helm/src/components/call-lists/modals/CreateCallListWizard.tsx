@@ -127,7 +127,7 @@ export function CreateCallListWizard({ open, onOpenChange }: CreateCallListWizar
         }))
         
         // Import contacts to database
-        const importedContacts = await importContacts.mutateAsync(contactsToImport)
+        const importedContacts = await importContacts.mutateAsync({ contacts: contactsToImport, strategy: 'skip' })
         contactIds = importedContacts.map(c => c.id)
         setImportedContactIds(contactIds)
       } else if (method === 'select') {

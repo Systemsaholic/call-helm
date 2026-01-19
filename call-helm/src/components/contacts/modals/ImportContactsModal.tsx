@@ -32,7 +32,7 @@ import {
   XCircle,
   AlertTriangle
 } from 'lucide-react'
-import { useImportContacts, type ContactInput } from '@/lib/hooks/useContacts'
+import { useImportContacts, type ContactInput, type DuplicateStrategy } from '@/lib/hooks/useContacts'
 import { useAuth } from '@/lib/hooks/useAuth'
 
 interface ImportContactsModalProps {
@@ -459,7 +459,7 @@ export function ImportContactsModal({ open, onOpenChange, callListId }: ImportCo
         const batch = batches[i]
 
         try {
-          await importContacts.mutateAsync(batch)
+          await importContacts.mutateAsync({ contacts: batch, strategy: duplicateStrategy })
           result.success += batch.length
         } catch (error: any) {
           // If batch fails, count all as failed

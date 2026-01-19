@@ -416,12 +416,14 @@ export function useDeleteContacts() {
 }
 
 // Import contacts from CSV
+export type DuplicateStrategy = 'skip' | 'update' | 'create'
+
 export function useImportContacts() {
   const { supabase, user } = useAuth()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (contacts: ContactInput[]) => {
+    mutationFn: async ({ contacts, strategy = 'skip' }: { contacts: ContactInput[]; strategy?: DuplicateStrategy }) => {
       // Get user's organization
       const { data: member } = await supabase
         .from('organization_members')
@@ -479,11 +481,99 @@ export function useImportContacts() {
         }
       })
 
-      // Insert contacts (duplicates will be skipped due to unique constraint)
-      const { data, error } = await supabase
-        .from('contacts')
-        .insert(contactRecords)
-        .select()
+      // Handle different duplicate strategies
+      let data: Contact[] = []
+      let error: any = null
+
+      if (strategy === 'update') {
+        // Use upsert to update existing contacts based on phone_normalized
+        // First, we need to handle this differently since phone_normalized is a generated column
+        // We'll update existing contacts and insert new ones
+        const results: Contact[] = []
+
+        for (const record of contactRecords) {
+          const normalizedPhone = record.phone_number.replace(/[^0-9+]/g, '')
+
+          // Check if contact exists
+          const { data: existing } = await supabase
+            .from('contacts')
+            .select('id')
+            .eq('organization_id', member.organization_id)
+            .eq('phone_normalized', normalizedPhone)
+            .is('deleted_at', null)
+            .single()
+
+          if (existing) {
+            // Update existing contact
+            const { data: updated, error: updateError } = await supabase
+              .from('contacts')
+              .update({
+                first_name: record.first_name,
+                last_name: record.last_name,
+                email: record.email,
+                company: record.company,
+                address: record.address,
+                city: record.city,
+                state: record.state,
+                country: record.country,
+                postal_code: record.postal_code,
+                position: record.position,
+                notes: record.notes,
+                tags: record.tags,
+                custom_fields: record.custom_fields,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existing.id)
+              .select()
+              .single()
+
+            if (updateError) {
+              console.error('Error updating contact:', updateError)
+            } else if (updated) {
+              results.push(updated as Contact)
+            }
+          } else {
+            // Insert new contact
+            const { data: inserted, error: insertError } = await supabase
+              .from('contacts')
+              .insert(record)
+              .select()
+              .single()
+
+            if (insertError) {
+              console.error('Error inserting contact:', insertError)
+            } else if (inserted) {
+              results.push(inserted as Contact)
+            }
+          }
+        }
+
+        data = results
+      } else if (strategy === 'create') {
+        // Create anyway - add suffix to phone number to avoid conflicts
+        const recordsWithUniquePhones = contactRecords.map((record, index) => ({
+          ...record,
+          phone_number: `${record.phone_number}-dup-${Date.now()}-${index}`,
+          notes: `${record.notes || ''}\n[Original phone: ${record.phone_number}]`.trim(),
+        }))
+
+        const result = await supabase
+          .from('contacts')
+          .insert(recordsWithUniquePhones)
+          .select()
+
+        data = result.data || []
+        error = result.error
+      } else {
+        // Default: skip duplicates (insert and let constraint handle it)
+        const result = await supabase
+          .from('contacts')
+          .insert(contactRecords)
+          .select()
+
+        data = result.data || []
+        error = result.error
+      }
 
       if (error) {
         if (error.message.includes('duplicate')) {
