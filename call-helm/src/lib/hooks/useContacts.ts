@@ -491,17 +491,43 @@ export function useImportContacts() {
         // We'll update existing contacts and insert new ones
         const results: Contact[] = []
 
-        for (const record of contactRecords) {
-          const normalizedPhone = record.phone_number.replace(/[^0-9+]/g, '')
+        // Helper to get all possible normalized phone formats for matching
+        const getPhoneVariants = (phone: string): string[] => {
+          const digitsOnly = phone.replace(/[^0-9]/g, '')
+          const withPlus = phone.replace(/[^0-9+]/g, '')
+          const variants = [digitsOnly, withPlus]
 
-          // Check if contact exists
-          const { data: existing } = await supabase
-            .from('contacts')
-            .select('id')
-            .eq('organization_id', member.organization_id)
-            .eq('phone_normalized', normalizedPhone)
-            .is('deleted_at', null)
-            .single()
+          // If 10 digits, also try with +1 and 1 prefix (US number)
+          if (digitsOnly.length === 10) {
+            variants.push(`1${digitsOnly}`, `+1${digitsOnly}`)
+          }
+          // If 11 digits starting with 1, also try without the 1
+          if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
+            variants.push(digitsOnly.slice(1), `+${digitsOnly}`)
+          }
+
+          return [...new Set(variants)]
+        }
+
+        for (const record of contactRecords) {
+          const phoneVariants = getPhoneVariants(record.phone_number)
+
+          // Check if contact exists by trying all phone variants
+          let existing: { id: string } | null = null
+          for (const variant of phoneVariants) {
+            const { data: found } = await supabase
+              .from('contacts')
+              .select('id')
+              .eq('organization_id', member.organization_id)
+              .eq('phone_normalized', variant)
+              .is('deleted_at', null)
+              .single()
+
+            if (found) {
+              existing = found
+              break
+            }
+          }
 
           if (existing) {
             // Update existing contact
